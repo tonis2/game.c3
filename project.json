@@ -1,0 +1,25 @@
+{
+	"langrev": "1",
+	"warnings": ["no-unused"],
+	"authors": [],
+	"version": "0.1.0",
+	"dependency-search-paths": [ "./dependencies"],
+	"dependencies": ["c3w", "vk", "stb"],
+	"features": ["WAYLAND", "ECS_EXTRA"],
+	"linked-libraries": ["vulkan"],
+	"sources": ["./dependencies/gltf.c3", "./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
+	"script-dir": "./",
+	"targets": {
+		"shaders": {
+			"type": "prepare",
+			"exec": [
+				"slangc /shaders/shader.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o /shaders/shader.spv"
+			]
+		},
+		"game": {	
+			"type": "executable",
+			"sources": ["./main.c3"]
+		}
+	},
+	"output": "./build"
+}
