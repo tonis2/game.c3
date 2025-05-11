@@ -19,6 +19,9 @@
 		"game": {	
 			"type": "executable",
 			"sources": ["./main.c3"]
+		},
+		"ecs": {	
+			"type": "executable"
 		}
 	},
 	"output": "./build"

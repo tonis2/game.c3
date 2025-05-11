@@ -94,11 +94,10 @@ fn void EntityManager.free(&self) {
 
 macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
     foreach (entity: self.entities) {
-        bool is_valid = true;
         $for var $i = 0; $i < $vacount; $i++:
-            is_valid = entity.has_name($vaarg[$i], self);
+            if (!entity.has_name($vaarg[$i], self)) continue;
         $endfor
-        if (is_valid) @callback(entity);
+        @callback(entity);
     }
 }
 
@@ -304,13 +303,15 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 
 
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
+    
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
         usz type_offset = #target.offset;
         return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
     $endif;
-
+   
     $if $typeof(#target).nameof == "Entity":
+     
         Component component = manager.keys[#type.nameof]!!;
         BufferID index = {
             .component = component.id,

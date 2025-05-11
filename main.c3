@@ -40,6 +40,7 @@ struct Position @tag("BUFFER", 3) {
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
+    bool is_dirty;
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -229,7 +230,20 @@ fn void main()
                     }
                 }
 
-                manager.@create_entity(render_data);
+                if (node.has_skin()) {
+                    manager.@create_entity(
+                        (Position) {
+                            .translation = node.translation,
+                            .scale = node.scale,
+                            .rotation = node.rotation,
+                            .is_dirty = false
+                        },
+                        render_data
+                    );
+                } else {
+                    manager.@create_entity(render_data);
+                }
+                
             }!!;
         }
     }
@@ -518,15 +532,28 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        // manager.@query("Render"; Entity entity) {
-        //     Render render_data = @get(manager, entity, Render);
+        manager.@query("Position", "Render"; Entity entity) {
+            Position position = ecs::@get(manager, entity, Position);
 
+            if (event.is_pressed(W)) {
+                position.translation.x += 0.1;
+                position.is_dirty = true;
+            }
 
-        //     @upload(manager, entity, (Position) {
-        //         .translation = {5.0, 5.0, 5.0},
-        //         .scale = {5.0, 5.0, 5.0}
-        //     });
-        // };
+            if (event.is_pressed(S)) {
+                position.translation.x -= 0.1;
+                position.is_dirty = true;
+            }
+
+            if (position.is_dirty) {
+                Render render_data = ecs::@get(manager, entity, Render);
+                render_data.node_matrix = MATRIX4F_IDENTITY.translate(position.translation).transpose();
+
+                ecs::@upload(manager, entity, position);
+                ecs::@upload(manager, entity, render_data);
+            }
+        };
+
 
         for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
             PushConstantData constant_data = {
