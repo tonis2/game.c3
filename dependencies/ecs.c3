@@ -257,10 +257,17 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     usz data_size = size;
     Allocator buffer;
     usz data_offset = 0;
+    String type_name;
 
-    if (size == 0) {
-        data_size = $typeof(*#data).sizeof;
+    $if @typekind(#data) == POINTER: {
+        if (size == 0) data_size = $typeof(*#data).sizeof;
+        type_name = $typeof(*#data).nameof;
     }
+    $else {
+        if (size == 0) data_size = $typeof(#data).sizeof;
+        type_name = $typeof(#data).nameof;
+    }   
+    $endif
 
     $if $typeof(#target).nameof == "Component":
         buffer = manager.buffers[#target.buffer];
@@ -268,7 +275,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
-        Component component_info = manager.keys[$typeof(*#data).nameof]!!;
+        Component component_info = manager.keys[type_name]!!;
         BufferID index = {
             .component = component_info.id,
             .entity = #target.id,
@@ -278,12 +285,13 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         buffer = manager.buffers[component_info.buffer];
     $endif;
 
-    $if @typekind(#data) == POINTER:
+    $if @typekind(#data) == POINTER: {
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
             buffer.upload(#data, data_size, data_offset);
         }
+    }
     $else {
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, &&#data, data_size, data_offset);
