@@ -36,10 +36,7 @@ struct Material @tag("BUFFER", 2) {
     int metallicRoughnessTexture;
 }
 
-struct Position @tag("BUFFER", 3) {
-    Vec3f scale;
-    Vec3f translation;
-    Quaternionf rotation;
+struct State @tag("BUFFER", 3) {
     bool is_dirty;
 }
 
@@ -232,10 +229,7 @@ fn void main()
 
                 if (node.has_skin()) {
                     manager.@create_entity(
-                        (Position) {
-                            .translation = node.translation,
-                            .scale = node.scale,
-                            .rotation = node.rotation,
+                        (State) {
                             .is_dirty = false
                         },
                         render_data
@@ -532,24 +526,21 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("Position", "Render"; Entity entity) {
-            Position position = ecs::@get(manager, entity, Position);
+        manager.@query("State", "Render"; Entity entity) {
+            State state = ecs::@get(manager, entity, State);
+            Render render_data = ecs::@get(manager, entity, Render);
 
             if (event.is_pressed(W)) {
-                position.translation.x += 0.1;
-                position.is_dirty = true;
+                state.is_dirty = true;
+                render_data.node_matrix.m30 += 0.1;
             }
 
             if (event.is_pressed(S)) {
-                position.translation.x -= 0.1;
-                position.is_dirty = true;
+                state.is_dirty = true;
+                render_data.node_matrix.m30 -= 0.1;
             }
 
-            if (position.is_dirty) {
-                Render render_data = ecs::@get(manager, entity, Render);
-                render_data.node_matrix = MATRIX4F_IDENTITY.translate(position.translation).transpose();
-
-                ecs::@upload(manager, entity, position);
+            if (state.is_dirty) {
                 ecs::@upload(manager, entity, render_data);
             }
         };
