@@ -498,7 +498,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
         }
     };
 
-    device.@single_time_command(queue: graphics_queue; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
         
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ transfer_barrier }));
@@ -690,8 +690,6 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
-    DeviceQueue graphics_queue = context.graphics_queue;
-
     vk::Allocation* local_allocation = &context.local_allocation;
     vk::Allocation* device_allocation = &context.device_allocation;
 
@@ -762,7 +760,7 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 
     defer stage_buffer.free();
 
-    context.device.@single_time_command(queue: graphics_queue; CommandBuffer command_buffer) {
+    context.device.@single_time_command(queue: context. graphics_queue; CommandBuffer command_buffer) {
         BufferImageCopy2[LAYER_COUNT] bufferCopyRegions;
         ImageMemoryBarrier2[LAYER_COUNT] transfer_barriers;
         ImageMemoryBarrier2[LAYER_COUNT] finalize_barriers;
