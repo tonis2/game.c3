@@ -38,6 +38,7 @@ struct Material @tag("BUFFER", 2) {
 
 struct State @tag("BUFFER", 3) {
     bool is_dirty;
+    
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -185,7 +186,7 @@ fn void main()
         if (node.has_mesh()) {
             Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-     
+    
             ecs::@parse_mesh(
                 gltf: gltf,
                 manager: manager,
@@ -428,144 +429,144 @@ fn void main()
         NanoDuration start_time = render_time.mark();
         
         EventMap event = win.getEvent();
-    //     char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
-    //     if (event.is_pressed(LEFT_MOUSE)) {
-    //         Vec2f mouse_pos = win.getMousePos();
-    //         camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-    //         ecs::@upload(manager, scene, &&camera.data());
-    //         prev_mouse = mouse_pos;
-    //     }
+        if (event.is_pressed(LEFT_MOUSE)) {
+            Vec2f mouse_pos = win.getMousePos();
+            camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
+            ecs::@upload(manager, scene, &&camera.data());
+            prev_mouse = mouse_pos;
+        }
 
-    //     if (event.is_pressed(MOUSE_SCROLL_DOWN)) {
-    //         camera.zoom(-2);
-    //         ecs::@upload(manager, scene, &&camera.data());
-    //     }
+        if (event.is_pressed(MOUSE_SCROLL_DOWN)) {
+            camera.zoom(-2);
+            ecs::@upload(manager, scene, &&camera.data());
+        }
 
-    //     if (event.is_pressed(MOUSE_SCROLL_UP)) {
-    //         camera.zoom(2);
-    //         ecs::@upload(manager, scene, &&camera.data());
-    //     }
+        if (event.is_pressed(MOUSE_SCROLL_UP)) {
+            camera.zoom(2);
+            ecs::@upload(manager, scene, &&camera.data());
+        }
 
-    //     if (event.is_pressed(ESCAPE)) {
-    //         running = false;
-    //     }
+        if (event.is_pressed(ESCAPE)) {
+            running = false;
+        }
 
-    //     uint next_image = context.next_image()!!;
+        uint next_image = context.next_image()!!;
     
-    //     ImageMemoryBarrier2 begin_barrier = {
-    //         .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-    //         .image = context.swapchain_images[next_image],
-    //         .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-    //         .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-    //         .srcAccessMask = 0,
-    //         .dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-    //         .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
-    //         .newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    //         .subresourceRange = {
-    //             .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-    //             .baseMipLevel = 0,
-    //             .levelCount = 1,
-    //             .baseArrayLayer = 0,
-    //             .layerCount = 1,
-    //         }
-    //     };
+        ImageMemoryBarrier2 begin_barrier = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .image = context.swapchain_images[next_image],
+            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = 0,
+            .dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            }
+        };
 
-    //     ImageMemoryBarrier2 end_barrier = {
-    //         .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-    //         .image = context.swapchain_images[next_image],
-    //         .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-    //         .dstStageMask = vk::PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-    //         .srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-    //         .dstAccessMask = 0,
-    //         .oldLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    //         .newLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
-    //         .subresourceRange = {
-    //             .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-    //             .baseMipLevel = 0,
-    //             .levelCount = 1,
-    //             .baseArrayLayer = 0,
-    //             .layerCount = 1,
-    //         }
-    //     };
+        ImageMemoryBarrier2 end_barrier = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .image = context.swapchain_images[next_image],
+            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+            .srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = 0,
+            .oldLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            }
+        };
 
-    //    RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
-    //     .setImageView(context.swapchain_views[next_image])
-    //     .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-    //     .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-    //     .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-    //     .setClearValue({
-    //         .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-    //     });
+       RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
+        .setImageView(context.swapchain_views[next_image])
+        .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+        .setClearValue({
+            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
+        });
 
-    //     RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
-    //     .setImageView(descriptor_images.last()!!.imageView)
-    //     .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-    //     .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-    //     .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-    //     .setClearValue({ .depthStencil = { 1.0, 0 } });
+        RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
+        .setImageView(descriptor_images.last()!!.imageView)
+        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+        .setClearValue({ .depthStencil = { 1.0, 0 } });
 
-    //     CommandBuffer command_buffer = context.command_buffers[next_image];
-    //     vk::resetCommandBuffer(command_buffer, 0)!!;
-    //     vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
+        CommandBuffer command_buffer = context.command_buffers[next_image];
+        vk::resetCommandBuffer(command_buffer, 0)!!;
+        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
  
-    //     vk::cmdSetLineWidth(command_buffer, 1.0);
-    //     vk::cmdSetViewport(command_buffer, 0, 1, (Viewport[]){{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y}});
-    //     vk::cmdSetScissor(command_buffer, 0, 1, (Rect2D[]){{.extent = context.extent, .offset = { .x = 0, .y = 0 }}});
+        vk::cmdSetLineWidth(command_buffer, 1.0);
+        vk::cmdSetViewport(command_buffer, 0, 1, (Viewport[]){{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y}});
+        vk::cmdSetScissor(command_buffer, 0, 1, (Rect2D[]){{.extent = context.extent, .offset = { .x = 0, .y = 0 }}});
 
-    //     // Begin dynamic rendering
-    //     vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
-    //     vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
+        // Begin dynamic rendering
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
+        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
 
-    //     vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-    //     vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, indices.offset, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, indices.offset, vk::INDEX_TYPE_UINT16);
  
-    //     rendering_info.setColorAttachments({ main_render_target });
-    //     rendering_info.setDepthAttachment(&main_depth_target);
+        rendering_info.setColorAttachments({ main_render_target });
+        rendering_info.setDepthAttachment(&main_depth_target);
 
-    //     vk::cmdBeginRendering(command_buffer, &rendering_info);
+        vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-    //     // manager.@query("State", "Render"; Entity entity) {
-    //     //     State state = ecs::@get(manager, entity, State);
-    //     //     Render render_data = ecs::@get(manager, entity, Render);
+        manager.@query("State", "Render"; Entity entity) {
+            State state = ecs::@get(manager, entity, State);
+            Render render_data = ecs::@get(manager, entity, Render);
 
-    //     //     if (event.is_pressed(W)) {
-    //     //         state.is_dirty = true;
-    //     //         render_data.node_matrix.m30 += 0.1;
-    //     //     }
+            if (event.is_pressed(W)) {
+                state.is_dirty = true;
+                render_data.node_matrix.m30 += 0.1;
+            }
 
-    //     //     if (event.is_pressed(S)) {
-    //     //         state.is_dirty = true;
-    //     //         render_data.node_matrix.m30 -= 0.1;
-    //     //     }
+            if (event.is_pressed(S)) {
+                state.is_dirty = true;
+                render_data.node_matrix.m30 -= 0.1;
+            }
 
-    //     //     if (state.is_dirty) {
-    //     //         ecs::@upload(manager, entity, render_data);
-    //     //     }
-    //     // };
+            if (state.is_dirty) {
+                ecs::@upload(manager, entity, render_data);
+            }
+        };
 
 
-    //     // for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
-    //     //     PushConstantData constant_data = {
-    //     //         .draw_index = i,
-    //     //     };
+        for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
+            PushConstantData constant_data = {
+                .draw_index = i,
+            };
 
-    //     //     vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-    //     //     vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, i * Render.sizeof, 1, Render.sizeof);
-    //     // }
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, i * Render.sizeof, 1, Render.sizeof);
+        }
 
-    //     vk::cmdEndRendering(command_buffer);
-    //     vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
-    //     vk::endCommandBuffer(command_buffer)!!;
+        vk::cmdEndRendering(command_buffer);
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
+        vk::endCommandBuffer(command_buffer)!!;
          
-    //     context.present_image(next_image, command_buffer)!!;
+        context.present_image(next_image, command_buffer)!!;
 
-    //     NanoDuration time_delta = (start_time - render_time.mark());
-    //     if (time_delta < min_frame_time) {
-    //         std::thread::sleep_ns(min_frame_time - time_delta)!!;
-    //         time_delta = (start_time - render_time.mark());
-    //     }
+        NanoDuration time_delta = (start_time - render_time.mark());
+        if (time_delta < min_frame_time) {
+            std::thread::sleep_ns(min_frame_time - time_delta)!!;
+            time_delta = (start_time - render_time.mark());
+        }
     }
     
     context.device.waitIdle();
