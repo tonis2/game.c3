@@ -147,7 +147,7 @@ macro Component EntityManager.@create_component(&self, #type = null, uint size =
     }
 }
 
-macro Entity EntityManager.@create_entity(&self, ...) {
+macro Entity* EntityManager.@create_entity(&self, ...) {
     String type_name;
     Entity entity = {.id = (uint)self.entities.len()};
 
@@ -190,7 +190,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
     $endfor
 
     self.entities.push(entity);
-    return entity;
+    return self.entities.get_ref(self.entities.len() - 1);
 }
 
 macro bool Entity.@has_type(self, #type, EntityManager manager) {
@@ -204,16 +204,17 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-macro void Entity.@add(&self, #type, EntityManager manager) {
+macro void Entity.@add(&self, #type, EntityManager* manager) {
     String type_name = $typeof(#type).nameof;
     uint size = $typeof(#type).sizeof;
     Component component = manager.@create_component(#type);
- 
+
     if (!manager.keys.has_key(type_name)) {
-        manager.keys[type_name] = {
+        manager.keys.set(type_name, 
+        {
             .id = (uint)manager.keys.len(),
             .buffer = component.buffer,
-        };
+        });
     }
     
     uint type_id = manager.keys[type_name]!!.id;

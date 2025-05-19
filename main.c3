@@ -186,7 +186,7 @@ fn void main()
         if (node.has_mesh()) {
             Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-            Entity node_entity = manager.@create_entity();
+            Entity* node_entity = manager.@create_entity();
     
             ecs::@parse_mesh(
                 gltf: gltf,
@@ -221,19 +221,21 @@ fn void main()
                             gltf.@cast_buffer(scale_accessor, i, Vec3f), 
                             gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
                         ).transpose();
+
                         ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
                         instances.used_size += Matrix4f.sizeof;
                     }
                 }
 
-                if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, manager);
-
-                node_entity.@add(render_data, manager);
+                if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
+                if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
+                // if (!mesh_data.aabb.is_empty()) node_entity.@add(mesh_data.aabb, &manager);
+                node_entity.@add(render_data, &manager);
             }!!;
         }
     }
 
-    Entity scene = manager.@create_entity(
+    Entity scene = *manager.@create_entity(
         camera.data(),
         (Light) {
             .position = {2, 12.0, 5},
@@ -516,6 +518,10 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
+
+        manager.@query("Aabb3", "Render"; Entity entity) {
+            Aabb3 collider = ecs::@get(manager, entity, Aabb3);
+        };
 
         manager.@query("State", "Render"; Entity entity) {
             State state = ecs::@get(manager, entity, State);

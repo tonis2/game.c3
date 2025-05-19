@@ -21,8 +21,8 @@ struct Obb3 {
 //     return self.min.x < target.min.x && self.max.x > target.max.x;
 // }
 
-fn bool Aabb3.has_value(self, Aabb3 target) {
-    return self.max.xyz != (Vec3f){0,0,0};
+fn bool Aabb3.is_empty(self) {
+    return self.max.xyz == (Vec3f){0,0,0};
 }
 
 fn bool Aabb3.intersectsX(self, Aabb3 target) {
