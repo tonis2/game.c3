@@ -79,9 +79,6 @@ fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
     return manager;
 }
 
-
-
-
 fn void EntityManager.free(&self) {
     // foreach (buffer: self.buffers) {
     //     buffer.free();
@@ -170,6 +167,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         $endif
 
         $if $typeof($vaarg[$i]).nameof == "Component":
+            // Todo: Component needs name
             component = $vaarg[$i];
         $else
             component = self.@create_component($vaarg[$i], buffer_index: buffer_index);
@@ -178,7 +176,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         if (!self.keys.has_key(type_name)) {
             self.keys[type_name] = {
                 .id = (uint)self.keys.len(),
-                .buffer = buffer_index,
+                .buffer = component.buffer,
             };
         }
         
@@ -189,7 +187,6 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             .component = type_id,
             .entity = entity.id,
         }] = component.id;
-
     $endfor
 
     self.entities.push(entity);
@@ -207,7 +204,11 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-fn void Entity.add(&self, String type_name, Component component, EntityManager manager) {
+macro void Entity.@add(&self, #type, EntityManager manager) {
+    String type_name = $typeof(#type).nameof;
+    uint size = $typeof(#type).sizeof;
+    Component component = manager.@create_component(#type);
+ 
     if (!manager.keys.has_key(type_name)) {
         manager.keys[type_name] = {
             .id = (uint)manager.keys.len(),
@@ -215,6 +216,23 @@ fn void Entity.add(&self, String type_name, Component component, EntityManager m
         };
     }
     
+    uint type_id = manager.keys[type_name]!!.id;
+    self.bitmask |= 1 << type_id;
+
+    manager.views[(BufferID) {
+        .component = type_id,
+        .entity = self.id,
+    }] = component.id;
+}
+
+fn void Entity.add_component(&self, String type_name, Component component, EntityManager manager) {
+    if (!manager.keys.has_key(type_name)) {
+        manager.keys[type_name] = {
+            .id = (uint)manager.keys.len(),
+            .buffer = component.buffer,
+        };
+    }
+
     self.bitmask |= 1 << manager.keys[type_name]!!.id;
     manager.entities[self.id].bitmask = self.bitmask;
     manager.views[(BufferID) {
@@ -475,6 +493,7 @@ struct MeshData {
     uint firstIndex;
     uint vertexOffset;
     int materialIndex;
+    Aabb3 aabb;
 }
 
 struct AnimationInfo {
@@ -511,8 +530,15 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
             .firstIndex = (uint)indices.used_size / ushort.sizeof,
             .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
             .indexCount = index_accessor.count,
-            .materialIndex = (int)primitive.attributes["material"] ?? -1
+            .materialIndex = (int)primitive.attributes["material"] ?? -1,
         };
+
+        if (pos_accessor.max != (Vec4f){0,0,0,0}) {
+            data.aabb = (Aabb3) {
+                pos_accessor.min.xyz,
+                pos_accessor.max.xyz
+            };
+        }
 
         for (usz i; i < index_accessor.count; i++) {
             index_data.push(gltf.@cast_buffer(index_accessor, i, ushort));
@@ -852,7 +878,7 @@ fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, Anima
 //         velocity_comp,
 //     );
 
-//     player.add("Velocity", velocity_comp, manager);
+//     player.add_component("Velocity", velocity_comp, manager);
 //     // player2.add("Animation", animation_comp, manager);
 
 //     @upload(manager, animation_comp, &&(Position) {

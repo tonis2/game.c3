@@ -106,7 +106,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/game.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/physics_test.glb")!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -148,18 +148,18 @@ fn void main()
     Component indices = manager.@create_component(size: 8_000_000, buffer_index: 2);
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 2);
 
-    Animations char_animation = ecs::create_animation({
-            .skin = gltf.skins[0],
-            .buffer_index = 0,
-            .channels = { 
-                gltf.find_animation("Walk")
-             },
-        },
-        gltf,
-        manager,
-    )!!;
+    // Animations char_animation = ecs::create_animation({
+    //         .skin = gltf.skins[0],
+    //         .buffer_index = 0,
+    //         .channels = { 
+    //             gltf.find_animation("Walk")
+    //          },
+    //     },
+    //     gltf,
+    //     manager,
+    // )!!;
 
-    defer char_animation.free();
+    // defer char_animation.free();
 
     List{Component} materials;
 
@@ -186,16 +186,14 @@ fn void main()
         if (node.has_mesh()) {
             Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
+            Entity node_entity = manager.@create_entity();
     
             ecs::@parse_mesh(
                 gltf: gltf,
                 manager: manager,
                 vertices: &vertices,
                 indices: &indices,
-                mesh: {
-                    .name = mesh.name,
-                    .data = mesh
-                };
+                mesh: { .name = mesh.name, .data = mesh };
                 MeshData mesh_data
             ) {
                 Render render_data = {
@@ -207,7 +205,7 @@ fn void main()
                     .node_matrix = matrix,
                     .instanceCount = 1,
                     .firstInstance = 0,
-                    .skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
+                    //.skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
                 };
 
                 if (node.attributes.len() > 0) {
@@ -228,16 +226,9 @@ fn void main()
                     }
                 }
 
-                if (node.has_skin()) {
-                    manager.@create_entity(
-                        (State) {
-                            .is_dirty = false
-                        },
-                        render_data
-                    );
-                } else {
-                    manager.@create_entity(render_data);
-                }
+                if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, manager);
+
+                node_entity.@add(render_data, manager);
             }!!;
         }
     }
@@ -429,8 +420,7 @@ fn void main()
         NanoDuration start_time = render_time.mark();
         
         EventMap event = win.getEvent();
-        char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
-
+        
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
             camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
@@ -534,11 +524,13 @@ fn void main()
             if (event.is_pressed(W)) {
                 state.is_dirty = true;
                 render_data.node_matrix.m30 += 0.1;
+                //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
             }
 
             if (event.is_pressed(S)) {
                 state.is_dirty = true;
                 render_data.node_matrix.m30 -= 0.1;
+                //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
             }
 
             if (state.is_dirty) {

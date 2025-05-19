@@ -15,7 +15,6 @@ alias Vec2f = float[<2>];
 alias Vec3f = float[<3>];
 alias Vec4f = float[<4>];
 
-
 const MAX_FRAMES_IN_FLIGHT = 2;
 
 faultdef NO_SUITABLE_DEVICE, FILE_NOT_FOUND;
