@@ -66,6 +66,10 @@ char[*] shader = $embed("./shaders/shader.spv");
 
 DeviceContext context;
 
+fn Matrix3f Matrix4f.to_mat3(self) @private {
+    return { .m = self.m[0..8] };
+}
+
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
     Memory stage_buffer = vk::new_buffer(
@@ -182,11 +186,16 @@ fn void main()
 
     defer materials.free();
 
+    Entity* player;
+
     foreach (node : gltf.nodes) {
         if (node.has_mesh()) {
             Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             Entity* node_entity = manager.@create_entity();
+
+            io::printfn(mesh.name);    
+            if (mesh.name == "Player") player = node_entity;
     
             ecs::@parse_mesh(
                 gltf: gltf,
@@ -229,7 +238,17 @@ fn void main()
 
                 if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
                 if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
-                // if (!mesh_data.aabb.is_empty()) node_entity.@add(mesh_data.aabb, &manager);
+
+                if (!mesh_data.aabb.is_empty()) {
+                    // Add physics box
+                    node_entity.@add((BBox) {
+                        .position = node.translation,
+                        .matrix = matrix.to_mat3(),
+                        .inverse_matrix = matrix.inverse()!!.to_mat3(),
+                        .aabb = mesh_data.aabb
+                    }, &manager);
+                }
+
                 node_entity.@add(render_data, &manager);
             }!!;
         }
@@ -519,31 +538,26 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("Aabb3", "Render"; Entity entity) {
-            Aabb3 collider = ecs::@get(manager, entity, Aabb3);
-        };
+        manager.@query("BBox", "Render"; Entity entity) {
+            BBox entity_collider = ecs::@get(manager, entity, BBox);
+            Render entity_render = ecs::@get(manager, entity, Render);
 
-        manager.@query("State", "Render"; Entity entity) {
-            State state = ecs::@get(manager, entity, State);
-            Render render_data = ecs::@get(manager, entity, Render);
+            BBox player_collider = ecs::@get(manager, *player, BBox);
+            Render player_render = ecs::@get(manager, *player, Render);
 
             if (event.is_pressed(W)) {
-                state.is_dirty = true;
-                render_data.node_matrix.m30 += 0.1;
-                //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
+                player_collider.translate();
+                player_render.node_matrix.m30 += 0.05;
+                ecs::@upload(manager, *player, player_render);
             }
 
             if (event.is_pressed(S)) {
-                state.is_dirty = true;
-                render_data.node_matrix.m30 -= 0.1;
-                //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
-            }
-
-            if (state.is_dirty) {
-                ecs::@upload(manager, entity, render_data);
+                player_render.node_matrix.m30 -= 0.05;
+                ecs::@upload(manager, *player, player_render);
             }
         };
-
+        
+        //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
         for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
             PushConstantData constant_data = {
