@@ -102,6 +102,7 @@ fn ColliderInfo Polytope._info(&self) @dynamic => self.info;
 //BBox: AABB + Orientation matrix
 fn Vec3f BBox.support(&self, Vec3f direction) @dynamic {
     Vec3f dir = self.info.inverse_matrix * direction;
+
     Vec3f result = {
         (dir.x > 0) ? self.aabb.max.x : self.aabb.min.x,
         (dir.y > 0) ? self.aabb.max.y : self.aabb.min.y,

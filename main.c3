@@ -3,6 +3,7 @@ import std::math;
 import std::collections::list;
 import std::time;
 import std::thread;
+import std::collections::map;
 
 import vk;
 import stb;
@@ -188,69 +189,85 @@ fn void main()
 
     Entity player;
 
+    List{String} loaded_meshes;
+    HashMap{String, MeshData} mesh_list;
+
+    defer {
+        loaded_meshes.free();
+        mesh_list.free();
+    }
+
     foreach (node : gltf.nodes) {
         if (node.has_mesh()) {
-            Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-            Entity node_entity = manager.@create_entity();
-
-            io::printfn(mesh.name);    
-            if (mesh.name == "Player") player = node_entity;
     
-            ecs::@parse_mesh(
-                gltf: gltf,
-                manager: manager,
-                vertices: &vertices,
-                indices: &indices,
-                mesh: { .name = mesh.name, .data = mesh };
-                MeshData mesh_data
-            ) {
-                Render render_data = {
-                    .indexCount = mesh_data.indexCount,
-                    .firstIndex = mesh_data.firstIndex,
-                    .vertexOffset = mesh_data.vertexOffset,
-                    .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
-                    .instances = ecs::@get_address(manager, instances) + instances.used_size,
-                    .node_matrix = matrix,
-                    .instanceCount = 1,
-                    .firstInstance = 0,
-                    //.skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
+            Matrix4f matrix = node.global_matrix().transpose();
+            Entity node_entity = manager.@create_entity();
+            if (node.name == "Player") player = node_entity;
+
+            if (!loaded_meshes.contains(mesh.name)) {
+                // Load mesh data from GLTF and save it as assets
+                ecs::@parse_mesh(
+                    gltf: gltf,
+                    manager: manager,
+                    vertices: &vertices,
+                    indices: &indices,
+                    mesh: { .name = mesh.name, .data = mesh };
+                    MeshData mesh_data
+                ) { mesh_list.set(mesh.name, mesh_data); }!!;
+
+                loaded_meshes.push(mesh.name);
+            }
+
+            MeshData mesh_data = mesh_list[mesh.name]!!;
+
+            Render render_data = {
+                .indexCount = mesh_data.indexCount,
+                .firstIndex = mesh_data.firstIndex,
+                .vertexOffset = mesh_data.vertexOffset,
+                .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
+                .instances = ecs::@get_address(manager, instances) + instances.used_size,
+                .node_matrix = matrix,
+                .instanceCount = 1,
+                .firstInstance = 0,
+                //.skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
+            };
+
+            if (node.attributes.len() > 0) {
+                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                render_data.instanceCount = translation_accessor.count;
+                render_data.firstInstance = 1;
+
+                for (uint i = 0; i < translation_accessor.count; i++) {
+                    Matrix4f instance_matrix = gltf::to_matrix(
+                        gltf.@cast_buffer(translation_accessor, i, Vec3f), 
+                        gltf.@cast_buffer(scale_accessor, i, Vec3f), 
+                        gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
+                    ).transpose();
+
+                    ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
+                    instances.used_size += Matrix4f.sizeof;
+                }
+            }
+
+            if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
+            // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
+
+            if (!mesh_data.aabb.is_empty()) {
+                // io::printfn("max %s, min %s", mesh_data.aabb.max, mesh_data.aabb.min);
+                BBox box = {
+                    .position = node.translation,
+                    .matrix = matrix.to_mat3(),
+                    .inverse_matrix = matrix.inverse()!!.to_mat3(),
+                    .aabb = mesh_data.aabb
                 };
+                // Add physics box
+                node_entity.@add(box, &manager);
+            }
 
-                if (node.attributes.len() > 0) {
-                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                    render_data.instanceCount = translation_accessor.count;
-                    render_data.firstInstance = 1;
-
-                    for (uint i = 0; i < translation_accessor.count; i++) {
-                        Matrix4f instance_matrix = gltf::to_matrix(
-                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
-                        ).transpose();
-
-                        ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
-                        instances.used_size += Matrix4f.sizeof;
-                    }
-                }
-
-                if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
-                if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
-
-                if (!mesh_data.aabb.is_empty()) {
-                    // Add physics box
-                    node_entity.@add((BBox) {
-                        .position = node.translation,
-                        .matrix = matrix.to_mat3(),
-                        .inverse_matrix = matrix.inverse()!!.to_mat3(),
-                        .aabb = mesh_data.aabb
-                    }, &manager);
-                }
-
-                node_entity.@add(render_data, &manager);
-            }!!;
+            node_entity.@add(render_data, &manager);        
         }
     }
 
@@ -546,14 +563,23 @@ fn void main()
             Render player_render = ecs::@get(manager, player, Render);
 
             if (event.is_pressed(W)) {
-                // player_collider.translate();
-                player_render.node_matrix.m30 += 0.05;
+                player_render.node_matrix = player_render.node_matrix.transpose().translate({0.05, 0, 0}).transpose();
                 ecs::@upload(manager, player, player_render);
             }
 
             if (event.is_pressed(S)) {
-                player_render.node_matrix.m30 -= 0.05;
+                player_render.node_matrix = player_render.node_matrix.transpose().translate({-0.05, 0, 0}).transpose();
                 ecs::@upload(manager, player, player_render);
+            }
+
+            if (event.is_pressed(A)) {
+                player_render.node_matrix = player_render.node_matrix.transpose().translate({0, 0, -0.05}).transpose();
+                ecs::@upload(manager, player, player_render);
+            }
+
+            if (event.is_pressed(D)) {
+               player_render.node_matrix = player_render.node_matrix.transpose().translate({0, 0, 0.05}).transpose();
+               ecs::@upload(manager, player, player_render);
             }
         };
         
