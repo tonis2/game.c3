@@ -186,13 +186,13 @@ fn void main()
 
     defer materials.free();
 
-    Entity* player;
+    Entity player;
 
     foreach (node : gltf.nodes) {
         if (node.has_mesh()) {
             Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-            Entity* node_entity = manager.@create_entity();
+            Entity node_entity = manager.@create_entity();
 
             io::printfn(mesh.name);    
             if (mesh.name == "Player") player = node_entity;
@@ -254,7 +254,7 @@ fn void main()
         }
     }
 
-    Entity scene = *manager.@create_entity(
+    Entity scene = manager.@create_entity(
         camera.data(),
         (Light) {
             .position = {2, 12.0, 5},
@@ -542,18 +542,18 @@ fn void main()
             BBox entity_collider = ecs::@get(manager, entity, BBox);
             Render entity_render = ecs::@get(manager, entity, Render);
 
-            BBox player_collider = ecs::@get(manager, *player, BBox);
-            Render player_render = ecs::@get(manager, *player, Render);
+            BBox player_collider = ecs::@get(manager, player, BBox);
+            Render player_render = ecs::@get(manager, player, Render);
 
             if (event.is_pressed(W)) {
-                player_collider.translate();
+                // player_collider.translate();
                 player_render.node_matrix.m30 += 0.05;
-                ecs::@upload(manager, *player, player_render);
+                ecs::@upload(manager, player, player_render);
             }
 
             if (event.is_pressed(S)) {
                 player_render.node_matrix.m30 -= 0.05;
-                ecs::@upload(manager, *player, player_render);
+                ecs::@upload(manager, player, player_render);
             }
         };
         

@@ -147,7 +147,7 @@ macro Component EntityManager.@create_component(&self, #type = null, uint size =
     }
 }
 
-macro Entity* EntityManager.@create_entity(&self, ...) {
+macro Entity EntityManager.@create_entity(&self, ...) {
     String type_name;
     Entity entity = {.id = (uint)self.entities.len()};
 
@@ -190,7 +190,7 @@ macro Entity* EntityManager.@create_entity(&self, ...) {
     $endfor
 
     self.entities.push(entity);
-    return self.entities.get_ref(self.entities.len() - 1);
+    return entity;
 }
 
 macro bool Entity.@has_type(self, #type, EntityManager manager) {
@@ -217,8 +217,9 @@ macro void Entity.@add(&self, #type, EntityManager* manager) {
         });
     }
     
+    Entity* target = manager.entities.get_ref(self.id);
     uint type_id = manager.keys[type_name]!!.id;
-    self.bitmask |= 1 << type_id;
+    target.bitmask |= 1 << type_id;
 
     manager.views[(BufferID) {
         .component = type_id,
