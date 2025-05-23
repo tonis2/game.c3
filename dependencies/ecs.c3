@@ -46,6 +46,10 @@ struct Component {
     usz offset;
 }
 
+struct BufferView {
+    uint component;
+}
+
 bitstruct Entity : ulong {
     uint id : 0..31;
     uint bitmask : 32..63;
@@ -57,7 +61,7 @@ bitstruct BufferID : ulong {
 }
 
 alias ComponentMap = HashMap{String, Component};
-alias ViewMap = HashMap{BufferID, uint};
+alias ViewMap = HashMap{BufferID, BufferView};
 alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
@@ -109,6 +113,12 @@ fn bool Entity.has_name(self, String name, EntityManager manager) {
     return false;
 }
 
+fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
+    self.views.set(buffer, {
+        component.id, 
+    });
+}   
+
 fn Component EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
     Component component = {
@@ -123,14 +133,12 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size = 0
     if (data != null) {
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
-            buffer.setUsedSize(buffer.usedSize() + size);
         } else {
-            buffer.push(data, size);
+            buffer.upload(data, size, buffer.usedSize());
         }
-    } else {
-        buffer.setUsedSize(buffer.usedSize() + size);
-    }
+    } 
 
+    buffer.setUsedSize(buffer.usedSize() + size);
     return component;
 }
 
@@ -183,10 +191,11 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         type_id = self.keys[type_name]!!.id;
         entity.bitmask |= 1 << type_id;
 
-        self.views[(BufferID) {
-            .component = type_id,
-            .entity = entity.id,
-        }] = component.id;
+        self.create_view(
+            (BufferID) { .component = type_id, .entity = entity.id },
+            component
+        );
+
     $endfor
 
     self.entities.push(entity);
@@ -221,10 +230,10 @@ macro void Entity.@add(&self, #type, EntityManager* manager) {
     uint type_id = manager.keys[type_name]!!.id;
     target.bitmask |= 1 << type_id;
 
-    manager.views[(BufferID) {
-        .component = type_id,
-        .entity = self.id,
-    }] = component.id;
+    manager.create_view(
+        (BufferID) { .component = type_id, .entity = self.id },
+        component
+    );
 }
 
 fn void Entity.add_component(&self, String type_name, Component component, EntityManager manager) {
@@ -237,10 +246,11 @@ fn void Entity.add_component(&self, String type_name, Component component, Entit
 
     self.bitmask |= 1 << manager.keys[type_name]!!.id;
     manager.entities[self.id].bitmask = self.bitmask;
-    manager.views[(BufferID) {
-        .component = manager.keys[type_name]!!.id,
-        .entity = self.id,
-    }] = component.id;
+
+    manager.create_view(
+        (BufferID) { .component = manager.keys[type_name]!!.id, .entity = self.id },
+        component
+    );
 }
 
 fn uint get_size(Entity entity, EntityManager manager) {
@@ -248,7 +258,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
     @pool() {
         foreach (key : manager.views.tkeys()) {
             if (key.entity == entity.id) {
-                size += manager.components[manager.views[key]!!].size;
+                size += manager.components[manager.views[key]!!.component].size;
             }
         }
     };
@@ -300,7 +310,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
             .entity = #target.id,
         };
 
-        data_offset = (uint)manager.components[manager.views[index]!!].offset + offset;
+        data_offset = (uint)manager.components[manager.views[index]!!.component].offset + offset;
         buffer = manager.buffers[component_info.buffer];
     $endif;
 
@@ -331,7 +341,6 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
-     
         Component component = manager.keys[#type.nameof]!!;
         BufferID index = {
             .component = component.id,
@@ -339,7 +348,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
         };
 
         Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
         return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
     $endif;
 }
@@ -374,8 +383,7 @@ macro @get_offset(EntityManager manager, #target, #type = null) {
             .component = component.id,
             .entity = #target.id,
         };
-
-        return (uint)manager.components[manager.views[index]!].offset;
+        return (uint)manager.components[manager.views[index]!!.component].offset;
     $endif;
 }
 

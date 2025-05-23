@@ -581,7 +581,7 @@ fn void Accessor.from_json(&self, Object* json) {
 
         if (try max) {
             foreach (i, value : max.array) self.max[i] = (float)value.f;
-        }
+        }   
 
         if (try min) {
             foreach (i, value : min.array) self.min[i] = (float)value.f;

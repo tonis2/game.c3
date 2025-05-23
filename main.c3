@@ -39,7 +39,6 @@ struct Material @tag("BUFFER", 2) {
 
 struct State @tag("BUFFER", 3) {
     bool is_dirty;
-    
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -53,6 +52,8 @@ struct Render @tag("BUFFER", 1) {
     vk::DeviceAddress instances;
     Matrix4f node_matrix;
 }
+
+typedef Collider @tag("BUFFER", 1) = Render;
 
 struct SceneData { 
     vk::DeviceAddress vertices;
@@ -256,17 +257,19 @@ fn void main()
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
             if (!mesh_data.aabb.is_empty()) {
-                // io::printfn("max %s, min %s", mesh_data.aabb.max, mesh_data.aabb.min);
-                BBox box = {
-                    .position = node.translation,
-                    .matrix = matrix.to_mat3(),
-                    .inverse_matrix = matrix.inverse()!!.to_mat3(),
-                    .aabb = mesh_data.aabb
+     
+                Collider collider = {
+                    .indexCount = mesh_data.indexCount,
+                    .firstIndex = mesh_data.firstIndex,
+                    .vertexOffset = mesh_data.vertexOffset,
+                    .instanceCount = 1,
+                    .node_matrix = matrix,
                 };
+          
                 // Add physics box
-                node_entity.@add(box, &manager);
+                node_entity.@add(collider, &manager);
             }
-
+      
             node_entity.@add(render_data, &manager);        
         }
     }
@@ -407,7 +410,8 @@ fn void main()
     {
         vk::DYNAMIC_STATE_VIEWPORT,
         vk::DYNAMIC_STATE_LINE_WIDTH,
-        vk::DYNAMIC_STATE_SCISSOR
+        vk::DYNAMIC_STATE_SCISSOR,
+        vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
     });
 
     PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo()
@@ -555,11 +559,11 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("BBox", "Render"; Entity entity) {
-            BBox entity_collider = ecs::@get(manager, entity, BBox);
-            Render entity_render = ecs::@get(manager, entity, Render);
+        manager.@query("Render"; Entity entity) {
+            // BBox entity_collider = ecs::@get(manager, entity, BBox);
+            // Render entity_render = ecs::@get(manager, entity, Render);
 
-            BBox player_collider = ecs::@get(manager, player, BBox);
+            // BBox player_collider = ecs::@get(manager, player, BBox);
             Render player_render = ecs::@get(manager, player, Render);
 
             if (event.is_pressed(W)) {
@@ -585,14 +589,29 @@ fn void main()
         
         //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
-        for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
+        manager.@query("Render"; Entity entity) {
+            uint offset = ecs::@get_offset(manager, entity, "Render")!!;
+
             PushConstantData constant_data = {
-                .draw_index = i,
+                .draw_index = offset / Render.sizeof,
             };
 
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, i * Render.sizeof, 1, Render.sizeof);
-        }
+            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, offset, 1, Render.sizeof);
+        };
+
+        manager.@query("Collider"; Entity entity) {
+            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
+     
+            PushConstantData constant_data = {
+                .draw_index = offset / Collider.sizeof,
+            };
+
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, offset, 1, Collider.sizeof);
+        };
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
