@@ -45,10 +45,10 @@ struct DrawCommand
     int vertexOffset;
     uint firstInstance;
 
-    float4x4* skin_data;
+    row_major float4x4* skin_data;
     Material* material;
-    float4x4* instances;
-    float4x4 node_matrix;
+    row_major float4x4* instances;
+    row_major float4x4 node_matrix;
 }
 
 struct PushData

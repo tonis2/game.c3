@@ -1245,7 +1245,7 @@ fn Gltf? parse(InStream stream) {
     foreach (&skin: content.skins) {
         Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
         for (uint i; i < skin_accessor.count; i++) {
-            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
+            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f);
             skin.inverseBindMatrices.push(matrix);
         }
     }

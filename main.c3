@@ -202,7 +202,7 @@ fn void main()
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
     
-            Matrix4f matrix = node.global_matrix().transpose();
+            Matrix4f matrix = node.global_matrix();
             Entity node_entity = manager.@create_entity();
             if (node.name == "Player") player = node_entity;
 
@@ -246,7 +246,7 @@ fn void main()
                         gltf.@cast_buffer(translation_accessor, i, Vec3f), 
                         gltf.@cast_buffer(scale_accessor, i, Vec3f), 
                         gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
-                    ).transpose();
+                    );
 
                     ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
                     instances.used_size += Matrix4f.sizeof;
@@ -256,8 +256,7 @@ fn void main()
             if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
-            if (!mesh_data.aabb.is_empty()) {
-     
+            if (!mesh_data.aabb.is_empty()) {            
                 Collider collider = {
                     .indexCount = mesh_data.indexCount,
                     .firstIndex = mesh_data.firstIndex,
@@ -265,7 +264,8 @@ fn void main()
                     .instanceCount = 1,
                     .node_matrix = matrix,
                 };
-          
+
+                node_entity.@add(mesh_data.aabb, &manager);
                 // Add physics box
                 node_entity.@add(collider, &manager);
             }
@@ -559,32 +559,59 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("Render"; Entity entity) {
-            // BBox entity_collider = ecs::@get(manager, entity, BBox);
-            // Render entity_render = ecs::@get(manager, entity, Render);
+        manager.@query("Render", "Aabb3", "Collider"; Entity entity) {
+            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+            Render entity_render = ecs::@get(manager, entity, Render);
+            Collider collider_render = ecs::@get(manager, entity, Collider);
 
-            // BBox player_collider = ecs::@get(manager, player, BBox);
+            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
             Render player_render = ecs::@get(manager, player, Render);
 
             if (event.is_pressed(W)) {
-                player_render.node_matrix = player_render.node_matrix.transpose().translate({0.05, 0, 0}).transpose();
+                Vec3f translation = {0.05, 0, 0};
+                player_render.node_matrix = player_render.node_matrix.translate(translation);
+                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
+                player_collider.translate(collider_render.node_matrix.to_mat3() *  translation);
                 ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, player_collider);
+                ecs::@upload(manager, player, collider_render);
             }
 
             if (event.is_pressed(S)) {
-                player_render.node_matrix = player_render.node_matrix.transpose().translate({-0.05, 0, 0}).transpose();
+                Vec3f translation = {-0.05, 0, 0};
+                player_render.node_matrix = player_render.node_matrix.translate(translation);
+                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
+                player_collider.translate(translation);
                 ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, player_collider);
+                ecs::@upload(manager, player, collider_render);
+                io::printfn("collides %s", player_collider.collides(entity_collider));
             }
 
             if (event.is_pressed(A)) {
-                player_render.node_matrix = player_render.node_matrix.transpose().translate({0, 0, -0.05}).transpose();
+                Vec3f translation = {0, 0, -0.05};
+                player_render.node_matrix = player_render.node_matrix.translate(translation);
+                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
+                player_collider.translate(translation);
                 ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, player_collider);
+                ecs::@upload(manager, player, collider_render);
+                io::printfn("collides %s", player_collider.collides(entity_collider));
+
             }
 
             if (event.is_pressed(D)) {
-               player_render.node_matrix = player_render.node_matrix.transpose().translate({0, 0, 0.05}).transpose();
-               ecs::@upload(manager, player, player_render);
+                Vec3f translation = {0, 0, 0.05};
+                player_render.node_matrix = player_render.node_matrix.translate(translation);
+                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
+                player_collider.translate(translation);
+                ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, player_collider);
+                ecs::@upload(manager, player, collider_render);
+                io::printfn("collides %s", player_collider.collides(entity_collider));
             }
+
+        
         };
         
         //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
