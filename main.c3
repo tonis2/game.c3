@@ -23,7 +23,7 @@ struct PushConstantData {
    uint draw_index;
 }
 
-struct Material @tag("BUFFER", 2) {
+struct Material @tag("BUFFER", 3) {
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
@@ -37,7 +37,7 @@ struct Material @tag("BUFFER", 2) {
     int metallicRoughnessTexture;
 }
 
-struct State @tag("BUFFER", 3) {
+struct State {
     bool is_dirty;
 }
 
@@ -55,10 +55,14 @@ struct Render @tag("BUFFER", 1) {
 
 typedef Collider @tag("BUFFER", 1) = Render;
 
-struct SceneData { 
+struct SceneData @tag("BUFFER", 2) { 
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
 }
+
+typedef Index = uint;
+typedef SceneLight @tag("BUFFER", 2) = Light;
+
 
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
@@ -114,18 +118,18 @@ fn void main()
 
     Gltf gltf = gltf::loadFile("assets/physics_test.glb")!!;
 
-    Memory scene_memory = vk::new_buffer(
+    Memory draw_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &context.local_allocation,
         null,
-        data_size: 15_000_000
+        data_size: 5_000_000
     )!!;
 
-    Memory render_memory = vk::new_buffer(
+    Memory cpu_and_gpu = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
         &context.local_allocation,
         null,
-        data_size: 5_000_000
+        data_size: 15_000_000
     )!!;
 
     Memory gpu_only_memory = vk::new_buffer(
@@ -135,24 +139,24 @@ fn void main()
         data_size: 35_000_000,
     )!!;
 
-    ecs::Buffer dynamic_buffer;
-    defer dynamic_buffer.free();
+    ecs::Buffer cpu_only;
+    defer cpu_only.free();
 
     EntityManager manager = ecs::create_manager(
         buffers: {
-            (ecs::Allocator)&scene_memory,
-            (ecs::Allocator)&render_memory,
+            (ecs::Allocator)&cpu_only,
+            (ecs::Allocator)&draw_memory,
+            (ecs::Allocator)&cpu_and_gpu,
             (ecs::Allocator)&gpu_only_memory,
-            &dynamic_buffer,
         },
         uploadFN: &stageToGPU,
     );
 
     defer manager.free();
 
-    Component vertices = manager.@create_component(size: 20_000_000, buffer_index: 2);
-    Component indices = manager.@create_component(size: 8_000_000, buffer_index: 2);
-    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 2);
+    Component vertices = manager.@create_component(size: 20_000_000, buffer_index: 3);
+    Component indices = manager.@create_component(size: 8_000_000, buffer_index: 3);
+    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3);
 
     // Animations char_animation = ecs::create_animation({
     //         .skin = gltf.skins[0],
@@ -205,7 +209,7 @@ fn void main()
         mesh: ecs::create_cube()
     )!!);
 
-    foreach (node : gltf.nodes) {
+    foreach (uint index, node : gltf.nodes) {
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
     
@@ -270,22 +274,22 @@ fn void main()
                     .firstIndex = collider_mesh.firstIndex,
                     .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
-                    .node_matrix = MATRIX4F_IDENTITY.scale({3, 3, 3}),
+                    .node_matrix = MATRIX4F_IDENTITY.translate({ matrix.m03, matrix.m13, matrix.m23 }),
                 };
 
-        
-                node_entity.@add(mesh_data.aabb.transform(matrix), &manager);
+                //node_entity.@add(mesh_data.aabb, &manager);
                 // Add physics box
                 node_entity.@add(collider, &manager);
+                // node_entity.@add((Index)index, &manager);
             }
       
-            node_entity.@add(render_data, &manager);        
+            node_entity.@add(render_data, &manager);
         }
     }
 
     Entity scene = manager.@create_entity(
         camera.data(),
-        (Light) {
+        (SceneLight) {
             .position = {2, 12.0, 5},
             .color = {1, 1, 1},
             .intensity = 54351,
@@ -293,7 +297,7 @@ fn void main()
         },
         (SceneData) {
             .vertices = ecs::@get_address(manager, vertices),
-            .draw_cmds = render_memory.address,
+            .draw_cmds = draw_memory.address,
         },
     );
 
@@ -337,7 +341,7 @@ fn void main()
             .setDstBinding(0)
             .setBufferInfo({
                 {
-                    .buffer = scene_memory.buffer,
+                    .buffer = cpu_and_gpu.buffer,
                     .offset = ecs::@get_offset(manager, scene, "CameraData")!!,
                     .range = ecs::get_size(scene, manager),
                 },
@@ -568,85 +572,84 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("Render", "Aabb3", "Collider"; Entity entity) {
-            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
-            Render entity_render = ecs::@get(manager, entity, Render);
-            Collider collider_render = ecs::@get(manager, entity, Collider);
+        // manager.@query("Render", "Aabb3", "Collider"; Entity entity) {
+        //     Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+        //     Render entity_render = ecs::@get(manager, entity, Render);
+        //     Collider collider_render = ecs::@get(manager, entity, Collider);
+        //     // Index entity_index = ecs::@get(manager, entity, Index);
 
-            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
-            Render player_render = ecs::@get(manager, player, Render);
+        //     Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
+        //     Render player_render = ecs::@get(manager, player, Render);
 
-            if (event.is_pressed(W)) {
-                Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
-                player_render.node_matrix = translation;
-                collider_render.node_matrix = translation;
-                // player_collider.transform(translation);
+        //     bool is_dirty = false;
 
-                ecs::@upload(manager, player, player_render);
-                ecs::@upload(manager, player, player_collider);
-                ecs::@upload(manager, player, collider_render);
-            }
+        //     if (event.is_pressed(W)) {
+        //         Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
+        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+        //         player_render.node_matrix = translation;
+        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+        //         is_dirty = true;
+        //     }
 
-            if (event.is_pressed(S)) {
-                Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
-                player_render.node_matrix = translation;
-                collider_render.node_matrix = translation;
-                // player_collider.transform(translation);
+        //     if (event.is_pressed(S)) {
+        //         Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
+        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+        //         player_render.node_matrix = translation;
+        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+        //         is_dirty = true;
+        //     }
 
-                ecs::@upload(manager, player, player_render);
-                ecs::@upload(manager, player, player_collider);
-                ecs::@upload(manager, player, collider_render);
-                io::printfn("collides %s", player_collider.collides(entity_collider));
-            }
+        //     if (event.is_pressed(A)) {
+        //         Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
+        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+        //         player_render.node_matrix = translation;
+        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+        //         is_dirty = true;
+        //     }
 
-            if (event.is_pressed(A)) {
-                Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
-                player_render.node_matrix = translation;
-                collider_render.node_matrix = translation;
-                // player_collider.transform(translation);
+        //     if (event.is_pressed(D)) {
+        //         Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
+        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+        //         player_render.node_matrix = translation;
+        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+        //         is_dirty = true;
+        //     }
 
-                ecs::@upload(manager, player, player_render);
-                ecs::@upload(manager, player, player_collider);
-                ecs::@upload(manager, player, collider_render);
-                io::printfn("collides %s", player_collider.collides(entity_collider));
-            }
-
-            if (event.is_pressed(D)) {
-                Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
-                player_render.node_matrix = translation;
-                collider_render.node_matrix = translation;
-
-                ecs::@upload(manager, player, player_render);
-                ecs::@upload(manager, player, player_collider);
-                ecs::@upload(manager, player, collider_render);
-                io::printfn("collides %s", player_collider.collides(entity_collider));
-            }
-        };
+        //     if (is_dirty) {
+        //         // if (player_collider.collides(entity_collider))  {
+        //         //      io::printfn("collides %s", entity_index);
+        //         // }   
+               
+        //         ecs::@upload(manager, player, player_render);
+        //         ecs::@upload(manager, player, player_collider);
+        //         ecs::@upload(manager, player, collider_render);
+        //     }
+        // };
         
         //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
         manager.@query("Render"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;
-
+     
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, offset, 1, Render.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
         manager.@query("Collider"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
-     
+          
             PushConstantData constant_data = {
                 .draw_index = offset / Collider.sizeof,
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, offset, 1, Collider.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
         };
 
         vk::cmdEndRendering(command_buffer);

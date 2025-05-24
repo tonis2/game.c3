@@ -18,14 +18,8 @@ enum GpuType : uint
     CPU_ONLY
 }
 
-enum Action : uint
-{
-    STAGE_TO_GPU,
-}
-
 interface Allocator
 {
-    fn void push(void* data, usz size);
     fn void setUsedSize(usz size);
     fn char* data();
     fn void upload(void* data, usz size, usz offset);
@@ -134,9 +128,10 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size = 0
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
         } else {
+            // io::printfn("%d", buffer_index);
             buffer.upload(data, size, buffer.usedSize());
         }
-    } 
+    }
 
     buffer.setUsedSize(buffer.usedSize() + size);
     return component;
@@ -144,7 +139,7 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size = 0
 
 macro Component EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
     uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
-
+    //$typeof(#type).typeid.kindof == STRUCT &&& 
     if (size == 0 && data == null) {
         $if $typeof(#type).has_tagof("BUFFER"):
             default_buffer = $typeof(#type).tagof("BUFFER");
@@ -216,6 +211,7 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
 macro void Entity.@add(&self, #type, EntityManager* manager) {
     String type_name = $typeof(#type).nameof;
     uint size = $typeof(#type).sizeof;
+
     Component component = manager.@create_component(#type);
 
     if (!manager.keys.has_key(type_name)) {
@@ -404,14 +400,17 @@ fn void Buffer.push(&self, void* data, usz size) @dynamic {
     }
 }
 
+fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
-    if (new_size > self.size) {
+    if (self.used_size + new_size > self.size) {
+        usz size = alignUp(new_size, 256);
         self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
     }
 }
 
 fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
+    if (self.used_size + size > self.size) self.ensure_size(self.used_size + size);
     mem::copy(self.mapped + offset, data, size);
 }
 
@@ -522,7 +521,6 @@ struct Vertex {
 }
 
 fn bool MeshData.has_material(self) => self.materialIndex > -1;
-
 
 fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* indices, ecs::Mesh mesh) {
     if ((Vertex.sizeof * mesh.vertices.len) + vertices.used_size > vertices.size || ushort.sizeof * mesh.indices.len + indices.used_size > indices.size) {

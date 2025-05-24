@@ -62,8 +62,8 @@ const PushData push_constant;
 [vk_binding(0)]
 cbuffer Scene
 {
-    float4x4 perspective;
-    float4x4 view;
+    row_major float4x4 perspective;
+    row_major float4x4 view;
     float4 eye;
     Light light;
     Vertex* vertices;

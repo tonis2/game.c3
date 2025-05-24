@@ -46,15 +46,14 @@ fn bool Aabb3.collides(self, Aabb3 target) {
            self.max.z >= target.min.z;
 }
 
-fn void Aabb3.translate(&self, Vec3f position) {
-    self.max += position;
-    self.min += position;
-    // self.min.x += position.x;
-    // self.max.x += position.x;
-    // self.min.y += position.y;
-    // self.max.y += position.y;
-    // self.min.z += position.z;
-    // self.max.z += position.z;
+fn Aabb3 Aabb3.translate(&self, Vec3f position) {
+
+    Vec3f len = self.max - self.min;
+
+    return {
+        position,
+        position - len
+    };
 }
 
 fn Aabb3 Aabb3.transform(&self, Matrix4f matrix)
