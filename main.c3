@@ -39,6 +39,7 @@ struct Material @tag("BUFFER", 3) {
 
 struct State {
     bool is_dirty;
+    uint index;
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -60,9 +61,7 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress draw_cmds;
 }
 
-typedef Index = uint;
 typedef SceneLight @tag("BUFFER", 2) = Light;
-
 
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
@@ -264,7 +263,7 @@ fn void main()
                 }
             }
 
-            if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
+            // if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
             if (!mesh_data.aabb.is_empty()) {
@@ -277,10 +276,14 @@ fn void main()
                     .node_matrix = MATRIX4F_IDENTITY.translate({ matrix.m03, matrix.m13, matrix.m23 }),
                 };
 
-                //node_entity.@add(mesh_data.aabb, &manager);
+                node_entity.@add(mesh_data.aabb, &manager);
+                node_entity.@add((State) {
+                    .is_dirty = false,
+                    .index = index,
+                }, &manager);
                 // Add physics box
                 node_entity.@add(collider, &manager);
-                // node_entity.@add((Index)index, &manager);
+          
             }
       
             node_entity.@add(render_data, &manager);
@@ -572,59 +575,59 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        // manager.@query("Render", "Aabb3", "Collider"; Entity entity) {
-        //     Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
-        //     Render entity_render = ecs::@get(manager, entity, Render);
-        //     Collider collider_render = ecs::@get(manager, entity, Collider);
-        //     // Index entity_index = ecs::@get(manager, entity, Index);
+        manager.@query("Render", "Aabb3", "Collider"; Entity entity) {
+            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+            Render entity_render = ecs::@get(manager, entity, Render);
+            Collider collider_render = ecs::@get(manager, entity, Collider);
+            // Index entity_index = ecs::@get(manager, entity, Index);
 
-        //     Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
-        //     Render player_render = ecs::@get(manager, player, Render);
+            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
+            Render player_render = ecs::@get(manager, player, Render);
 
-        //     bool is_dirty = false;
+            bool is_dirty = false;
 
-        //     if (event.is_pressed(W)) {
-        //         Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
-        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
-        //         player_render.node_matrix = translation;
-        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
-        //         is_dirty = true;
-        //     }
+            if (event.is_pressed(W)) {
+                Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
+                player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+                is_dirty = true;
+            }
 
-        //     if (event.is_pressed(S)) {
-        //         Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
-        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
-        //         player_render.node_matrix = translation;
-        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
-        //         is_dirty = true;
-        //     }
+            if (event.is_pressed(S)) {
+                Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
+                player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+                is_dirty = true;
+            }
 
-        //     if (event.is_pressed(A)) {
-        //         Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
-        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
-        //         player_render.node_matrix = translation;
-        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
-        //         is_dirty = true;
-        //     }
+            if (event.is_pressed(A)) {
+                Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
+                player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+                is_dirty = true;
+            }
 
-        //     if (event.is_pressed(D)) {
-        //         Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
-        //         player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
-        //         player_render.node_matrix = translation;
-        //         collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
-        //         is_dirty = true;
-        //     }
+            if (event.is_pressed(D)) {
+                Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
+                player_collider = player_collider.translate({translation.m03, translation.m13, translation.m23});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = collider_render.node_matrix.translate(player_collider.min);
+                is_dirty = true;
+            }
 
-        //     if (is_dirty) {
-        //         // if (player_collider.collides(entity_collider))  {
-        //         //      io::printfn("collides %s", entity_index);
-        //         // }   
+            if (is_dirty) {
+                // if (player_collider.collides(entity_collider))  {
+                //      io::printfn("collides %s", entity_index);
+                // }   
                
-        //         ecs::@upload(manager, player, player_render);
-        //         ecs::@upload(manager, player, player_collider);
-        //         ecs::@upload(manager, player, collider_render);
-        //     }
-        // };
+                ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, player_collider);
+                ecs::@upload(manager, player, collider_render);
+            }
+        };
         
         //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
