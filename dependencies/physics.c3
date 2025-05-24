@@ -57,6 +57,32 @@ fn void Aabb3.translate(&self, Vec3f position) {
     // self.max.z += position.z;
 }
 
+fn Aabb3 Aabb3.transform(&self, Matrix4f matrix)
+{
+    Vec3f first_col = (Vec3f){...matrix.m[0..2]};
+    Vec3f second_col = (Vec3f){...matrix.m[2..4]};
+    Vec3f third_col = (Vec3f){...matrix.m[4..6]};
+
+    // compute column multiplies for the AABB min
+    Vec3f min_c1 = first_col * self.min.x;
+    Vec3f min_c2 = second_col * self.min.y;
+    Vec3f min_c3 = third_col * self.min.z + third_col; // place 4th column add here for free add (MAD)
+
+    // compute column multiplies for the AABB max
+    Vec3f max_c1 = first_col * self.max.x;
+    Vec3f max_c2 = second_col * self.max.y;
+    Vec3f max_c3 = third_col * self.max.z + third_col; // place 4th column add here for free add (MAD)
+
+    // minimize and maximize the resulting transforms
+    Vec3f tmin = math::min(min_c1,max_c1) + math::min(min_c2, max_c2) + math::min(min_c3, max_c3);
+    Vec3f tmax = math::max(min_c1,max_c1) + math::max(min_c2, max_c2) + math::max(min_c3, max_c3);
+
+    return {
+        tmin,
+        tmax
+    };
+}
+
 // Code done thanks to https://github.com/kevinmoran/GJK
 
 interface Collider
@@ -237,3 +263,55 @@ fn bool intersects(Collider first, Collider second, Vec3f* minimum_translation =
     return false;
 }
 
+struct Mesh {
+    Vec3f[] vertices;
+    ushort[] indices;
+}
+
+fn Mesh create_cube() {
+    Vec3f[] vertices = {
+        {-1.0, -1.0, 1.0},
+        {1.0, -1.0, 1.0},
+        {1.0, 1.0, 1.0},
+        {-1.0, 1.0, 1.0},
+
+        {-1.0, -1.0, -1.0},
+        {-1.0, 1.0, -1.0},
+        {1.0, 1.0, -1.0},
+        {1.0, -1.0, -1.0},
+
+        {-1.0, 1.0, -1.0},
+        {-1.0, 1.0, 1.0},
+        {1.0, 1.0, 1.0},
+        {1.0, 1.0, -1.0},
+
+        {-1.0, -1.0, -1.0},
+        {1.0, -1.0, -1.0},
+        {1.0, -1.0, 1.0},
+        {-1.0, -1.0, 1.0},
+
+        {1.0, -1.0, -1.0},
+        {1.0, 1.0, -1.0},
+        {1.0, 1.0, 1.0},
+        {1.0, -1.0, 1.0},
+
+        {-1.0, -1.0, -1.0},
+        {-1.0, -1.0, 1.0},
+        {-1.0, 1.0, 1.0},
+        {-1.0, 1.0, -1.0},
+    };
+
+    ushort[] indices = {
+        0,  1,  2,      0,  2,  3,    // front
+        4,  5,  6,      4,  6,  7,    // back
+        8,  9,  10,     8,  10, 11,   // top
+        12, 13, 14,     12, 14, 15,   // bottom
+        16, 17, 18,     16, 18, 19,   // right
+        20, 21, 22,     20, 22, 23    // left
+    };
+
+    return {
+        vertices,
+        indices
+    };
+}

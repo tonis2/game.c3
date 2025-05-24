@@ -512,11 +512,6 @@ struct AnimationInfo {
     gltf::Animation[] channels;
 }
 
-struct MeshInfo {
-    String name;
-    gltf::Mesh data;
-}
-
 struct Vertex {
     Vec3f pos;
     Vec3f normal;
@@ -528,8 +523,36 @@ struct Vertex {
 
 fn bool MeshData.has_material(self) => self.materialIndex > -1;
 
-macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh; @callback(MeshData data)) {
-    foreach (primitive: mesh.data.primitives) {
+
+fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* indices, ecs::Mesh mesh) {
+    if ((Vertex.sizeof * mesh.vertices.len) + vertices.used_size > vertices.size || ushort.sizeof * mesh.indices.len + indices.used_size > indices.size) {
+        return COMPONENT_BUFFER_OVERFLOW?;
+    }
+
+    @upload(manager, *indices, &mesh.indices, size: ushort.sizeof * mesh.indices.len, offset: indices.used_size);
+
+    List{Vertex} vertex_data;
+    defer vertex_data.free();
+
+    for (usz i; i < mesh.vertices.len; i++) {
+        vertex_data.push({ .pos = mesh.vertices[i] });
+    }
+
+    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
+
+    indices.used_size += ushort.sizeof * mesh.indices.len;
+    vertices.used_size += vertex_data.byte_size();
+
+    return {
+        .firstIndex = (uint)indices.used_size / ushort.sizeof,
+        .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
+        .indexCount = ushort.sizeof * mesh.indices.len,
+        .materialIndex = -1,
+    };
+}
+
+macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
+    foreach (primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
        

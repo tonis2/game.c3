@@ -197,6 +197,13 @@ fn void main()
         loaded_meshes.free();
         mesh_list.free();
     }
+    
+    mesh_list.set("collider", ecs::load_mesh(
+        manager: manager,
+        vertices: &vertices,
+        indices: &indices,
+        mesh: ecs::create_cube()
+    )!!);
 
     foreach (node : gltf.nodes) {
         if (node.has_mesh()) {
@@ -208,12 +215,12 @@ fn void main()
 
             if (!loaded_meshes.contains(mesh.name)) {
                 // Load mesh data from GLTF and save it as assets
-                ecs::@parse_mesh(
+                ecs::@parse_gltf_mesh(
                     gltf: gltf,
                     manager: manager,
                     vertices: &vertices,
                     indices: &indices,
-                    mesh: { .name = mesh.name, .data = mesh };
+                    mesh: mesh;
                     MeshData mesh_data
                 ) { mesh_list.set(mesh.name, mesh_data); }!!;
 
@@ -256,16 +263,18 @@ fn void main()
             if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
-            if (!mesh_data.aabb.is_empty()) {            
+            if (!mesh_data.aabb.is_empty()) {
+                MeshData collider_mesh = mesh_list["collider"]!!;            
                 Collider collider = {
-                    .indexCount = mesh_data.indexCount,
-                    .firstIndex = mesh_data.firstIndex,
-                    .vertexOffset = mesh_data.vertexOffset,
+                    .indexCount = collider_mesh.indexCount,
+                    .firstIndex = collider_mesh.firstIndex,
+                    .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
-                    .node_matrix = matrix,
+                    .node_matrix = MATRIX4F_IDENTITY.scale({3, 3, 3}),
                 };
 
-                node_entity.@add(mesh_data.aabb, &manager);
+        
+                node_entity.@add(mesh_data.aabb.transform(matrix), &manager);
                 // Add physics box
                 node_entity.@add(collider, &manager);
             }
@@ -568,20 +577,22 @@ fn void main()
             Render player_render = ecs::@get(manager, player, Render);
 
             if (event.is_pressed(W)) {
-                Vec3f translation = {0.05, 0, 0};
-                player_render.node_matrix = player_render.node_matrix.translate(translation);
-                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
-                player_collider.translate(collider_render.node_matrix.to_mat3() *  translation);
+                Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = translation;
+                // player_collider.transform(translation);
+
                 ecs::@upload(manager, player, player_render);
                 ecs::@upload(manager, player, player_collider);
                 ecs::@upload(manager, player, collider_render);
             }
 
             if (event.is_pressed(S)) {
-                Vec3f translation = {-0.05, 0, 0};
-                player_render.node_matrix = player_render.node_matrix.translate(translation);
-                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
-                player_collider.translate(translation);
+                Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = translation;
+                // player_collider.transform(translation);
+
                 ecs::@upload(manager, player, player_render);
                 ecs::@upload(manager, player, player_collider);
                 ecs::@upload(manager, player, collider_render);
@@ -589,29 +600,27 @@ fn void main()
             }
 
             if (event.is_pressed(A)) {
-                Vec3f translation = {0, 0, -0.05};
-                player_render.node_matrix = player_render.node_matrix.translate(translation);
-                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
-                player_collider.translate(translation);
+                Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = translation;
+                // player_collider.transform(translation);
+
                 ecs::@upload(manager, player, player_render);
                 ecs::@upload(manager, player, player_collider);
                 ecs::@upload(manager, player, collider_render);
                 io::printfn("collides %s", player_collider.collides(entity_collider));
-
             }
 
             if (event.is_pressed(D)) {
-                Vec3f translation = {0, 0, 0.05};
-                player_render.node_matrix = player_render.node_matrix.translate(translation);
-                collider_render.node_matrix = collider_render.node_matrix.translate(translation);
-                player_collider.translate(translation);
+                Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
+                player_render.node_matrix = translation;
+                collider_render.node_matrix = translation;
+
                 ecs::@upload(manager, player, player_render);
                 ecs::@upload(manager, player, player_collider);
                 ecs::@upload(manager, player, collider_render);
                 io::printfn("collides %s", player_collider.collides(entity_collider));
             }
-
-        
         };
         
         //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
