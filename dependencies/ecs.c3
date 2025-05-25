@@ -400,10 +400,10 @@ fn void Buffer.push(&self, void* data, usz size) @dynamic {
     }
 }
 
-fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
+// fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
+// usz size = alignUp(new_size, 256);
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
     if (self.used_size + new_size > self.size) {
-        usz size = alignUp(new_size, 256);
         self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
     }

@@ -54,6 +54,7 @@ struct DrawCommand
 struct PushData
 {
     uint draw_index;
+    uint8_t collides;
 };
 
 [vk_push_constant]
@@ -141,5 +142,6 @@ float4 fragmentMain(FragmentData input)
        return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
     }
 
-    return float4(0.5, 0.5, 0.5, 1.0);
+
+    return push_constant.collides == 0 ? float4(0.5, 0.5, 0.5, 1.0) : float4(0.8, 0.4, 0.7, 1.0);
 }
