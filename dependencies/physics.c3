@@ -46,21 +46,14 @@ fn bool Aabb3.collides(self, Aabb3 target) {
            self.max.z >= target.min.z;
 }
 
-fn Aabb3 Aabb3.translate(&self, Vec3f position) {
-
-    Vec3f len = (self.max - self.min);
-
-    return {
-        position,
-        position + len
-    };
-}
-
-fn Aabb3 Aabb3.transform(&self, Matrix3f matrix)
+fn Aabb3 Aabb3.transform(&self, Matrix4f matrix)
 {
+    Vec3f scale = {matrix.m00, matrix.m11, matrix.m22};
+    Vec3f position = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
+    Vec3f len = (self.max - self.min) * scale / 1.2;
     return {
-        matrix * self.min,
-        matrix * self.max
+        position - len,
+        position + len
     };
 }
 

@@ -270,17 +270,17 @@ fn void main()
 
             if (!mesh_data.aabb.is_empty()) {
                 MeshData collider_mesh = mesh_list["collider"]!!;
-                Vec3f collider_pos = {matrix.m03, matrix.m13, matrix.m23};
+                // Vec3f collider_pos = {matrix.m03, matrix.m13, matrix.m23};
 
                 Collider collider = {
                     .indexCount = collider_mesh.indexCount,
                     .firstIndex = collider_mesh.firstIndex,
                     .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
-                    .node_matrix = MATRIX4F_IDENTITY.translate(collider_pos),
+                    .node_matrix = matrix,
                 };
 
-                node_entity.@add(mesh_data.aabb.translate(collider_pos), &manager);
+                node_entity.@add(mesh_data.aabb.transform(matrix), &manager);
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
@@ -593,37 +593,34 @@ fn void main()
 
             if (event.is_pressed(W)) {
                 Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
-                Vec3f collider_pos = {translation.m03, translation.m13, translation.m23};
+                // Vec3f collider_pos = {translation.m03, translation.m13, translation.m23};
                 player_render.node_matrix = translation;
-                collider_render.node_matrix = MATRIX4F_IDENTITY.translate(collider_pos);
-                player_collider = player_collider.translate(collider_pos);
+                collider_render.node_matrix = translation;
+                player_collider = player_collider.transform(translation);
                 is_dirty = true;
             }
 
             if (event.is_pressed(S)) {                
                 Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
-                Vec3f collider_pos = {translation.m03, translation.m13, translation.m23};
                 player_render.node_matrix = translation;
-                collider_render.node_matrix = MATRIX4F_IDENTITY.translate(collider_pos);
-                player_collider = player_collider.translate(collider_pos);
+                collider_render.node_matrix = translation;
+                player_collider = player_collider.transform(translation);
                 is_dirty = true;
             }
 
             if (event.is_pressed(A)) {
                 Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
-                Vec3f collider_pos = {translation.m03, translation.m13, translation.m23};
                 player_render.node_matrix = translation;
-                collider_render.node_matrix = MATRIX4F_IDENTITY.translate(collider_pos);
-                player_collider = player_collider.translate(collider_pos);
+                collider_render.node_matrix = translation;
+                player_collider = player_collider.transform(translation);
                 is_dirty = true;
             }
 
             if (event.is_pressed(D)) {
                 Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
-                Vec3f collider_pos = {translation.m03, translation.m13, translation.m23};
                 player_render.node_matrix = translation;
-                collider_render.node_matrix = MATRIX4F_IDENTITY.translate(collider_pos);
-                player_collider = player_collider.translate(collider_pos);
+                collider_render.node_matrix = translation;
+                player_collider = player_collider.transform(translation);
                 is_dirty = true;
             }
 
