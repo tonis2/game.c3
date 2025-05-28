@@ -46,14 +46,128 @@ fn bool Aabb3.collides(self, Aabb3 target) {
            self.max.z >= target.min.z;
 }
 
+fn void Aabb3.expand_min(&self, Vec3f point) {
+    self.min.x = math::min(self.min.x, point.x);
+    self.min.y = math::min(self.min.y, point.y);
+    self.min.z = math::min(self.min.z, point.z);
+}
+
+fn void Aabb3.expand_max(&self, Vec3f point) {
+    self.max.x = math::max(self.max.x, point.x);
+    self.max.y = math::max(self.max.y, point.y);
+    self.max.z = math::max(self.max.z, point.z);
+}
+
+fn void Aabb3.expand_by_point(&self, Vec3f point) {
+    self.expand_max(point);
+    self.expand_min(point);
+}
+
+// void transformBoxEx(const core::matrix4& m, core::aabbox3df& box)
+// {
+//   f32 Amin[3];
+//   f32 Amax[3];
+//   f32 Bmin[3];
+//   f32 Bmax[3];
+  
+//   Amin[0] = box.MinEdge.X;
+//   Amin[1] = box.MinEdge.Y;
+//   Amin[2] = box.MinEdge.Z;
+
+//   Amax[0] = box.MaxEdge.X;
+//   Amax[1] = box.MaxEdge.Y;
+//   Amax[2] = box.MaxEdge.Z;
+
+//   Bmin[0] = Bmax[0] = m.M[12];
+//   Bmin[1] = Bmax[1] = m.M[13];
+//   Bmin[2] = Bmax[2] = m.M[14];
+
+//   u32 i, j;
+//   for (i = 0; i < 3; ++i) {
+//     for (j = 0; j < 3; ++j) {
+//       f32 a = m(j,i) * Amin[j];
+//       f32 b = m(j,i) * Amax[j];
+
+//       if (a < b)
+//       {
+//         Bmin[i] += a;
+//         Bmax[i] += b;
+//       }
+//       else
+//       {
+//         Bmin[i] += b;
+//         Bmax[i] += a;
+//       }
+//     }
+//   }
+
+//   box.MinEdge.X = Bmin[0];
+//   box.MinEdge.Y = Bmin[1];
+//   box.MinEdge.Z = Bmin[2];
+
+//   box.MaxEdge.X = Bmax[0];
+//   box.MaxEdge.Y = Bmax[1];
+//   box.MaxEdge.Z = Bmax[2];
+// }
+
 fn Aabb3 Aabb3.transform(&self, Matrix4f matrix)
-{
-    Vec3f scale = {matrix.m00, matrix.m11, matrix.m22};
-    Vec3f position = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
-    Vec3f len = (self.max - self.min) * scale / 1.2;
+{   
+    Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
+
+    Vec3f b_min = transform;
+    Vec3f b_max = transform;
+
+    foreach (uint i, value: matrix.m[0..11]) {
+        uint index = i % 3;
+
+        float a = value * self.min[index];
+        float b = value * self.max[index];
+
+        b_min[index] += math::min(a, b);
+        b_max[index] += math::max(a, b);
+    }
+
+    io::printfn("%s %s", b_min, b_max);
+    // for (uint i = 0; i < 4; ++i) {
+    //     for (uint j = 1; j < 4; ++j) {
+    //         io::printfn("%s", matrix.m[j * i]);
+    //         float a = matrix.m[j * i] * self.min[i];
+    //         float b = matrix.m[j * i] * self.max[i];
+
+    //         b_min[j] += math::min(a, b);
+    //         b_max[j] += math::max(a, b);
+    //     }
+    // }
+
     return {
-        position - len,
-        position + len
+        b_min,
+        b_max
+    };
+}
+
+fn void test() @test {
+    Aabb3 aabb = {
+        {-1.0f, -1.0f, -1.0f},
+        {1.0f, 1.0f, 1.0f}
+    };
+
+    Matrix4f matrix = MATRIX4F_IDENTITY.rotate_y(radians(45)).scale({2.0, 1.0, 1.0});
+
+    aabb = aabb.transform(matrix);
+    io::printfn("%s %s", aabb.min, aabb.max);
+}
+
+fn Matrix4f Aabb3.to_matrix(&self)
+{
+
+    Vec3f len = (self.max - self.min);
+    Vec3f center = self.max - (len / 2);
+
+    return {
+        1, 0, 0, center.x,
+		0, 1, 0, center.y,
+		0, 0, 1, center.z,
+		0, 0, 0, 1,
     };
 }
 
@@ -289,3 +403,7 @@ fn Mesh create_cube() {
         indices
     };
 }
+
+// fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..12] };
+
+fn float radians(float value) => value * (float)math::PI / 180;

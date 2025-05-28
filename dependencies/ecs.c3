@@ -557,6 +557,8 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
         Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
         Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
+        // Aabb3 bounding_box;
+
         MeshData data = {
             .firstIndex = (uint)indices.used_size / ushort.sizeof,
             .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
@@ -632,6 +634,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             }
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
+            // bounding_box.expand_by_point(position);
 
             vertex_data.push({
                 .pos = position,
