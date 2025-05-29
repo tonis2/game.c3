@@ -63,61 +63,20 @@ fn void Aabb3.expand_by_point(&self, Vec3f point) {
     self.expand_min(point);
 }
 
-// void transformBoxEx(const core::matrix4& m, core::aabbox3df& box)
-// {
-//   f32 Amin[3];
-//   f32 Amax[3];
-//   f32 Bmin[3];
-//   f32 Bmax[3];
-  
-//   Amin[0] = box.MinEdge.X;
-//   Amin[1] = box.MinEdge.Y;
-//   Amin[2] = box.MinEdge.Z;
-
-//   Amax[0] = box.MaxEdge.X;
-//   Amax[1] = box.MaxEdge.Y;
-//   Amax[2] = box.MaxEdge.Z;
-
-//   Bmin[0] = Bmax[0] = m.M[12];
-//   Bmin[1] = Bmax[1] = m.M[13];
-//   Bmin[2] = Bmax[2] = m.M[14];
-
-//   u32 i, j;
-//   for (i = 0; i < 3; ++i) {
-//     for (j = 0; j < 3; ++j) {
-//       f32 a = m(j,i) * Amin[j];
-//       f32 b = m(j,i) * Amax[j];
-
-//       if (a < b)
-//       {
-//         Bmin[i] += a;
-//         Bmax[i] += b;
-//       }
-//       else
-//       {
-//         Bmin[i] += b;
-//         Bmax[i] += a;
-//       }
-//     }
-//   }
-
-//   box.MinEdge.X = Bmin[0];
-//   box.MinEdge.Y = Bmin[1];
-//   box.MinEdge.Z = Bmin[2];
-
-//   box.MaxEdge.X = Bmax[0];
-//   box.MaxEdge.Y = Bmax[1];
-//   box.MaxEdge.Z = Bmax[2];
-// }
-
-fn Aabb3 Aabb3.transform(&self, Matrix4f matrix)
+fn Aabb3 Aabb3.transform(self, Matrix4f matrix)
 {   
     Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
 
     Vec3f b_min = transform;
     Vec3f b_max = transform;
 
-    foreach (uint i, value: matrix.m[0..11]) {
+    Matrix3f new_matrix = {
+        matrix.m00, matrix.m01, matrix.m02,
+        matrix.m10, matrix.m11, matrix.m12,
+        matrix.m20, matrix.m21, matrix.m22,
+    };
+ 
+    foreach (uint i, value: new_matrix.m) {
         uint index = i % 3;
 
         float a = value * self.min[index];
@@ -126,35 +85,11 @@ fn Aabb3 Aabb3.transform(&self, Matrix4f matrix)
         b_min[index] += math::min(a, b);
         b_max[index] += math::max(a, b);
     }
-
-    io::printfn("%s %s", b_min, b_max);
-    // for (uint i = 0; i < 4; ++i) {
-    //     for (uint j = 1; j < 4; ++j) {
-    //         io::printfn("%s", matrix.m[j * i]);
-    //         float a = matrix.m[j * i] * self.min[i];
-    //         float b = matrix.m[j * i] * self.max[i];
-
-    //         b_min[j] += math::min(a, b);
-    //         b_max[j] += math::max(a, b);
-    //     }
-    // }
-
+    // io::printfn("%s %s", b_min, b_max);
     return {
         b_min,
         b_max
     };
-}
-
-fn void test() @test {
-    Aabb3 aabb = {
-        {-1.0f, -1.0f, -1.0f},
-        {1.0f, 1.0f, 1.0f}
-    };
-
-    Matrix4f matrix = MATRIX4F_IDENTITY.rotate_y(radians(45)).scale({2.0, 1.0, 1.0});
-
-    aabb = aabb.transform(matrix);
-    io::printfn("%s %s", aabb.min, aabb.max);
 }
 
 fn Matrix4f Aabb3.to_matrix(&self)
@@ -404,6 +339,28 @@ fn Mesh create_cube() {
     };
 }
 
-// fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..12] };
+fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..8] };
 
 fn float radians(float value) => value * (float)math::PI / 180;
+
+fn void test_physics() @test {
+    Aabb3 aabb = {
+        {-1.0, -1.0, -1.0},
+        {1.0, 1.0, 1.0}
+    };
+
+    Matrix4f matrix = MATRIX4F_IDENTITY.translate({1, 5, 1}).scale({3.0, 1.0, 1.0});
+    //rotate_y(radians(45));
+
+    aabb = aabb.transform(matrix);
+    assert(aabb.min == {-2, 4, 0});
+    assert(aabb.max == {4, 6, 2});
+
+
+    // {
+    //     Aabb3 aabb = {
+    //         {3.486510, 1693.368896, 2.556290},
+    //         {3.537758, 1698.706421, 2.556290}
+    //     };
+    // }
+}

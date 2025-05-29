@@ -19,6 +19,11 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
+struct MoveEvent {
+    EventKey key;
+    Vec3f move;
+}
+
 struct PushConstantData {
    uint draw_index;
    bool collides;
@@ -57,7 +62,7 @@ struct Render @tag("BUFFER", 1) {
 
 typedef Collider @tag("BUFFER", 1) = Render;
 
-struct SceneData @tag("BUFFER", 2) { 
+struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
 }
@@ -264,21 +269,23 @@ fn void main()
             // if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
+           
             if (!mesh_data.aabb.is_empty()) {
+                io::printfn("%s", node.name);
                 MeshData collider_mesh = mesh_list["collider"]!!;
-                
-                // io::printfn("%s", node.name);
-                Aabb3 aabb = mesh_data.aabb.transform(matrix);
+
+                Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
+                Matrix4f collider_matrix = MATRIX4F_IDENTITY.translate(transform);
             
                 Collider collider = {
                     .indexCount = collider_mesh.indexCount,
                     .firstIndex = collider_mesh.firstIndex,
                     .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
-                    .node_matrix = aabb.to_matrix(),
+                    .node_matrix = MATRIX4F_IDENTITY.translate(transform),
                 };
     
-                node_entity.@add(aabb, &manager);
+                node_entity.@add(mesh_data.aabb.transform(matrix), &manager);
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
@@ -475,6 +482,16 @@ fn void main()
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
 
+    float speed = 0.05;
+    MoveEvent[] move_events = {
+        {W, {0, 0, -speed}},
+        {S, {0, 0, speed}},
+        {A, {-speed, 0, 0}},
+        {D, {speed, 0, 0}},
+        {UP_ARROW, {0, speed, 0}},
+        {DOWN_ARROW, {0, -speed, 0}},
+    };
+
     while (running) {
         NanoDuration start_time = render_time.mark();
         
@@ -500,6 +517,46 @@ fn void main()
         if (event.is_pressed(ESCAPE)) {
             running = false;
         }
+
+        manager.@query("Render", "Aabb3", "Collider", "State"; Entity entity) {
+            State state = ecs::@get(manager, entity, State);
+
+            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+            Render entity_render = ecs::@get(manager, entity, Render);
+       
+            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
+            Render player_render = ecs::@get(manager, player, Render);
+            Collider collider_render = ecs::@get(manager, player, Collider);
+            
+            bool is_dirty = false;
+
+            foreach (item: move_events) {
+                if (event.is_pressed(item.key)) {
+                    player_render.node_matrix = player_render.node_matrix.translate(item.move);
+                    collider_render.node_matrix = collider_render.node_matrix.translate(item.move);
+                    is_dirty = true;
+                }
+            }
+
+            if (event.is_pressed(T)) {
+                Matrix4f translation = player_render.node_matrix.scale({1, 1.05, 1});
+                collider_render.node_matrix = player_collider.to_matrix();
+                // player_render.node_matrix = translation;
+                is_dirty = true;
+            }
+
+            if (is_dirty) {
+                if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
+                    state.collides = true;
+                } else {
+                    state.collides = false;
+                }
+
+                ecs::@upload(manager, entity, state);
+                ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, collider_render);
+            }
+        };
 
         uint next_image = context.next_image()!!;
     
@@ -575,98 +632,16 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-
-        manager.@query("Render", "Aabb3", "Collider", "State"; Entity entity) {
-
-            State state = ecs::@get(manager, entity, State);
-
-            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
-            Render entity_render = ecs::@get(manager, entity, Render);
-       
-            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
-            Render player_render = ecs::@get(manager, player, Render);
-            Collider collider_render = ecs::@get(manager, player, Collider);
-            
-            bool is_dirty = false;
-
-            if (event.is_pressed(W)) {
-                Matrix4f translation = player_render.node_matrix.translate({0, 0, -0.05});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-            if (event.is_pressed(S)) {        
-                Matrix4f translation = player_render.node_matrix.translate({0, 0, 0.05});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-            if (event.is_pressed(A)) {
-                Matrix4f translation = player_render.node_matrix.translate({-0.05, 0, 0});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-            if (event.is_pressed(D)) {
-                Matrix4f translation = player_render.node_matrix.translate({0.05, 0, 0});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-            if (event.is_pressed(UP_ARROW)) {
-                Matrix4f translation = player_render.node_matrix.translate({0, 0.05, 0});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-
-            if (event.is_pressed(DOWN_ARROW)) {
-                Matrix4f translation = player_render.node_matrix.translate({0, -0.05, 0});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-            if (event.is_pressed(T)) {
-                Matrix4f translation = player_render.node_matrix.scale({1, 1.05, 1});
-                player_render.node_matrix = translation;
-                player_collider = player_collider.transform(translation);
-                collider_render.node_matrix = player_collider.to_matrix();
-                is_dirty = true;
-            }
-
-            if (is_dirty) {
-                if (player_collider.collides(entity_collider)) {
-                    state.collides = true;
-                } else {
-                    state.collides = false;
-                }
-
-                ecs::@upload(manager, entity, state);
-                ecs::@upload(manager, player, player_render);
-                ecs::@upload(manager, player, player_collider);
-                ecs::@upload(manager, player, collider_render);
-            }
-        };
         
         //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
-        manager.@query("Render"; Entity entity) {
+        manager.@query("Render", "State"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;
+            State state = ecs::@get(manager, entity, State);
            
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
+                .collides = state.collides,
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -674,13 +649,11 @@ fn void main()
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
-        manager.@query("Collider", "State"; Entity entity) {
+        manager.@query("Collider"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
-            State state = ecs::@get(manager, entity, State);
-          
+      
             PushConstantData constant_data = {
                 .draw_index = offset / Collider.sizeof,
-                .collides = state.collides,
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);

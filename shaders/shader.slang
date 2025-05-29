@@ -135,6 +135,7 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
+    if (push_constant.collides == 1) return float4(0.8, 0.4, 0.7, 1.0);
     Material* material = (Material*)input.material;
 
     if (material != nullptr)
@@ -143,5 +144,5 @@ float4 fragmentMain(FragmentData input)
     }
 
 
-    return push_constant.collides == 0 ? float4(0.5, 0.5, 0.5, 1.0) : float4(0.8, 0.4, 0.7, 1.0);
+    return float4(0.5, 0.5, 0.5, 1.0);
 }

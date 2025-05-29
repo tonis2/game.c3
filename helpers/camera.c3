@@ -50,7 +50,6 @@ fn void Camera.zoom(Camera* self, float value) {
     self.view.m23 += value;
 }
 
-
 fn CameraData Camera.data(Camera* self) {
     return {
         self.perspective,

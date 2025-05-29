@@ -208,11 +208,11 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-macro void Entity.@add(&self, #type, EntityManager* manager) {
+macro void Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
     String type_name = $typeof(#type).nameof;
     uint size = $typeof(#type).sizeof;
 
-    Component component = manager.@create_component(#type);
+    Component component = manager.@create_component(#type, buffer_index: buffer_index);
 
     if (!manager.keys.has_key(type_name)) {
         manager.keys.set(type_name, 
@@ -873,73 +873,73 @@ fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, Anima
     }
 }
 
-// struct Position  {
-//     Vec3f scale;
-//     Vec3f translation;
-//     Quaternionf rotation;
-// }
+struct Position @private {
+    Vec3f scale;
+    Vec3f translation;
+    Quaternionf rotation;
+}
 
-// struct Velocity @tag("BUFFER", 0) {
-//     float x;
-//     float y;
-//     float z;
-// }
+struct Velocity @tag("BUFFER", 0) @private {
+    float x;
+    float y;
+    float z;
+}
 
-// fn void main() {
-//     Buffer buffer;
-//     defer buffer.free();
+fn void test_ecs() @test {
+    Buffer buffer;
+    defer buffer.free();
 
-//     EntityManager manager = create_manager({
-//         &buffer,
-//     });
+    EntityManager manager = create_manager({
+        &buffer,
+    });
 
-//     defer manager.free();
+    defer manager.free();
 
-//     Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
-//     Component animation_comp = manager.@create_component(size: Position.sizeof);
+    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
+    Component animation_comp = manager.@create_component(size: Position.sizeof);
     
-//     ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
+    ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
  
-//     Entity player = manager.@create_entity(
-//         (Position) {
-//             .translation = {1.0, 1.0, 1.0},
-//             .scale = {1.0, 1.0, 1.0}
-//         },
-//     );
+    Entity player = manager.@create_entity(
+        (Position) {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
+    );
 
-//     Entity player2 = manager.@create_entity(
-//         (Position){},
-//         velocity_comp,
-//     );
+    Entity player2 = manager.@create_entity(
+        (Position){},
+        velocity_comp,
+    );
 
-//     player.add_component("Velocity", velocity_comp, manager);
-//     // player2.add("Animation", animation_comp, manager);
+    player.add_component("Velocity", velocity_comp, manager);
+    // player2.add("Animation", animation_comp, manager);
 
-//     @upload(manager, animation_comp, &&(Position) {
-//         .scale = {5.0, 5.0, 5.0},
-//         .translation = {5.0, 5.0, 5.0},
-//     }, size: Position.sizeof);
+    @upload(manager, animation_comp, &&(Position) {
+        .scale = {5.0, 5.0, 5.0},
+        .translation = {5.0, 5.0, 5.0},
+    }, size: Position.sizeof);
     
-//     assert(@get_offset(manager, player, "Position")!! == Velocity.sizeof + Position.sizeof);
-//     assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
-//     assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
+    assert(@get_offset(manager, player, "Position")!! == Velocity.sizeof + Position.sizeof);
+    assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
+    assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
 
-//     manager.@query("Position", "Velocity"; Entity entity) {
-//         Velocity velocity = @get(manager, entity, Velocity);
-//         io::printfn("QUERY ENTRY");
+    manager.@query("Position", "Velocity"; Entity entity) {
+        Velocity velocity = @get(manager, entity, Velocity);
+        io::printfn("QUERY ENTRY");
 
-//         assert(velocity.x == 3.000000);
-//         assert(velocity.y == 3.000000);
+        assert(velocity.x == 3.000000);
+        assert(velocity.y == 3.000000);
 
-//         @upload(manager, entity, (Position) {
-//             .translation = {5.0, 5.0, 5.0},
-//             .scale = {5.0, 5.0, 5.0}
-//         });
+        @upload(manager, entity, (Position) {
+            .translation = {5.0, 5.0, 5.0},
+            .scale = {5.0, 5.0, 5.0}
+        });
 
-//         Position position = @get(manager, entity, Position);
-//         assert(position.translation.x == 5.000000);
-//     };
-// }
+        Position position = @get(manager, entity, Position);
+        assert(position.translation.x == 5.000000);
+    };
+}
 
 // Todo:
 // Test correct buffers on components
