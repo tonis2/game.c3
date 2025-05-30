@@ -92,6 +92,14 @@ fn Aabb3 Aabb3.transform(self, Matrix4f matrix)
     };
 }
 
+fn Vec3f Aabb3.length_ratios(&self, Aabb3 second) {
+    Vec3f current_length = self.max - self.min;
+    Vec3f second_length = second.max - second.min;
+    Vec3f ratios = current_length / second_length;
+
+    return ratios;
+}
+
 fn Matrix4f Aabb3.to_matrix(&self)
 {
 
@@ -291,8 +299,8 @@ struct Mesh {
     ushort[] indices;
 }
 
-fn Mesh create_cube() {
-    Vec3f[] vertices = {
+ ecs::Mesh cube = {
+    .vertices = {
         {-1.0, -1.0, 1.0},
         {1.0, -1.0, 1.0},
         {1.0, 1.0, 1.0},
@@ -322,22 +330,16 @@ fn Mesh create_cube() {
         {-1.0, -1.0, 1.0},
         {-1.0, 1.0, 1.0},
         {-1.0, 1.0, -1.0},
-    };
-
-    ushort[] indices = {
+    },
+    .indices = {
         0,  1,  2,      0,  2,  3,    // front
         4,  5,  6,      4,  6,  7,    // back
         8,  9,  10,     8,  10, 11,   // top
         12, 13, 14,     12, 14, 15,   // bottom
         16, 17, 18,     16, 18, 19,   // right
         20, 21, 22,     20, 22, 23    // left
-    };
-
-    return {
-        vertices,
-        indices
-    };
-}
+    }
+};
 
 fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..8] };
 

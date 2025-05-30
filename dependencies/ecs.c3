@@ -531,21 +531,24 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
 
     List{Vertex} vertex_data;
     defer vertex_data.free();
+    Aabb3 bounding_box;
 
-    for (usz i; i < mesh.vertices.len; i++) {
-        vertex_data.push({ .pos = mesh.vertices[i] });
+    foreach (item: mesh.vertices) {
+        bounding_box.expand_by_point(item);
+        vertex_data.push({ .pos = item });
     }
 
     @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
 
     indices.used_size += ushort.sizeof * mesh.indices.len;
     vertices.used_size += vertex_data.byte_size();
-
+    
     return {
         .firstIndex = (uint)indices.used_size / ushort.sizeof,
         .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
         .indexCount = ushort.sizeof * mesh.indices.len,
         .materialIndex = -1,
+        .aabb = bounding_box
     };
 }
 
@@ -557,7 +560,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
         Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
         Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
-        // Aabb3 bounding_box;
+        Aabb3 bounding_box;
 
         MeshData data = {
             .firstIndex = (uint)indices.used_size / ushort.sizeof,
@@ -566,12 +569,12 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
         };
 
-        if (pos_accessor.max != (Vec4f){0,0,0,0}) {
-            data.aabb = (Aabb3) {
-                pos_accessor.min.xyz,
-                pos_accessor.max.xyz
-            };
-        }
+        // if (pos_accessor.max != (Vec4f){0,0,0,0}) {
+        //     data.aabb = (Aabb3) {
+        //         pos_accessor.min.xyz,
+        //         pos_accessor.max.xyz
+        //     };
+        // }
 
         for (usz i; i < index_accessor.count; i++) {
             index_data.push(gltf.@cast_buffer(index_accessor, i, ushort));
@@ -634,7 +637,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             }
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
-            // bounding_box.expand_by_point(position);
+            bounding_box.expand_by_point(position);
 
             vertex_data.push({
                 .pos = position,
@@ -655,6 +658,8 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
 
         indices.used_size += index_data.byte_size();
         vertices.used_size += vertex_data.byte_size();
+
+        data.aabb = bounding_box;
 
         @callback(data);
 

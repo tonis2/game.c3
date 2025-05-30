@@ -203,12 +203,12 @@ fn void main()
         loaded_meshes.free();
         mesh_list.free();
     }
-    
+
     mesh_list.set("collider", ecs::load_mesh(
         manager: manager,
         vertices: &vertices,
         indices: &indices,
-        mesh: ecs::create_cube()
+        mesh: ecs::cube
     )!!);
 
     foreach (uint index, node : gltf.nodes) {
@@ -282,10 +282,12 @@ fn void main()
                     .firstIndex = collider_mesh.firstIndex,
                     .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
-                    .node_matrix = MATRIX4F_IDENTITY.translate(transform),
+                    .node_matrix = collider_matrix,
                 };
+
+                io::printfn("ratio %s", mesh_data.aabb.length_ratios(collider_mesh.aabb));
     
-                node_entity.@add(mesh_data.aabb.transform(matrix), &manager);
+                node_entity.@add(mesh_data.aabb.transform(collider_matrix), &manager);
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
@@ -532,8 +534,9 @@ fn void main()
 
             foreach (item: move_events) {
                 if (event.is_pressed(item.key)) {
-                    player_render.node_matrix = player_render.node_matrix.translate(item.move);
-                    collider_render.node_matrix = collider_render.node_matrix.translate(item.move);
+                    Matrix4f collider_matrix = player_render.node_matrix.translate(item.move);
+                    player_render.node_matrix = collider_matrix;
+                    collider_render.node_matrix = collider_matrix;
                     is_dirty = true;
                 }
             }
