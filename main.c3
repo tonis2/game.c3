@@ -271,29 +271,38 @@ fn void main()
 
            
             if (!mesh_data.aabb.is_empty()) {
-                io::printfn("%s", node.name);
-                MeshData collider_mesh = mesh_list["collider"]!!;
+                // MeshData collider_mesh = mesh_list["collider"]!!;
 
-                Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
-                Matrix4f collider_matrix = MATRIX4F_IDENTITY.translate(transform);
+                Aabb3 mesh_aabb = mesh_data.aabb.transform(matrix);
+
+                // ecs::Mesh collider_mesh = ;
+
+                MeshData bounding_box = ecs::load_mesh(
+                    manager: manager,
+                    vertices: &vertices,
+                    indices: &indices,
+                    mesh: mesh_aabb.create_bounding_box()
+                )!!;
+
+                // Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
             
                 Collider collider = {
-                    .indexCount = collider_mesh.indexCount,
-                    .firstIndex = collider_mesh.firstIndex,
-                    .vertexOffset = collider_mesh.vertexOffset,
+                    .indexCount = bounding_box.indexCount,
+                    .firstIndex = bounding_box.firstIndex,
+                    .vertexOffset = bounding_box.vertexOffset,
                     .instanceCount = 1,
-                    .node_matrix = collider_matrix,
+                    .node_matrix = MATRIX4F_IDENTITY,
                 };
 
-                io::printfn("ratio %s", mesh_data.aabb.length_ratios(collider_mesh.aabb));
+                node_entity.@add(collider, &manager);
     
-                node_entity.@add(mesh_data.aabb.transform(collider_matrix), &manager);
+                node_entity.@add(mesh_aabb, &manager);
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
                 }, &manager);
                 // Add physics box
-                node_entity.@add(collider, &manager);
+             
             }
       
             node_entity.@add(render_data, &manager);
@@ -520,7 +529,7 @@ fn void main()
             running = false;
         }
 
-        manager.@query("Render", "Aabb3", "Collider", "State"; Entity entity) {
+        manager.@query("Render", "Aabb3", "State", "Collider"; Entity entity) {
             State state = ecs::@get(manager, entity, State);
 
             Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
@@ -529,27 +538,27 @@ fn void main()
             Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
             Render player_render = ecs::@get(manager, player, Render);
             Collider collider_render = ecs::@get(manager, player, Collider);
-            
-            bool is_dirty = false;
 
+            bool is_dirty = false;
             foreach (item: move_events) {
                 if (event.is_pressed(item.key)) {
-                    Matrix4f collider_matrix = player_render.node_matrix.translate(item.move);
-                    player_render.node_matrix = collider_matrix;
-                    collider_render.node_matrix = collider_matrix;
+                    player_collider = player_collider.transform(player_render.node_matrix);
+
+                    player_render.node_matrix = player_render.node_matrix.translate(item.move);
+                    collider_render.node_matrix = collider_render.node_matrix.translate(item.move);
                     is_dirty = true;
                 }
             }
 
-            if (event.is_pressed(T)) {
-                Matrix4f translation = player_render.node_matrix.scale({1, 1.05, 1});
-                collider_render.node_matrix = player_collider.to_matrix();
-                // player_render.node_matrix = translation;
-                is_dirty = true;
-            }
+            // if (event.is_pressed(T)) {
+            //     Matrix4f translation = player_render.node_matrix.scale({1, 1.05, 1});
+            //     collider_render.node_matrix = player_collider.to_matrix();
+            //     // player_render.node_matrix = translation;
+            //     is_dirty = true;
+            // }
 
             if (is_dirty) {
-                if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
+                if (player_collider.collides(entity_collider)) {
                     state.collides = true;
                 } else {
                     state.collides = false;

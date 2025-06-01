@@ -63,17 +63,74 @@ fn void Aabb3.expand_by_point(&self, Vec3f point) {
     self.expand_min(point);
 }
 
+fn Aabb3 Aabb3.scale(self, Vec3f scale) {
+    Vec3f center = (self.min + self.max) * 0.5f;
+    Vec3f halfExtents = (self.max - self.min) * 0.5f;
+    Vec3f newHalfExtents = halfExtents * scale;
+
+    return {
+        center - newHalfExtents,
+        center + newHalfExtents
+    };
+}
+
+fn Aabb3 Aabb3.transform2(self, Matrix4f matrix)
+{
+    Aabb3 aabb;
+    Vec3f[] corners = {
+        { self.min.x, self.min.y, self.min.z},
+        { self.max.x, self.min.y, self.min.z},
+        { self.min.x, self.max.y, self.min.z},
+        { self.max.x, self.max.y, self.min.z},
+        { self.min.x, self.min.y, self.max.z},
+        { self.max.x, self.min.y, self.max.z},
+        { self.min.x, self.max.y, self.max.z},
+        { self.max.x, self.max.y, self.max.z}
+    };
+
+    foreach (i, corner: corners) {
+        corners[i] = (matrix * (Vec4f){corner, 1.0}).xyz;
+        aabb.expand_by_point(corners[i]);
+    }
+
+    io::printfn("%s %s", aabb.min, aabb.max);
+
+    return aabb;
+}
+
+fn Mesh Aabb3.create_bounding_box(self)
+{
+    return {
+        .vertices = {
+            { self.min.x, self.min.y, self.min.z},
+            { self.max.x, self.min.y, self.min.z},
+            { self.min.x, self.max.y, self.min.z},
+            { self.max.x, self.max.y, self.min.z},
+            { self.min.x, self.min.y, self.max.z},
+            { self.max.x, self.min.y, self.max.z},
+            { self.min.x, self.max.y, self.max.z},
+            { self.max.x, self.max.y, self.max.z}
+        },
+        .indices = {
+            0, 1, 1, 3, 3, 2, 2, 0, 
+            4, 5, 5, 7, 7, 6, 6, 4,
+            0, 4, 1, 5, 2, 6, 3, 7 
+        }
+    };
+}
+
 fn Aabb3 Aabb3.transform(self, Matrix4f matrix)
 {   
+    Vec3f scale = (Vec3f){matrix.m00, matrix.m11, matrix.m22};
     Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
 
     Vec3f b_min = transform;
     Vec3f b_max = transform;
 
     Matrix3f new_matrix = {
-        matrix.m00, matrix.m01, matrix.m02,
-        matrix.m10, matrix.m11, matrix.m12,
-        matrix.m20, matrix.m21, matrix.m22,
+        scale.x, matrix.m01, matrix.m02,
+        matrix.m10, scale.y, matrix.m12,
+        matrix.m20, matrix.m21, scale.z,
     };
  
     foreach (uint i, value: new_matrix.m) {
@@ -85,27 +142,29 @@ fn Aabb3 Aabb3.transform(self, Matrix4f matrix)
         b_min[index] += math::min(a, b);
         b_max[index] += math::max(a, b);
     }
-    // io::printfn("%s %s", b_min, b_max);
-    return {
+    
+
+    Aabb3 new_aabb = {
         b_min,
         b_max
     };
+
+    return new_aabb;
 }
+
+fn Vec3f Aabb3.len(self) => self.max - self.min;
 
 fn Vec3f Aabb3.length_ratios(&self, Aabb3 second) {
     Vec3f current_length = self.max - self.min;
     Vec3f second_length = second.max - second.min;
     Vec3f ratios = current_length / second_length;
-
     return ratios;
 }
 
 fn Matrix4f Aabb3.to_matrix(&self)
 {
-
     Vec3f len = (self.max - self.min);
     Vec3f center = self.max - (len / 2);
-
     return {
         1, 0, 0, center.x,
 		0, 1, 0, center.y,
@@ -295,8 +354,8 @@ fn bool intersects(Collider first, Collider second, Vec3f* minimum_translation =
 }
 
 struct Mesh {
-    Vec3f[] vertices;
-    ushort[] indices;
+    Vec3f[8] vertices;
+    ushort[24] indices;
 }
 
  ecs::Mesh cube = {
@@ -305,39 +364,15 @@ struct Mesh {
         {1.0, -1.0, 1.0},
         {1.0, 1.0, 1.0},
         {-1.0, 1.0, 1.0},
-
         {-1.0, -1.0, -1.0},
         {-1.0, 1.0, -1.0},
         {1.0, 1.0, -1.0},
         {1.0, -1.0, -1.0},
-
-        {-1.0, 1.0, -1.0},
-        {-1.0, 1.0, 1.0},
-        {1.0, 1.0, 1.0},
-        {1.0, 1.0, -1.0},
-
-        {-1.0, -1.0, -1.0},
-        {1.0, -1.0, -1.0},
-        {1.0, -1.0, 1.0},
-        {-1.0, -1.0, 1.0},
-
-        {1.0, -1.0, -1.0},
-        {1.0, 1.0, -1.0},
-        {1.0, 1.0, 1.0},
-        {1.0, -1.0, 1.0},
-
-        {-1.0, -1.0, -1.0},
-        {-1.0, -1.0, 1.0},
-        {-1.0, 1.0, 1.0},
-        {-1.0, 1.0, -1.0},
     },
     .indices = {
-        0,  1,  2,      0,  2,  3,    // front
-        4,  5,  6,      4,  6,  7,    // back
-        8,  9,  10,     8,  10, 11,   // top
-        12, 13, 14,     12, 14, 15,   // bottom
-        16, 17, 18,     16, 18, 19,   // right
-        20, 21, 22,     20, 22, 23    // left
+        0, 1, 1, 3, 3, 2, 2, 0, 
+        4, 5, 5, 7, 7, 6, 6, 4,
+        0, 4, 1, 5, 2, 6, 3, 7 
     }
 };
 

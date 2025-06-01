@@ -540,16 +540,19 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
 
     @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
 
-    indices.used_size += ushort.sizeof * mesh.indices.len;
-    vertices.used_size += vertex_data.byte_size();
-    
-    return {
+
+    MeshData data = {
         .firstIndex = (uint)indices.used_size / ushort.sizeof,
         .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
-        .indexCount = ushort.sizeof * mesh.indices.len,
+        .indexCount = mesh.indices.len,
         .materialIndex = -1,
         .aabb = bounding_box
     };
+
+    indices.used_size += ushort.sizeof * mesh.indices.len;
+    vertices.used_size += vertex_data.byte_size();
+   
+    return data;
 }
 
 macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
