@@ -204,12 +204,12 @@ fn void main()
         mesh_list.free();
     }
 
-    mesh_list.set("collider", ecs::load_mesh(
-        manager: manager,
-        vertices: &vertices,
-        indices: &indices,
-        mesh: ecs::cube
-    )!!);
+    // mesh_list.set("collider", ecs::load_mesh(
+    //     manager: manager,
+    //     vertices: &vertices,
+    //     indices: &indices,
+    //     mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
+    // )!!);
 
     foreach (uint index, node : gltf.nodes) {
         if (node.has_mesh()) {
@@ -269,22 +269,20 @@ fn void main()
             // if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
-           
+
+            // Add physics box           
             if (!mesh_data.aabb.is_empty()) {
-                // MeshData collider_mesh = mesh_list["collider"]!!;
-
                 Aabb3 mesh_aabb = mesh_data.aabb.transform(matrix);
+                // Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
 
-                // ecs::Mesh collider_mesh = ;
+                // MeshData collider_mesh = mesh_list["collider"]!!;
 
                 MeshData bounding_box = ecs::load_mesh(
                     manager: manager,
                     vertices: &vertices,
                     indices: &indices,
-                    mesh: mesh_aabb.create_bounding_box()
+                    mesh: ecs::create_bounding_box(mesh_aabb)
                 )!!;
-
-                // Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
             
                 Collider collider = {
                     .indexCount = bounding_box.indexCount,
@@ -295,14 +293,11 @@ fn void main()
                 };
 
                 node_entity.@add(collider, &manager);
-    
                 node_entity.@add(mesh_aabb, &manager);
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
                 }, &manager);
-                // Add physics box
-             
             }
       
             node_entity.@add(render_data, &manager);
@@ -543,9 +538,7 @@ fn void main()
             foreach (item: move_events) {
                 if (event.is_pressed(item.key)) {
                     player_render.node_matrix = player_render.node_matrix.translate(item.move);
-                    Vec3f transform = (Vec3f){player_render.node_matrix.m03, player_render.node_matrix.m13, player_render.node_matrix.m23};
-                    
-                    collider_render.node_matrix = MATRIX4F_IDENTITY.translate(transform);
+                    collider_render.node_matrix = collider_render.node_matrix.translate(item.move);
                     is_dirty = true;
                 }
             }

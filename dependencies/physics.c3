@@ -98,18 +98,18 @@ fn Aabb3 Aabb3.transform2(self, Matrix4f matrix)
     return aabb;
 }
 
-fn Mesh Aabb3.create_bounding_box(self)
+fn Mesh create_bounding_box(Aabb3 box)
 {
     return {
         .vertices = {
-            { self.min.x, self.min.y, self.min.z},
-            { self.max.x, self.min.y, self.min.z},
-            { self.min.x, self.max.y, self.min.z},
-            { self.max.x, self.max.y, self.min.z},
-            { self.min.x, self.min.y, self.max.z},
-            { self.max.x, self.min.y, self.max.z},
-            { self.min.x, self.max.y, self.max.z},
-            { self.max.x, self.max.y, self.max.z}
+            { box.min.x, box.min.y, box.min.z},
+            { box.max.x, box.min.y, box.min.z},
+            { box.min.x, box.max.y, box.min.z},
+            { box.max.x, box.max.y, box.min.z},
+            { box.min.x, box.min.y, box.max.z},
+            { box.max.x, box.min.y, box.max.z},
+            { box.min.x, box.max.y, box.max.z},
+            { box.max.x, box.max.y, box.max.z}
         },
         .indices = {
             0, 1, 1, 3, 3, 2, 2, 0, 
@@ -121,16 +121,15 @@ fn Mesh Aabb3.create_bounding_box(self)
 
 fn Aabb3 Aabb3.transform(self, Matrix4f matrix)
 {   
-    Vec3f scale = (Vec3f){matrix.m00, matrix.m11, matrix.m22};
     Vec3f transform = (Vec3f){matrix.m03, matrix.m13, matrix.m23};
 
     Vec3f b_min = transform;
     Vec3f b_max = transform;
 
     Matrix3f new_matrix = {
-        scale.x, matrix.m01, matrix.m02,
-        matrix.m10, scale.y, matrix.m12,
-        matrix.m20, matrix.m21, scale.z,
+        matrix.m00, matrix.m01, matrix.m02,
+        matrix.m10, matrix.m11, matrix.m12,
+        matrix.m20, matrix.m21, matrix.m22,
     };
  
     foreach (uint i, value: new_matrix.m) {
@@ -358,23 +357,23 @@ struct Mesh {
     ushort[24] indices;
 }
 
- ecs::Mesh cube = {
-    .vertices = {
-        {-1.0, -1.0, 1.0},
-        {1.0, -1.0, 1.0},
-        {1.0, 1.0, 1.0},
-        {-1.0, 1.0, 1.0},
-        {-1.0, -1.0, -1.0},
-        {-1.0, 1.0, -1.0},
-        {1.0, 1.0, -1.0},
-        {1.0, -1.0, -1.0},
-    },
-    .indices = {
-        0, 1, 1, 3, 3, 2, 2, 0, 
-        4, 5, 5, 7, 7, 6, 6, 4,
-        0, 4, 1, 5, 2, 6, 3, 7 
-    }
-};
+//  ecs::Mesh cube = {
+//     .vertices = {
+//         {-1.0, -1.0, 1.0},
+//         {1.0, -1.0, 1.0},
+//         {1.0, 1.0, 1.0},
+//         {-1.0, 1.0, 1.0},
+//         {-1.0, -1.0, -1.0},
+//         {-1.0, 1.0, -1.0},
+//         {1.0, 1.0, -1.0},
+//         {1.0, -1.0, -1.0},
+//     },
+//     .indices = {
+//         0, 1, 1, 3, 3, 2, 2, 0, 
+//         4, 5, 5, 7, 7, 6, 6, 4,
+//         0, 4, 1, 5, 2, 6, 3, 7 
+//     }
+// };
 
 fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..8] };
 
