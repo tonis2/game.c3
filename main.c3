@@ -542,10 +542,10 @@ fn void main()
             bool is_dirty = false;
             foreach (item: move_events) {
                 if (event.is_pressed(item.key)) {
-                    player_collider = player_collider.transform(player_render.node_matrix);
-
                     player_render.node_matrix = player_render.node_matrix.translate(item.move);
-                    collider_render.node_matrix = collider_render.node_matrix.translate(item.move);
+                    Vec3f transform = (Vec3f){player_render.node_matrix.m03, player_render.node_matrix.m13, player_render.node_matrix.m23};
+                    
+                    collider_render.node_matrix = MATRIX4F_IDENTITY.translate(transform);
                     is_dirty = true;
                 }
             }
@@ -558,7 +558,7 @@ fn void main()
             // }
 
             if (is_dirty) {
-                if (player_collider.collides(entity_collider)) {
+                if (player_collider.transform(collider_render.node_matrix).collides(entity_collider)) {
                     state.collides = true;
                 } else {
                     state.collides = false;
