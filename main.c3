@@ -46,6 +46,7 @@ struct Material @tag("BUFFER", 3) {
 struct State {
     bool collides;
     uint index;
+    bool check_collision;
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -204,12 +205,12 @@ fn void main()
         mesh_list.free();
     }
 
-    // mesh_list.set("collider", ecs::load_mesh(
-    //     manager: manager,
-    //     vertices: &vertices,
-    //     indices: &indices,
-    //     mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
-    // )!!);
+    mesh_list.set("collider", ecs::load_mesh(
+        manager: manager,
+        vertices: &vertices,
+        indices: &indices,
+        mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
+    )!!);
 
     foreach (uint index, node : gltf.nodes) {
         if (node.has_mesh()) {
@@ -266,7 +267,6 @@ fn void main()
                 }
             }
 
-            // if (node.has_skin()) node_entity.@add((State) { .is_dirty = false }, &manager);
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
 
@@ -274,26 +274,27 @@ fn void main()
             if (!mesh_data.aabb.is_empty()) {
                 Aabb3 mesh_aabb = mesh_data.aabb;
 
-                // MeshData collider_mesh = mesh_list["collider"]!!;
+                MeshData collider_mesh = mesh_list["collider"]!!;
 
-                MeshData bounding_box = ecs::load_mesh(
-                    manager: manager,
-                    vertices: &vertices,
-                    indices: &indices,
-                    mesh: ecs::create_bounding_box(mesh_aabb)
-                )!!;
+                // MeshData bounding_box = ecs::load_mesh(
+                //     manager: manager,
+                //     vertices: &vertices,
+                //     indices: &indices,
+                //     mesh: ecs::create_bounding_box(mesh_aabb)
+                // )!!;
 
                 // io::printfn("%s %s", node.name, bounding_box.aabb.length_ratios(mesh_aabb));
             
                 Collider collider = {
-                    .indexCount = bounding_box.indexCount,
-                    .firstIndex = bounding_box.firstIndex,
-                    .vertexOffset = bounding_box.vertexOffset,
+                    .indexCount = collider_mesh.indexCount,
+                    .firstIndex = collider_mesh.firstIndex,
+                    .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
                     .node_matrix = render_data.node_matrix,
                 };
 
                 node_entity.@add(collider, &manager);
+
                 if (node.name != "Player") {
                     node_entity.@add(mesh_aabb.transform(render_data.node_matrix), &manager);
                 } else {
@@ -303,6 +304,7 @@ fn void main()
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
+                    .check_collision = node.name != "Player" ? true : false
                 }, &manager);
             }
       
@@ -556,7 +558,7 @@ fn void main()
             //     is_dirty = true;
             // }
 
-            if (is_dirty) {
+            if (is_dirty && state.check_collision) {
                 if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
                     state.collides = true;
                 } else {
