@@ -197,13 +197,9 @@ fn void main()
 
     Entity player;
 
-    List{String} loaded_meshes;
     HashMap{String, MeshData} mesh_list;
 
-    defer {
-        loaded_meshes.free();
-        mesh_list.free();
-    }
+    defer mesh_list.free();
 
     mesh_list.set("collider", ecs::load_mesh(
         manager: manager,
@@ -220,7 +216,7 @@ fn void main()
             Entity node_entity = manager.@create_entity();
             if (node.name == "Player") player = node_entity;
 
-            if (!loaded_meshes.contains(mesh.name)) {
+            if (!mesh_list.has_key(mesh.name)) {
                 // Load mesh data from GLTF and save it as assets
                 ecs::@parse_gltf_mesh(
                     gltf: gltf,
@@ -230,8 +226,6 @@ fn void main()
                     mesh: mesh;
                     MeshData mesh_data
                 ) { mesh_list.set(mesh.name, mesh_data); }!!;
-
-                loaded_meshes.push(mesh.name);
             }
 
             MeshData mesh_data = mesh_list[mesh.name]!!;
