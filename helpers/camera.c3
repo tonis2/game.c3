@@ -50,16 +50,15 @@ fn void Camera.zoom(Camera* self, float value) {
     self.view.m23 += value;
 }
 
-
 fn CameraData Camera.data(Camera* self) {
     return {
-        self.perspective.transpose(),
-        self.view.transpose(),
+        self.perspective,
+        self.view,
         (Vec4f){self.eye, 1.0}
     };
 }
 
-struct CameraData {
+struct CameraData @tag("BUFFER", 2) {
     Matrix4f perspective;
     Matrix4f view;
     Vec4f eye;

@@ -45,15 +45,16 @@ struct DrawCommand
     int vertexOffset;
     uint firstInstance;
 
-    float4x4* skin_data;
+    row_major float4x4* skin_data;
     Material* material;
-    float4x4* instances;
-    float4x4 node_matrix;
+    row_major float4x4* instances;
+    row_major float4x4 node_matrix;
 }
 
 struct PushData
 {
     uint draw_index;
+    uint8_t collides;
 };
 
 [vk_push_constant]
@@ -62,8 +63,8 @@ const PushData push_constant;
 [vk_binding(0)]
 cbuffer Scene
 {
-    float4x4 perspective;
-    float4x4 view;
+    row_major float4x4 perspective;
+    row_major float4x4 view;
     float4 eye;
     Light light;
     Vertex* vertices;
@@ -134,12 +135,14 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
+    if (push_constant.collides == 1) return float4(0.8, 0.4, 0.7, 1.0);
     Material* material = (Material*)input.material;
 
     if (material != nullptr)
     {
        return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
     }
+
 
     return float4(0.5, 0.5, 0.5, 1.0);
 }

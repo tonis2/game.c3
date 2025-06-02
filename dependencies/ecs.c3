@@ -18,14 +18,8 @@ enum GpuType : uint
     CPU_ONLY
 }
 
-enum Action : uint
-{
-    STAGE_TO_GPU,
-}
-
 interface Allocator
 {
-    fn void push(void* data, usz size);
     fn void setUsedSize(usz size);
     fn char* data();
     fn void upload(void* data, usz size, usz offset);
@@ -46,6 +40,10 @@ struct Component {
     usz offset;
 }
 
+struct BufferView {
+    uint component;
+}
+
 bitstruct Entity : ulong {
     uint id : 0..31;
     uint bitmask : 32..63;
@@ -57,7 +55,7 @@ bitstruct BufferID : ulong {
 }
 
 alias ComponentMap = HashMap{String, Component};
-alias ViewMap = HashMap{BufferID, uint};
+alias ViewMap = HashMap{BufferID, BufferView};
 alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
@@ -78,9 +76,6 @@ fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
     foreach (buffer: buffers) manager.buffers.push(buffer);
     return manager;
 }
-
-
-
 
 fn void EntityManager.free(&self) {
     // foreach (buffer: self.buffers) {
@@ -112,6 +107,12 @@ fn bool Entity.has_name(self, String name, EntityManager manager) {
     return false;
 }
 
+fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
+    self.views.set(buffer, {
+        component.id, 
+    });
+}   
+
 fn Component EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
     Component component = {
@@ -126,20 +127,19 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size = 0
     if (data != null) {
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
-            buffer.setUsedSize(buffer.usedSize() + size);
         } else {
-            buffer.push(data, size);
+            // io::printfn("%d", buffer_index);
+            buffer.upload(data, size, buffer.usedSize());
         }
-    } else {
-        buffer.setUsedSize(buffer.usedSize() + size);
     }
 
+    buffer.setUsedSize(buffer.usedSize() + size);
     return component;
 }
 
 macro Component EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
     uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
-
+    //$typeof(#type).typeid.kindof == STRUCT &&& 
     if (size == 0 && data == null) {
         $if $typeof(#type).has_tagof("BUFFER"):
             default_buffer = $typeof(#type).tagof("BUFFER");
@@ -170,6 +170,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         $endif
 
         $if $typeof($vaarg[$i]).nameof == "Component":
+            // Todo: Component needs name
             component = $vaarg[$i];
         $else
             component = self.@create_component($vaarg[$i], buffer_index: buffer_index);
@@ -178,17 +179,17 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         if (!self.keys.has_key(type_name)) {
             self.keys[type_name] = {
                 .id = (uint)self.keys.len(),
-                .buffer = buffer_index,
+                .buffer = component.buffer,
             };
         }
         
         type_id = self.keys[type_name]!!.id;
         entity.bitmask |= 1 << type_id;
 
-        self.views[(BufferID) {
-            .component = type_id,
-            .entity = entity.id,
-        }] = component.id;
+        self.create_view(
+            (BufferID) { .component = type_id, .entity = entity.id },
+            component
+        );
 
     $endfor
 
@@ -207,20 +208,45 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-fn void Entity.add(&self, String type_name, Component component, EntityManager manager) {
+macro void Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
+    String type_name = $typeof(#type).nameof;
+    uint size = $typeof(#type).sizeof;
+
+    Component component = manager.@create_component(#type, buffer_index: buffer_index);
+
+    if (!manager.keys.has_key(type_name)) {
+        manager.keys.set(type_name, 
+        {
+            .id = (uint)manager.keys.len(),
+            .buffer = component.buffer,
+        });
+    }
+    
+    Entity* target = manager.entities.get_ref(self.id);
+    uint type_id = manager.keys[type_name]!!.id;
+    target.bitmask |= 1 << type_id;
+
+    manager.create_view(
+        (BufferID) { .component = type_id, .entity = self.id },
+        component
+    );
+}
+
+fn void Entity.add_component(&self, String type_name, Component component, EntityManager manager) {
     if (!manager.keys.has_key(type_name)) {
         manager.keys[type_name] = {
             .id = (uint)manager.keys.len(),
             .buffer = component.buffer,
         };
     }
-    
+
     self.bitmask |= 1 << manager.keys[type_name]!!.id;
     manager.entities[self.id].bitmask = self.bitmask;
-    manager.views[(BufferID) {
-        .component = manager.keys[type_name]!!.id,
-        .entity = self.id,
-    }] = component.id;
+
+    manager.create_view(
+        (BufferID) { .component = manager.keys[type_name]!!.id, .entity = self.id },
+        component
+    );
 }
 
 fn uint get_size(Entity entity, EntityManager manager) {
@@ -228,7 +254,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
     @pool() {
         foreach (key : manager.views.tkeys()) {
             if (key.entity == entity.id) {
-                size += manager.components[manager.views[key]!!].size;
+                size += manager.components[manager.views[key]!!.component].size;
             }
         }
     };
@@ -280,7 +306,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
             .entity = #target.id,
         };
 
-        data_offset = (uint)manager.components[manager.views[index]!!].offset + offset;
+        data_offset = (uint)manager.components[manager.views[index]!!.component].offset + offset;
         buffer = manager.buffers[component_info.buffer];
     $endif;
 
@@ -311,7 +337,6 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
-     
         Component component = manager.keys[#type.nameof]!!;
         BufferID index = {
             .component = component.id,
@@ -319,7 +344,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
         };
 
         Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
         return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
     $endif;
 }
@@ -354,8 +379,7 @@ macro @get_offset(EntityManager manager, #target, #type = null) {
             .component = component.id,
             .entity = #target.id,
         };
-
-        return (uint)manager.components[manager.views[index]!].offset;
+        return (uint)manager.components[manager.views[index]!!.component].offset;
     $endif;
 }
 
@@ -376,14 +400,17 @@ fn void Buffer.push(&self, void* data, usz size) @dynamic {
     }
 }
 
+// fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
+// usz size = alignUp(new_size, 256);
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
-    if (new_size > self.size) {
+    if (self.used_size + new_size > self.size) {
         self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
     }
 }
 
 fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
+    if (self.used_size + size > self.size) self.ensure_size(self.used_size + size);
     mem::copy(self.mapped + offset, data, size);
 }
 
@@ -475,17 +502,13 @@ struct MeshData {
     uint firstIndex;
     uint vertexOffset;
     int materialIndex;
+    Aabb3 aabb;
 }
 
 struct AnimationInfo {
     gltf::Skin skin;
     uint buffer_index;
     gltf::Animation[] channels;
-}
-
-struct MeshInfo {
-    String name;
-    gltf::Mesh data;
 }
 
 struct Vertex {
@@ -499,20 +522,62 @@ struct Vertex {
 
 fn bool MeshData.has_material(self) => self.materialIndex > -1;
 
-macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh; @callback(MeshData data)) {
-    foreach (primitive: mesh.data.primitives) {
+fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* indices, ecs::Mesh mesh) {
+    if ((Vertex.sizeof * mesh.vertices.len) + vertices.used_size > vertices.size || ushort.sizeof * mesh.indices.len + indices.used_size > indices.size) {
+        return COMPONENT_BUFFER_OVERFLOW?;
+    }
+
+    @upload(manager, *indices, &mesh.indices, size: ushort.sizeof * mesh.indices.len, offset: indices.used_size);
+
+    List{Vertex} vertex_data;
+    defer vertex_data.free();
+    Aabb3 bounding_box;
+
+    foreach (item: mesh.vertices) {
+        bounding_box.expand_by_point(item);
+        vertex_data.push({ .pos = item });
+    }
+
+    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
+
+
+    MeshData data = {
+        .firstIndex = (uint)indices.used_size / ushort.sizeof,
+        .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
+        .indexCount = mesh.indices.len,
+        .materialIndex = -1,
+        .aabb = bounding_box
+    };
+
+    indices.used_size += ushort.sizeof * mesh.indices.len;
+    vertices.used_size += vertex_data.byte_size();
+   
+    return data;
+}
+
+macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
+    foreach (primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
        
         Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
         Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
+        Aabb3 bounding_box;
+
         MeshData data = {
             .firstIndex = (uint)indices.used_size / ushort.sizeof,
             .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
             .indexCount = index_accessor.count,
-            .materialIndex = (int)primitive.attributes["material"] ?? -1
+            .materialIndex = (int)primitive.attributes["material"] ?? -1,
         };
+
+        // if (pos_accessor.max != (Vec4f){0,0,0,0}) {
+        //     data.aabb = (Aabb3) {
+        //         pos_accessor.min.xyz,
+        //         pos_accessor.max.xyz
+        //     };
+        // }
 
         for (usz i; i < index_accessor.count; i++) {
             index_data.push(gltf.@cast_buffer(index_accessor, i, ushort));
@@ -575,6 +640,7 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
             }
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
+            bounding_box.expand_by_point(position);
 
             vertex_data.push({
                 .pos = position,
@@ -595,6 +661,8 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
 
         indices.used_size += index_data.byte_size();
         vertices.used_size += vertex_data.byte_size();
+
+        data.aabb = bounding_box;
 
         @callback(data);
 
@@ -673,7 +741,7 @@ fn void? Animations.run_animation(&self, String name, double time) {
 
     foreach (index, joint: self.skin.joints) {
         Node joint_node = self.skin.nodes[joint];
-        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
+        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind);
         ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
@@ -813,73 +881,73 @@ fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, Anima
     }
 }
 
-// struct Position  {
-//     Vec3f scale;
-//     Vec3f translation;
-//     Quaternionf rotation;
-// }
+struct Position @private {
+    Vec3f scale;
+    Vec3f translation;
+    Quaternionf rotation;
+}
 
-// struct Velocity @tag("BUFFER", 0) {
-//     float x;
-//     float y;
-//     float z;
-// }
+struct Velocity @tag("BUFFER", 0) @private {
+    float x;
+    float y;
+    float z;
+}
 
-// fn void main() {
-//     Buffer buffer;
-//     defer buffer.free();
+fn void test_ecs() @test {
+    Buffer buffer;
+    defer buffer.free();
 
-//     EntityManager manager = create_manager({
-//         &buffer,
-//     });
+    EntityManager manager = create_manager({
+        &buffer,
+    });
 
-//     defer manager.free();
+    defer manager.free();
 
-//     Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
-//     Component animation_comp = manager.@create_component(size: Position.sizeof);
+    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
+    Component animation_comp = manager.@create_component(size: Position.sizeof);
     
-//     ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
+    ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
  
-//     Entity player = manager.@create_entity(
-//         (Position) {
-//             .translation = {1.0, 1.0, 1.0},
-//             .scale = {1.0, 1.0, 1.0}
-//         },
-//     );
+    Entity player = manager.@create_entity(
+        (Position) {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
+    );
 
-//     Entity player2 = manager.@create_entity(
-//         (Position){},
-//         velocity_comp,
-//     );
+    Entity player2 = manager.@create_entity(
+        (Position){},
+        velocity_comp,
+    );
 
-//     player.add("Velocity", velocity_comp, manager);
-//     // player2.add("Animation", animation_comp, manager);
+    player.add_component("Velocity", velocity_comp, manager);
+    // player2.add("Animation", animation_comp, manager);
 
-//     @upload(manager, animation_comp, &&(Position) {
-//         .scale = {5.0, 5.0, 5.0},
-//         .translation = {5.0, 5.0, 5.0},
-//     }, size: Position.sizeof);
+    @upload(manager, animation_comp, &&(Position) {
+        .scale = {5.0, 5.0, 5.0},
+        .translation = {5.0, 5.0, 5.0},
+    }, size: Position.sizeof);
     
-//     assert(@get_offset(manager, player, "Position")!! == Velocity.sizeof + Position.sizeof);
-//     assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
-//     assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
+    assert(@get_offset(manager, player, "Position")!! == Velocity.sizeof + Position.sizeof);
+    assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
+    assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
 
-//     manager.@query("Position", "Velocity"; Entity entity) {
-//         Velocity velocity = @get(manager, entity, Velocity);
-//         io::printfn("QUERY ENTRY");
+    manager.@query("Position", "Velocity"; Entity entity) {
+        Velocity velocity = @get(manager, entity, Velocity);
+        io::printfn("QUERY ENTRY");
 
-//         assert(velocity.x == 3.000000);
-//         assert(velocity.y == 3.000000);
+        assert(velocity.x == 3.000000);
+        assert(velocity.y == 3.000000);
 
-//         @upload(manager, entity, (Position) {
-//             .translation = {5.0, 5.0, 5.0},
-//             .scale = {5.0, 5.0, 5.0}
-//         });
+        @upload(manager, entity, (Position) {
+            .translation = {5.0, 5.0, 5.0},
+            .scale = {5.0, 5.0, 5.0}
+        });
 
-//         Position position = @get(manager, entity, Position);
-//         assert(position.translation.x == 5.000000);
-//     };
-// }
+        Position position = @get(manager, entity, Position);
+        assert(position.translation.x == 5.000000);
+    };
+}
 
 // Todo:
 // Test correct buffers on components

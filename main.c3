@@ -3,6 +3,7 @@ import std::math;
 import std::collections::list;
 import std::time;
 import std::thread;
+import std::collections::map;
 
 import vk;
 import stb;
@@ -18,11 +19,17 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
-struct PushConstantData {
-   uint draw_index;
+struct MoveEvent {
+    EventKey key;
+    Vec3f move;
 }
 
-struct Material @tag("BUFFER", 2) {
+struct PushConstantData {
+   uint draw_index;
+   bool collides;
+}
+
+struct Material @tag("BUFFER", 3) {
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
@@ -36,9 +43,10 @@ struct Material @tag("BUFFER", 2) {
     int metallicRoughnessTexture;
 }
 
-struct State @tag("BUFFER", 3) {
-    bool is_dirty;
-    
+struct State {
+    bool collides;
+    uint index;
+    bool check_collision;
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -53,10 +61,14 @@ struct Render @tag("BUFFER", 1) {
     Matrix4f node_matrix;
 }
 
-struct SceneData { 
+typedef Collider @tag("BUFFER", 1) = Render;
+
+struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
 }
+
+typedef SceneLight @tag("BUFFER", 2) = Light;
 
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
@@ -97,6 +109,7 @@ fn void main()
         },
         name: "GLTF animation"
     )!!;
+
     defer win.free();
 
     // Vulkan context
@@ -106,20 +119,20 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/game.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/physics_test.glb")!!;
 
-    Memory scene_memory = vk::new_buffer(
+    Memory draw_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &context.local_allocation,
         null,
-        data_size: 15_000_000
+        data_size: 5_000_000
     )!!;
 
-    Memory render_memory = vk::new_buffer(
+    Memory cpu_and_gpu = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
         &context.local_allocation,
         null,
-        data_size: 5_000_000
+        data_size: 15_000_000
     )!!;
 
     Memory gpu_only_memory = vk::new_buffer(
@@ -129,37 +142,37 @@ fn void main()
         data_size: 35_000_000,
     )!!;
 
-    ecs::Buffer dynamic_buffer;
-    defer dynamic_buffer.free();
+    ecs::Buffer cpu_only;
+    defer cpu_only.free();
 
     EntityManager manager = ecs::create_manager(
         buffers: {
-            (ecs::Allocator)&scene_memory,
-            (ecs::Allocator)&render_memory,
+            (ecs::Allocator)&cpu_only,
+            (ecs::Allocator)&draw_memory,
+            (ecs::Allocator)&cpu_and_gpu,
             (ecs::Allocator)&gpu_only_memory,
-            &dynamic_buffer,
         },
         uploadFN: &stageToGPU,
     );
 
     defer manager.free();
 
-    Component vertices = manager.@create_component(size: 20_000_000, buffer_index: 2);
-    Component indices = manager.@create_component(size: 8_000_000, buffer_index: 2);
-    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 2);
+    Component vertices = manager.@create_component(size: 20_000_000, buffer_index: 3);
+    Component indices = manager.@create_component(size: 8_000_000, buffer_index: 3);
+    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3);
 
-    Animations char_animation = ecs::create_animation({
-            .skin = gltf.skins[0],
-            .buffer_index = 0,
-            .channels = { 
-                gltf.find_animation("Walk")
-             },
-        },
-        gltf,
-        manager,
-    )!!;
+    // Animations char_animation = ecs::create_animation({
+    //         .skin = gltf.skins[0],
+    //         .buffer_index = 0,
+    //         .channels = { 
+    //             gltf.find_animation("Walk")
+    //          },
+    //     },
+    //     gltf,
+    //     manager,
+    // )!!;
 
-    defer char_animation.free();
+    // defer char_animation.free();
 
     List{Component} materials;
 
@@ -182,69 +195,126 @@ fn void main()
 
     defer materials.free();
 
-    foreach (node : gltf.nodes) {
+    Entity player;
+
+    List{String} loaded_meshes;
+    HashMap{String, MeshData} mesh_list;
+
+    defer {
+        loaded_meshes.free();
+        mesh_list.free();
+    }
+
+    mesh_list.set("collider", ecs::load_mesh(
+        manager: manager,
+        vertices: &vertices,
+        indices: &indices,
+        mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
+    )!!);
+
+    foreach (uint index, node : gltf.nodes) {
         if (node.has_mesh()) {
-            Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
     
-            ecs::@parse_mesh(
-                gltf: gltf,
-                manager: manager,
-                vertices: &vertices,
-                indices: &indices,
-                mesh: {
-                    .name = mesh.name,
-                    .data = mesh
-                };
-                MeshData mesh_data
-            ) {
-                Render render_data = {
-                    .indexCount = mesh_data.indexCount,
-                    .firstIndex = mesh_data.firstIndex,
-                    .vertexOffset = mesh_data.vertexOffset,
-                    .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
-                    .instances = ecs::@get_address(manager, instances) + instances.used_size,
-                    .node_matrix = matrix,
-                    .instanceCount = 1,
-                    .firstInstance = 0,
-                    .skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
-                };
+            Matrix4f matrix = node.global_matrix();
+            Entity node_entity = manager.@create_entity();
+            if (node.name == "Player") player = node_entity;
 
-                if (node.attributes.len() > 0) {
-                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                    render_data.instanceCount = translation_accessor.count;
-                    render_data.firstInstance = 1;
+            if (!loaded_meshes.contains(mesh.name)) {
+                // Load mesh data from GLTF and save it as assets
+                ecs::@parse_gltf_mesh(
+                    gltf: gltf,
+                    manager: manager,
+                    vertices: &vertices,
+                    indices: &indices,
+                    mesh: mesh;
+                    MeshData mesh_data
+                ) { mesh_list.set(mesh.name, mesh_data); }!!;
 
-                    for (uint i = 0; i < translation_accessor.count; i++) {
-                        Matrix4f instance_matrix = gltf::to_matrix(
-                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
-                        ).transpose();
-                        ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
-                        instances.used_size += Matrix4f.sizeof;
-                    }
-                }
+                loaded_meshes.push(mesh.name);
+            }
 
-                if (node.has_skin()) {
-                    manager.@create_entity(
-                        (State) {
-                            .is_dirty = false
-                        },
-                        render_data
+            MeshData mesh_data = mesh_list[mesh.name]!!;
+
+            Render render_data = {
+                .indexCount = mesh_data.indexCount,
+                .firstIndex = mesh_data.firstIndex,
+                .vertexOffset = mesh_data.vertexOffset,
+                .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
+                .instances = ecs::@get_address(manager, instances) + instances.used_size,
+                .node_matrix = matrix,
+                .instanceCount = 1,
+                .firstInstance = 0,
+                //.skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
+            };
+
+            if (node.attributes.len() > 0) {
+                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                render_data.instanceCount = translation_accessor.count;
+                render_data.firstInstance = 1;
+
+                for (uint i = 0; i < translation_accessor.count; i++) {
+                    Matrix4f instance_matrix = gltf::to_matrix(
+                        gltf.@cast_buffer(translation_accessor, i, Vec3f), 
+                        gltf.@cast_buffer(scale_accessor, i, Vec3f), 
+                        gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
                     );
-                } else {
-                    manager.@create_entity(render_data);
+
+                    ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
+                    instances.used_size += Matrix4f.sizeof;
                 }
-            }!!;
+            }
+
+            // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
+
+
+            // Add physics box           
+            if (!mesh_data.aabb.is_empty()) {
+                Aabb3 mesh_aabb = mesh_data.aabb;
+
+                MeshData collider_mesh = mesh_list["collider"]!!;
+
+                // MeshData bounding_box = ecs::load_mesh(
+                //     manager: manager,
+                //     vertices: &vertices,
+                //     indices: &indices,
+                //     mesh: ecs::create_bounding_box(mesh_aabb)
+                // )!!;
+
+                // io::printfn("%s %s", node.name, bounding_box.aabb.length_ratios(mesh_aabb));
+            
+                Collider collider = {
+                    .indexCount = collider_mesh.indexCount,
+                    .firstIndex = collider_mesh.firstIndex,
+                    .vertexOffset = collider_mesh.vertexOffset,
+                    .instanceCount = 1,
+                    .node_matrix = render_data.node_matrix,
+                };
+
+                node_entity.@add(collider, &manager);
+
+                if (node.name != "Player") {
+                    node_entity.@add(mesh_aabb.transform(render_data.node_matrix), &manager);
+                } else {
+                    node_entity.@add(mesh_aabb, &manager);
+                }
+             
+                node_entity.@add((State) {
+                    .collides = false,
+                    .index = index,
+                    .check_collision = node.name != "Player" ? true : false
+                }, &manager);
+            }
+      
+            node_entity.@add(render_data, &manager);
         }
     }
 
     Entity scene = manager.@create_entity(
         camera.data(),
-        (Light) {
+        (SceneLight) {
             .position = {2, 12.0, 5},
             .color = {1, 1, 1},
             .intensity = 54351,
@@ -252,7 +322,7 @@ fn void main()
         },
         (SceneData) {
             .vertices = ecs::@get_address(manager, vertices),
-            .draw_cmds = render_memory.address,
+            .draw_cmds = draw_memory.address,
         },
     );
 
@@ -296,7 +366,7 @@ fn void main()
             .setDstBinding(0)
             .setBufferInfo({
                 {
-                    .buffer = scene_memory.buffer,
+                    .buffer = cpu_and_gpu.buffer,
                     .offset = ecs::@get_offset(manager, scene, "CameraData")!!,
                     .range = ecs::get_size(scene, manager),
                 },
@@ -378,7 +448,8 @@ fn void main()
     {
         vk::DYNAMIC_STATE_VIEWPORT,
         vk::DYNAMIC_STATE_LINE_WIDTH,
-        vk::DYNAMIC_STATE_SCISSOR
+        vk::DYNAMIC_STATE_SCISSOR,
+        vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
     });
 
     PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo()
@@ -425,12 +496,21 @@ fn void main()
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
 
+    float speed = 0.05;
+    MoveEvent[] move_events = {
+        {W, {0, 0, -speed}},
+        {S, {0, 0, speed}},
+        {A, {-speed, 0, 0}},
+        {D, {speed, 0, 0}},
+        {UP_ARROW, {0, speed, 0}},
+        {DOWN_ARROW, {0, -speed, 0}},
+    };
+
     while (running) {
         NanoDuration start_time = render_time.mark();
         
         EventMap event = win.getEvent();
-        char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
-
+        
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
             camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
@@ -451,6 +531,45 @@ fn void main()
         if (event.is_pressed(ESCAPE)) {
             running = false;
         }
+
+        manager.@query("Render", "Aabb3", "State", "Collider"; Entity entity) {
+            State state = ecs::@get(manager, entity, State);
+
+            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+            Render entity_render = ecs::@get(manager, entity, Render);
+       
+            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
+            Render player_render = ecs::@get(manager, player, Render);
+            Collider collider_render = ecs::@get(manager, player, Collider);
+
+            bool is_dirty = false;
+            foreach (item: move_events) {
+                if (event.is_pressed(item.key)) {
+                    player_render.node_matrix = player_render.node_matrix.translate(item.move);
+                    collider_render.node_matrix = player_render.node_matrix.translate(item.move);
+                    is_dirty = true;
+                }
+            }
+
+            // if (event.is_pressed(T)) {
+            //     Matrix4f translation = player_render.node_matrix.scale({1, 1.05, 1});
+            //     collider_render.node_matrix = player_collider.to_matrix();
+            //     // player_render.node_matrix = translation;
+            //     is_dirty = true;
+            // }
+
+            if (is_dirty && state.check_collision) {
+                if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
+                    state.collides = true;
+                } else {
+                    state.collides = false;
+                }
+
+                ecs::@upload(manager, entity, state);
+                ecs::@upload(manager, player, player_render);
+                ecs::@upload(manager, player, collider_render);
+            }
+        };
 
         uint next_image = context.next_image()!!;
     
@@ -526,35 +645,34 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
+        
+        //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
-        manager.@query("State", "Render"; Entity entity) {
+        manager.@query("Render", "State"; Entity entity) {
+            uint offset = ecs::@get_offset(manager, entity, "Render")!!;
             State state = ecs::@get(manager, entity, State);
-            Render render_data = ecs::@get(manager, entity, Render);
-
-            if (event.is_pressed(W)) {
-                state.is_dirty = true;
-                render_data.node_matrix.m30 += 0.1;
-            }
-
-            if (event.is_pressed(S)) {
-                state.is_dirty = true;
-                render_data.node_matrix.m30 -= 0.1;
-            }
-
-            if (state.is_dirty) {
-                ecs::@upload(manager, entity, render_data);
-            }
-        };
-
-
-        for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
+           
             PushConstantData constant_data = {
-                .draw_index = i,
+                .draw_index = offset / Render.sizeof,
+                .collides = state.collides,
             };
 
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, i * Render.sizeof, 1, Render.sizeof);
-        }
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+        };
+
+        manager.@query("Collider"; Entity entity) {
+            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
+      
+            PushConstantData constant_data = {
+                .draw_index = offset / Collider.sizeof,
+            };
+
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
+        };
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

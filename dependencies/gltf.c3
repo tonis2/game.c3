@@ -173,6 +173,7 @@ struct Node {
     Vec3f translation;
     List{uint} children;
     List{float} weights;
+    HashMap{String, String} extras;
 }
 
 struct Primitive {
@@ -356,6 +357,13 @@ fn void Node.from_json(&self, Object* json) {
     Object*? translation = json.get("translation");
     Object*? matrix = json.get("matrix");
     Object*? children = json.get("children");
+    Object*? extras = json.get("extras");
+
+    if (try extras) {
+        foreach (key : extras.map.keys(mem)) {
+            self.extras.set(key, extras.map[key]!!.s.copy(mem));
+        }
+    }
 
     int? mesh = json.get_int("mesh");
     int? camera = json.get_int("camera");
@@ -423,6 +431,7 @@ fn void Node.free(&self) {
     self.weights.free();
     self.name.free(mem);
     self.attributes.free();
+    self.extras.free();
 }
 
 fn void Mesh.from_json(&self, Object* json) {
@@ -572,7 +581,7 @@ fn void Accessor.from_json(&self, Object* json) {
 
         if (try max) {
             foreach (i, value : max.array) self.max[i] = (float)value.f;
-        }
+        }   
 
         if (try min) {
             foreach (i, value : min.array) self.min[i] = (float)value.f;
@@ -1236,7 +1245,7 @@ fn Gltf? parse(InStream stream) {
     foreach (&skin: content.skins) {
         Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
         for (uint i; i < skin_accessor.count; i++) {
-            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
+            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f);
             skin.inverseBindMatrices.push(matrix);
         }
     }
