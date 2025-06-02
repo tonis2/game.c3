@@ -526,6 +526,7 @@ fn void main()
             running = false;
         }
 
+        // Run collision checks and update movement
         manager.@query("Render", "Aabb3", "State", "Collider"; Entity entity) {
             State state = ecs::@get(manager, entity, State);
 
@@ -540,7 +541,7 @@ fn void main()
             foreach (item: move_events) {
                 if (event.is_pressed(item.key)) {
                     player_render.node_matrix = player_render.node_matrix.translate(item.move);
-                    collider_render.node_matrix = player_render.node_matrix.translate(item.move);
+                    collider_render.node_matrix = player_render.node_matrix;
                     is_dirty = true;
                 }
             }
