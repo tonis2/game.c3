@@ -2,7 +2,7 @@
 *.d
 
 build/*
-
+game.glb
 # Object files
 *.o
 *.ko
