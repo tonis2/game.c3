@@ -118,13 +118,10 @@ fn Aabb3 Aabb3.transform(self, Matrix4f matrix)
         b_max[index] += math::max(a, b);
     }
     
-
-    Aabb3 new_aabb = {
+    return {
         b_min,
         b_max
     };
-
-    return new_aabb;
 }
 
 fn Vec3f Aabb3.len(self) => self.max - self.min;
@@ -134,18 +131,6 @@ fn Vec3f Aabb3.length_ratios(&self, Aabb3 second) {
     Vec3f second_length = second.max - second.min;
     Vec3f ratios = current_length / second_length;
     return ratios;
-}
-
-fn Matrix4f Aabb3.to_matrix(&self)
-{
-    Vec3f len = (self.max - self.min);
-    Vec3f center = self.max - (len / 2);
-    return {
-        1, 0, 0, center.x,
-		0, 1, 0, center.y,
-		0, 0, 1, center.z,
-		0, 0, 0, 1,
-    };
 }
 
 // Code done thanks to https://github.com/kevinmoran/GJK
