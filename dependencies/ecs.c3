@@ -741,7 +741,7 @@ fn void? Animations.run_animation(&self, String name, double time) {
 
     foreach (index, joint: self.skin.joints) {
         Node joint_node = self.skin.nodes[joint];
-        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind);
+        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
         ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
