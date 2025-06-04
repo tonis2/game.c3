@@ -438,8 +438,8 @@ import std::collections::list;
 import std::collections::map;
 import std::time;
 
-alias AnimationMap = HashMap{String, AnimationChannel};
 alias AnimationChannel = List{AnimationFrame};
+alias AnimationMap = HashMap{String, AnimationChannel};
 
 struct Animations {
     AnimationSkin skin;
@@ -474,7 +474,6 @@ struct AnimationValue {
     Vec4f value;
 }
 
-
 struct AnimationFrame {
     double elapsed_time;
     double max_time;
@@ -486,7 +485,6 @@ struct AnimationFrame {
 }
 
 struct Node {
-    String name;
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
@@ -758,7 +756,6 @@ fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
 
     foreach (node: gltf.nodes) {
         Node new_nodes = {
-            .name = node.name.copy(mem),
             .scale = node.scale,
             .translation = node.translation,
             .rotation = node.rotation,
