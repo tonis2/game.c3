@@ -268,17 +268,16 @@ fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000,
         .dynamicRenderingUnusedAttachments = vk::TRUE
     };
 
-    PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
-        .pNext = &unused_attchments,
-        .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
-    };
+    // PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
+    //     .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
+    //     .pNext = &unused_attchments,
+    //     .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
+    // };
 
     PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-        .pNext = &dynamicProperties,
+        .pNext = &unused_attchments,
         .extendedDynamicState3ColorBlendEnable = vk::TRUE,
-
     };
 
     PhysicalDeviceVulkan13Features vulkan13Features = {
