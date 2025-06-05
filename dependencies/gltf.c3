@@ -169,6 +169,7 @@ struct Node {
     int light;
     Quaternionf rotation;
     Matrix4f matrix;
+    Matrix4f inverse_bind;
     Vec3f scale;
     Vec3f translation;
     List{uint} children;
@@ -214,7 +215,6 @@ struct Skin {
     uint inverseBindAccessor;
     uint skeleton;
     List{uint} joints;
-    List{Matrix4f} inverseBindMatrices;
 }
 
 struct TextureInfo {
@@ -349,6 +349,7 @@ fn void Node.from_json(&self, Object* json) {
     self.scale = {1.0, 1.0, 1.0};
     self.translation = {0, 0, 0};
     self.matrix = MATRIX4F_IDENTITY;
+    self.inverse_bind = MATRIX4F_IDENTITY;
 
     String? name = json.get_string("name");
     // Parse node transforms
@@ -956,7 +957,6 @@ fn void Skin.from_json(&self, Object* json) {
 
 fn void Skin.free(&self) {
     self.joints.free();
-    self.inverseBindMatrices.free();
     self.name.free(mem);
 }
 
@@ -1241,12 +1241,20 @@ fn Gltf? parse(InStream stream) {
         }
     }
 
-    // Build inverseBindMatrixes for skins
-    foreach (&skin: content.skins) {
+    foreach (skin: content.skins) {
+        List{Matrix4f} inverseBindMatrices;
+        defer inverseBindMatrices.free();
+
         Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
-        for (uint i; i < skin_accessor.count; i++) {
-            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f);
-            skin.inverseBindMatrices.push(matrix);
+
+        for (uint i = 0; i < skin_accessor.count; i++) {
+            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
+            inverseBindMatrices.push(matrix);
+        }
+
+        foreach (uint i, joint_index: skin.joints) {
+            Node* node = content.nodes.get_ref(joint_index);
+            node.inverse_bind = (i <= inverseBindMatrices.len()) ? inverseBindMatrices[i] : MATRIX4F_IDENTITY;
         }
     }
 

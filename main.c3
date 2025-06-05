@@ -73,7 +73,7 @@ typedef SceneLight @tag("BUFFER", 2) = Light;
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
 
-Vec2f window_size = {1400, 800};
+Vec2f window_size = {1280, 620};
 char[*] shader = $embed("./shaders/shader.spv");
 
 DeviceContext context;
@@ -119,17 +119,17 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/physics_test.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/game.glb")!!;
 
     Memory draw_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
         &context.local_allocation,
         null,
         data_size: 5_000_000
     )!!;
 
     Memory cpu_and_gpu = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &context.local_allocation,
         null,
         data_size: 15_000_000
@@ -157,22 +157,30 @@ fn void main()
 
     defer manager.free();
 
-    Component vertices = manager.@create_component(size: 20_000_000, buffer_index: 3);
-    Component indices = manager.@create_component(size: 8_000_000, buffer_index: 3);
+    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3);
+    Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3);
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3);
+    Component animations = manager.@create_component(size: 5_000_000, buffer_index: 3);
 
-    // Animations char_animation = ecs::create_animation({
-    //         .skin = gltf.skins[0],
-    //         .buffer_index = 0,
-    //         .channels = { 
-    //             gltf.find_animation("Walk")
-    //          },
-    //     },
-    //     gltf,
-    //     manager,
+    Animations char_animation = ecs::create_animation({
+        .skin = gltf.skins[0],
+        .buffer_index = 2,
+        .channels = { 
+                gltf.find_animation("zombie_walk")
+            },
+        },
+        gltf,
+        manager,
+    )!!;
+
+    defer char_animation.free();
+
+    // ecs::load_step_animation(
+    //     manager: manager,
+    //     component: animations,
+    //     animation: gltf.find_animation("zombie_walk"),
+    //     gltf: gltf,
     // )!!;
-
-    // defer char_animation.free();
 
     List{Component} materials;
 
@@ -239,7 +247,7 @@ fn void main()
                 .node_matrix = matrix,
                 .instanceCount = 1,
                 .firstInstance = 0,
-                //.skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
+                .skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
             };
 
             if (node.attributes.len() > 0) {
@@ -464,7 +472,7 @@ fn void main()
         .setName("fragmentMain")
     })
     .setLayout(pipeline_layout.layout)
-    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    // .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
     .setDynamicState(&dynamic_state)
     .setRasterizationState(&rasterisation_state)
@@ -504,6 +512,8 @@ fn void main()
         NanoDuration start_time = render_time.mark();
         
         EventMap event = win.getEvent();
+
+        char_animation.run_animation("zombie_walk", animation_time.mark().to_sec())!!;
         
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
@@ -640,8 +650,6 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        
-        //char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
         manager.@query("Render", "State"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;

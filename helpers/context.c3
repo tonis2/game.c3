@@ -116,7 +116,7 @@ fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000,
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
+    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
     if (env::OS_TYPE == MACOS) {
@@ -268,10 +268,17 @@ fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000,
         .dynamicRenderingUnusedAttachments = vk::TRUE
     };
 
+    PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
+        .pNext = &unused_attchments,
+        .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
+    };
+
     PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-        .pNext = &unused_attchments,
+        .pNext = &dynamicProperties,
         .extendedDynamicState3ColorBlendEnable = vk::TRUE,
+
     };
 
     PhysicalDeviceVulkan13Features vulkan13Features = {

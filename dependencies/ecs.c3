@@ -793,9 +793,8 @@ fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
     return animation;
 }
 
-
 fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSkin skin, Gltf gltf, List{AnimationValue}* values) {
-    AnimationChannel response;    
+    AnimationChannel response;
     foreach (channel : animation.channels) {
         AnimationSampler sampler = animation.samplers[channel.sampler];
 
@@ -828,6 +827,76 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
     };
 
     return response;
+}
+
+
+struct AnimationRow {
+    Matrix4f matrix;
+    float time;
+}
+
+fn void? load_step_animation(EntityManager manager, Component component, gltf::Animation animation, Gltf gltf) {
+    HashMap{String, Matrix4f} time_values;
+    defer time_values.free();
+
+    foreach (channel : animation.channels) {
+        AnimationSampler sampler = animation.samplers[channel.sampler];
+
+        Accessor time_accessor = gltf.accessors[sampler.input];
+        Accessor value_accessor = gltf.accessors[sampler.output];
+
+        uint node_index = (uint)channel.target.node;
+
+        io::printfn("%s %s", node_index, time_accessor.count);
+
+        for (ulong i; i < time_accessor.count; i++) {
+            AnimationValue entry = {
+                .time = gltf.@cast_buffer(time_accessor, i, float),
+                .value = gltf.@cast_buffer(value_accessor, i, Vec4f),
+            };
+
+            char[80] buffer;
+            String string_time = (String)io::bprintf(&buffer, "%s %s", node_index, entry.time)!!;
+            if (!time_values.has_key(string_time)) {
+                time_values.set(string_time, MATRIX4F_IDENTITY);
+            }
+
+            Matrix4f value_matrix = time_values.get(string_time)!!;
+
+            switch (channel.target.path) {
+                case TRANSLATION: {
+                    value_matrix = value_matrix.translate(entry.value.xyz);
+                }
+                case ROTATION: {
+                    value_matrix = value_matrix.mul((Quaternionf){entry.value.x, entry.value.y, entry.value.z, entry.value.w}.to_matrixf());
+                }
+                case SCALE: value_matrix = value_matrix.scale(entry.value.xyz);
+                default:  {}
+            }
+
+            time_values.set(string_time, value_matrix);
+        }
+    }
+
+    // uint index = 0;
+    // time_values.@each_entry(;item) {
+    //     index += 1;
+    //     String[] key = item.key.split(mem, " ");
+    //     defer mem::free(key);
+
+    //     uint node_index = key[0].to_uint()!!;
+    //     float time = key[1].to_float()!!;
+
+    //     gltf::Node node = gltf.nodes[node_index];
+
+    //     AnimationRow row = {
+    //         .matrix = node.global_matrix().mul(node.inverse_bind).transpose(),
+    //         .time = time
+    //     };
+
+    //     io::printfn("%s %s %s", node_index, time, row.matrix.m);
+    //     ecs::@upload(manager, component, &row, size: AnimationRow.sizeof, offset: index * AnimationRow.sizeof);
+    // };
 }
 
 
