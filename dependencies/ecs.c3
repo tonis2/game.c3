@@ -20,13 +20,14 @@ enum GpuType : uint
 
 interface Allocator
 {
-    fn void setUsedSize(usz size);
+    fn usz total_size();
+    fn void set_used_size(usz size);
     fn char* data();
     fn void upload(void* data, usz size, usz offset);
-    fn ulong getAddress();
-    fn usz usedSize();
-    fn uint getType();
-    fn void* getBuffer();
+    fn ulong get_address();
+    fn usz get_used_size();
+    fn uint get_type();
+    fn void* get_buffer();
     fn void free();
 }
 
@@ -113,31 +114,34 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
     });
 }   
 
-fn Component EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
+fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
+
+    if ((buffer.total_size() - buffer.get_used_size()) < size) return COMPONENT_BUFFER_OVERFLOW?;
+
     Component component = {
         .id = (uint)self.components.len(),
         .size = size,
         .buffer = buffer_index,
-        .offset = buffer.usedSize()
+        .offset = buffer.get_used_size()
     };
 
     self.components.push(component);
  
     if (data != null) {
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
         } else {
             // io::printfn("%d", buffer_index);
-            buffer.upload(data, size, buffer.usedSize());
+            buffer.upload(data, size, buffer.get_used_size());
         }
     }
 
-    buffer.setUsedSize(buffer.usedSize() + size);
+    buffer.set_used_size(buffer.get_used_size() + size);
     return component;
 }
 
-macro Component EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
+macro Component? EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
     uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
     //$typeof(#type).typeid.kindof == STRUCT &&& 
     if (size == 0 && data == null) {
@@ -150,7 +154,7 @@ macro Component EntityManager.@create_component(&self, #type = null, uint size =
     }
 }
 
-macro Entity EntityManager.@create_entity(&self, ...) {
+macro Entity? EntityManager.@create_entity(&self, ...) {
     String type_name;
     Entity entity = {.id = (uint)self.entities.len()};
 
@@ -173,7 +177,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             // Todo: Component needs name
             component = $vaarg[$i];
         $else
-            component = self.@create_component($vaarg[$i], buffer_index: buffer_index);
+            component = self.@create_component($vaarg[$i], buffer_index: buffer_index)!;
         $endif
     
         if (!self.keys.has_key(type_name)) {
@@ -208,11 +212,11 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-macro void Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
+macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
     String type_name = $typeof(#type).nameof;
     uint size = $typeof(#type).sizeof;
 
-    Component component = manager.@create_component(#type, buffer_index: buffer_index);
+    Component component = manager.@create_component(#type, buffer_index: buffer_index)!;
 
     if (!manager.keys.has_key(type_name)) {
         manager.keys.set(type_name, 
@@ -311,14 +315,14 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif;
 
     $if @typekind(#data) == POINTER: {
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
             buffer.upload(#data, data_size, data_offset);
         }
     }
     $else {
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, &&#data, data_size, data_offset);
         } else  {
             buffer.upload(&&#data, data_size, data_offset);
@@ -329,7 +333,6 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 
 
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
-    
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
         usz type_offset = #target.offset;
@@ -351,7 +354,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 
 macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
-        return manager.buffers[#target.buffer].getAddress() + #target.offset + offset;
+        return manager.buffers[#target.buffer].get_address() + #target.offset + offset;
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -363,7 +366,7 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
 
         Allocator buffer = manager.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
-        return manager.buffers[component.buffer].getAddress() + type_offset + offset;
+        return manager.buffers[component.buffer].get_address() + type_offset + offset;
     $endif;
 }
 
@@ -421,11 +424,12 @@ fn void Buffer.free(&self) @dynamic {
 }
 
 fn char* Buffer.data(&self) @dynamic => self.mapped;
-fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
-fn ulong Buffer.getAddress(&self) @dynamic => 0;
-fn uint Buffer.getType(&self) @dynamic => 2;
-fn void* Buffer.getBuffer(&self) @dynamic => null;
-fn void Buffer.setUsedSize(&self, usz size) @dynamic {
+fn usz Buffer.total_size(&self) @dynamic => uint.max;
+fn usz Buffer.get_used_size(&self) @dynamic => self.used_size;
+fn ulong Buffer.get_address(&self) @dynamic => 0;
+fn uint Buffer.get_type(&self) @dynamic => 2;
+fn void* Buffer.get_buffer(&self) @dynamic => null;
+fn void Buffer.set_used_size(&self, usz size) @dynamic {
     self.ensure_size(size);
     self.used_size = size;
 }
@@ -676,7 +680,7 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
     Animations animations =  {
         .skin = skin_data,
         .manager = manager,
-        .component = manager.@create_component(size: (uint)animations.skin.nodes.len() * Matrix4f.sizeof, buffer_index: info.buffer_index),
+        .component = manager.@create_component(size: (uint)animations.skin.nodes.len() * Matrix4f.sizeof, buffer_index: info.buffer_index)!,
     };
 
     foreach (index, animation: info.channels) {

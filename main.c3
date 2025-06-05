@@ -88,7 +88,7 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
     )!!;
 
     device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, (vk::Buffer)target_buffer.getBuffer(), 1, &&(BufferCopy){
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, (vk::Buffer)target_buffer.get_buffer(), 1, &&(BufferCopy){
             .srcOffset = 0,
             .dstOffset = offset,
             .size = size
@@ -157,10 +157,10 @@ fn void main()
 
     defer manager.free();
 
-    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3);
-    Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3);
-    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3);
-    Component animations = manager.@create_component(size: 5_000_000, buffer_index: 3);
+    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
 
     Animations char_animation = ecs::create_animation({
         .skin = gltf.skins[0],
@@ -198,7 +198,7 @@ fn void main()
                  .baseColorTexture = material.baseColorTexture.source,
                  .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
             }
-        ));
+        )!!);
     };
 
     defer materials.free();
@@ -221,7 +221,7 @@ fn void main()
             gltf::Mesh mesh = gltf.meshes[node.mesh];
     
             Matrix4f matrix = node.global_matrix();
-            Entity node_entity = manager.@create_entity();
+            Entity node_entity = manager.@create_entity()!!;
             if (node.name == "Player") player = node_entity;
 
             if (!mesh_list.has_key(mesh.name)) {
@@ -295,22 +295,22 @@ fn void main()
                     .node_matrix = render_data.node_matrix,
                 };
 
-                node_entity.@add(collider, &manager);
+                node_entity.@add(collider, &manager)!!;
 
                 if (node.name != "Player") {
-                    node_entity.@add(mesh_aabb.transform(render_data.node_matrix), &manager);
+                    node_entity.@add(mesh_aabb.transform(render_data.node_matrix), &manager)!!;
                 } else {
-                    node_entity.@add(mesh_aabb, &manager);
+                    node_entity.@add(mesh_aabb, &manager)!!;
                 }
              
                 node_entity.@add((State) {
                     .collides = false,
                     .index = index,
                     .check_collision = node.name != "Player" ? true : false
-                }, &manager);
+                }, &manager)!!;
             }
       
-            node_entity.@add(render_data, &manager);
+            node_entity.@add(render_data, &manager)!!;
         }
     }
 
@@ -326,7 +326,7 @@ fn void main()
             .vertices = ecs::@get_address(manager, vertices),
             .draw_cmds = draw_memory.address,
         },
-    );
+    )!!;
 
     foreach (image : gltf.images) {
         stb::Image image_data;
