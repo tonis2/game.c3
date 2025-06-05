@@ -282,7 +282,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
 <*
  @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
 *>
-macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0) {
+macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0, bool update_size = false) {
     usz data_size = size;
     Allocator buffer;
     usz data_offset = 0;
@@ -301,6 +301,11 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $if $typeof(#target).nameof == "Component":
         buffer = manager.buffers[#target.buffer];
         data_offset = #target.offset + offset;
+        
+        if (update_size) {
+            Component* component = manager.components.get_ref(#target.id);
+            component.used_size += data_offset + size;
+        };
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -312,6 +317,11 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 
         data_offset = (uint)manager.components[manager.views[index]!!.component].offset + offset;
         buffer = manager.buffers[component_info.buffer];
+
+        if (update_size) {
+            Component* component = manager.components.get_ref(component_info.id);
+            component.used_size += data_offset + size;
+        };
     $endif;
 
     $if @typekind(#data) == POINTER: {
@@ -658,11 +668,8 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             return COMPONENT_BUFFER_OVERFLOW?;
         }
 
-        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
-        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
-
-        indices.used_size += index_data.byte_size();
-        vertices.used_size += vertex_data.byte_size();
+        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size, update_size: true);
+        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size, update_size: true);
 
         data.aabb = bounding_box;
 
@@ -834,54 +841,128 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
 }
 
 
-struct AnimationRow {
+struct AnimationItem {
     Matrix4f matrix;
     float time;
+    uint node;
 }
 
-fn void? load_step_animation(EntityManager manager, Component component, gltf::Animation animation, Gltf gltf) {
-    HashMap{String, Matrix4f} time_values;
-    defer time_values.free();
+alias AnimationRow = List{AnimationItem};
 
-    foreach (channel : animation.channels) {
+fn AnimationItem* AnimationRow.find_time(&self, float time) {
+    foreach (&item: self) {
+        if (item.time >= time) {
+            return item;
+        }
+    }
+    return null;
+}
+
+fn void? load_step_animation(EntityManager manager, Component component, gltf::Animation animation, Gltf gltf, uint samples = 60) {
+    // List{AnimationRow} joint_matrixes;
+
+    Accessor max_samples;
+
+    foreach (uint channel_index, channel : animation.channels) {
         AnimationSampler sampler = animation.samplers[channel.sampler];
+        Accessor time = gltf.accessors[sampler.input];
+        if (time.count > max_samples.count) max_samples = time;
+    }
 
-        Accessor time_accessor = gltf.accessors[sampler.input];
-        Accessor value_accessor = gltf.accessors[sampler.output];
+    for (ulong i; i < max_samples.count; i++) {
+        float sample_time = gltf.@cast_buffer(max_samples, i, float);
 
-        uint node_index = (uint)channel.target.node;
+        // Matrix4f matrix = MATRIX4F_IDENTITY;
+        foreach (usz channel_index, channel : animation.channels) {
+            AnimationSampler sampler = animation.samplers[channel.sampler];
 
-        io::printfn("%s %s", node_index, time_accessor.count);
+            if (channel_index % 3 == 0 && channel_index != 0) {
+                gltf::Node prev_node = gltf.nodes[animation.channels[channel_index - 1].target.node];
 
-        for (ulong i; i < time_accessor.count; i++) {
-            AnimationValue entry = {
-                .time = gltf.@cast_buffer(time_accessor, i, float),
-                .value = gltf.@cast_buffer(value_accessor, i, Vec4f),
+                Matrix4f node_matrix = prev_node.global_matrix().mul(prev_node.inverse_bind).transpose();
+                ecs::@upload(manager, component, &node_matrix, size: Matrix4f.sizeof, offset: i * channel_index * Matrix4f.sizeof);
+                // reset matrix
+                // matrix = MATRIX4F_IDENTITY;
             };
 
-            char[80] buffer;
-            String string_time = (String)io::bprintf(&buffer, "%s %s", node_index, entry.time)!!;
-            if (!time_values.has_key(string_time)) {
-                time_values.set(string_time, MATRIX4F_IDENTITY);
-            }
+            gltf::Node node = gltf.nodes[channel.target.node];
+            Accessor time_accessor = gltf.accessors[sampler.input];
+            Accessor value_accessor = gltf.accessors[sampler.output];
 
-            Matrix4f value_matrix = time_values.get(string_time)!!;
+            for TIME_LOOP: (ulong j; j < time_accessor.count; j++) {
+                AnimationValue entry = {
+                    .time = gltf.@cast_buffer(time_accessor, j, float),
+                    .value = gltf.@cast_buffer(value_accessor, j, Vec4f),
+                };
 
-            switch (channel.target.path) {
-                case TRANSLATION: {
-                    value_matrix = value_matrix.translate(entry.value.xyz);
+                if (sample_time < entry.time) {
+                    switch (channel.target.path) {
+                        case TRANSLATION: {
+                            node.translation = entry.value.xyz;
+                        }
+                        case ROTATION: {
+                            node.rotation = (Quaternionf){.v = entry.value};
+                        }
+                        case SCALE: {
+                            node.scale = entry.value.xyz;
+                        }
+                        default: {}
+                    }
+                    break TIME_LOOP;
                 }
-                case ROTATION: {
-                    value_matrix = value_matrix.mul((Quaternionf){entry.value.x, entry.value.y, entry.value.z, entry.value.w}.to_matrixf());
-                }
-                case SCALE: value_matrix = value_matrix.scale(entry.value.xyz);
-                default:  {}
             }
-
-            time_values.set(string_time, value_matrix);
         }
     }
 
+    // 
+    // foreach (uint channel_index, channel : animation.channels) {
+    //     AnimationSampler sampler = animation.samplers[channel.sampler];
+
+    //     Accessor time_accessor = gltf.accessors[sampler.input];
+    //     Accessor value_accessor = gltf.accessors[sampler.output];
+
+    //     uint node_index = (uint)channel.target.node;
+
+
+    //     AnimationRow* row = joint_matrixes.get_ref(joint_row);
+    //     io::printfn("%s %s", joint_row, time_accessor.count);
+    //     for (ulong i; i < time_accessor.count; i++) {
+ 
+
+    //         AnimationItem* item = row.find_time(entry.time);
+
+    //         if (item == null) {
+    //             row.push({
+    //                 MATRIX4F_IDENTITY,
+    //                 entry.time,
+    //                 node_index
+    //             });
+    //             item = row.get_ref(row.len() - 1);
+    //         }
+
+    //         switch (channel.target.path) {
+    //             case TRANSLATION: {
+    //                 item.matrix = item.matrix.translate(entry.value.xyz);
+    //             }
+    //             case ROTATION: {
+    //                 item.matrix = item.matrix.mul((Quaternionf){entry.value.x, entry.value.y, entry.value.z, entry.value.w}.to_matrixf());
+    //             }
+    //             case SCALE: item.matrix = item.matrix.scale(entry.value.xyz);
+    //             default:  {}
+    //         }
+    //     }
+    // }
+
+    // AnimationRow row = joint_matrixes[22];
+
+    // for (uint i; i < times; i++) {
+
+    // }
+
+    // foreach (item: row) {
+    //     io::printfn("%s %s", item.time, item.matrix.m);
+    // }
+    
     // uint index = 0;
     // time_values.@each_entry(;item) {
     //     index += 1;
