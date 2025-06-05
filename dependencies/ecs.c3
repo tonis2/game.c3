@@ -304,7 +304,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         
         if (update_size) {
             Component* component = manager.components.get_ref(#target.id);
-            component.used_size += data_offset + size;
+            component.used_size += size;
         };
     $endif;
 
@@ -320,7 +320,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 
         if (update_size) {
             Component* component = manager.components.get_ref(component_info.id);
-            component.used_size += data_offset + size;
+            component.used_size += size;
         };
     $endif;
 
@@ -668,8 +668,11 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             return COMPONENT_BUFFER_OVERFLOW?;
         }
 
-        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size, update_size: true);
-        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size, update_size: true);
+        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
+        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
+
+        indices.used_size += index_data.byte_size();
+        vertices.used_size += vertex_data.byte_size();
 
         data.aabb = bounding_box;
 
