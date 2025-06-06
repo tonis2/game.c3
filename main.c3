@@ -505,17 +505,12 @@ fn void main()
         {DOWN_ARROW, {0, -speed, 0}},
     };
 
-    double elapsed_time = 0;
-
-    char_animation.run_animation("zombie_walk", 3.5)!!;
-
-    io::printfn("------");
-
-      
+  
     while (running) {
         NanoDuration start_time = render_time.mark();
-        elapsed_time += animation_time.mark().to_sec();
-        if (elapsed_time > 5.5) elapsed_time = 0;
+        double frame_time = animation_time.to_now().to_sec();
+
+        if (frame_time > 5.5) animation_time = clock::now();
 
         EventMap event = win.getEvent();
 
@@ -527,7 +522,7 @@ fn void main()
             animation: gltf.find_animation("zombie_walk"),
             skin: gltf.skins[0],
             gltf: gltf,
-            frame_time: elapsed_time
+            frame_time: frame_time
         )!!;
        
         if (event.is_pressed(LEFT_MOUSE)) {
