@@ -756,7 +756,6 @@ fn void? Animations.run_animation(&self, String name, double time) {
     foreach (index, joint: self.skin.joints) {
         Node joint_node = self.skin.nodes[joint];
         Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
-        io::printfn("%s", matrix.m);
         ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
@@ -847,7 +846,7 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
 }
 
 fn void? build_joint_matrix(EntityManager manager, Component component, gltf::Animation animation, gltf::Skin skin, Gltf gltf, double frame_time) {
-    foreach JOINTS: (joint_index, joint: skin.joints) {
+    foreach (joint_index, joint: skin.joints) {
         foreach CHANNELS: (channel_index, channel : animation.channels) {
             AnimationSampler sampler = animation.samplers[channel.sampler];
             Accessor time_accessor = gltf.accessors[sampler.input];
@@ -898,7 +897,7 @@ fn void? build_joint_matrix(EntityManager manager, Component component, gltf::An
                         }
                     }
             
-                    break CHANNELS;
+                    break;
                 }
             }
         }
@@ -907,7 +906,6 @@ fn void? build_joint_matrix(EntityManager manager, Component component, gltf::An
     foreach (index, joint: skin.joints) {
         gltf::Node joint_node = gltf.nodes[joint];
         Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
-        io::printfn("%s", matrix.m);
         ecs::@upload(manager, component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }

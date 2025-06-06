@@ -511,14 +511,6 @@ fn void main()
 
     io::printfn("------");
 
-    ecs::build_joint_matrix(
-        manager: manager,
-        component: animations,
-        animation: gltf.find_animation("zombie_walk"),
-        skin: gltf.skins[0],
-        gltf: gltf,
-        frame_time: 3.5
-    )!!;
       
     while (running) {
         NanoDuration start_time = render_time.mark();
@@ -529,7 +521,14 @@ fn void main()
 
         // if (!gltf.animations.is_empty()) char_animation.run_animation("zombie_walk", animation_time.mark().to_sec())!!;
 
-
+        ecs::build_joint_matrix(
+            manager: manager,
+            component: animations,
+            animation: gltf.find_animation("zombie_walk"),
+            skin: gltf.skins[0],
+            gltf: gltf,
+            frame_time: elapsed_time
+        )!!;
        
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
