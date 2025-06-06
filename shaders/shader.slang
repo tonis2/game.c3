@@ -55,6 +55,7 @@ struct PushData
 {
     uint draw_index;
     uint8_t collides;
+    row_major float4x4* animations;
 };
 
 [vk_push_constant]
@@ -106,10 +107,16 @@ FragmentData vertexMain(VertexInput input)
     if (draw.skin_data != nullptr)
     {
         skin_matrix =
-            vertex.skin_weight[0] * draw.skin_data[vertex.skin_pos[0]] +
-            vertex.skin_weight[1] * draw.skin_data[vertex.skin_pos[1]] +
-            vertex.skin_weight[2] * draw.skin_data[vertex.skin_pos[2]] +
-            vertex.skin_weight[3] * draw.skin_data[vertex.skin_pos[3]];
+        vertex.skin_weight[0] * push_constant.animations[vertex.skin_pos[0]] +
+        vertex.skin_weight[1] * push_constant.animations[vertex.skin_pos[1]] +
+        vertex.skin_weight[2] * push_constant.animations[vertex.skin_pos[2]] +
+        vertex.skin_weight[3] * push_constant.animations[vertex.skin_pos[3]];
+
+        // skin_matrix =
+        //     vertex.skin_weight[0] * draw.skin_data[vertex.skin_pos[0]] +
+        //     vertex.skin_weight[1] * draw.skin_data[vertex.skin_pos[1]] +
+        //     vertex.skin_weight[2] * draw.skin_data[vertex.skin_pos[2]] +
+        //     vertex.skin_weight[3] * draw.skin_data[vertex.skin_pos[3]];
     }
 
     float4x4 node_matrix = mul(draw.node_matrix, skin_matrix);

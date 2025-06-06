@@ -78,6 +78,8 @@ fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
     return manager;
 }
 
+fn void Component.reset(&self) => self.used_size = 0;
+
 fn void EntityManager.free(&self) {
     // foreach (buffer: self.buffers) {
     //     buffer.free();
@@ -754,6 +756,7 @@ fn void? Animations.run_animation(&self, String name, double time) {
     foreach (index, joint: self.skin.joints) {
         Node joint_node = self.skin.nodes[joint];
         Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
+        io::printfn("%s", matrix.m);
         ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
@@ -843,148 +846,70 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
     return response;
 }
 
-
-struct AnimationItem {
-    Matrix4f matrix;
-    float time;
-    uint node;
-}
-
-alias AnimationRow = List{AnimationItem};
-
-fn AnimationItem* AnimationRow.find_time(&self, float time) {
-    foreach (&item: self) {
-        if (item.time >= time) {
-            return item;
-        }
-    }
-    return null;
-}
-
-fn void? load_step_animation(EntityManager manager, Component component, gltf::Animation animation, Gltf gltf, uint samples = 60) {
-    // List{AnimationRow} joint_matrixes;
-
-    Accessor max_samples;
-
-    foreach (uint channel_index, channel : animation.channels) {
-        AnimationSampler sampler = animation.samplers[channel.sampler];
-        Accessor time = gltf.accessors[sampler.input];
-        if (time.count > max_samples.count) max_samples = time;
-    }
-
-    for (ulong i; i < max_samples.count; i++) {
-        float sample_time = gltf.@cast_buffer(max_samples, i, float);
-
-        // Matrix4f matrix = MATRIX4F_IDENTITY;
-        foreach (usz channel_index, channel : animation.channels) {
+fn void? build_joint_matrix(EntityManager manager, Component component, gltf::Animation animation, gltf::Skin skin, Gltf gltf, double frame_time) {
+    foreach JOINTS: (joint_index, joint: skin.joints) {
+        foreach CHANNELS: (channel_index, channel : animation.channels) {
             AnimationSampler sampler = animation.samplers[channel.sampler];
-
-            if (channel_index % 3 == 0 && channel_index != 0) {
-                gltf::Node prev_node = gltf.nodes[animation.channels[channel_index - 1].target.node];
-
-                Matrix4f node_matrix = prev_node.global_matrix().mul(prev_node.inverse_bind).transpose();
-                ecs::@upload(manager, component, &node_matrix, size: Matrix4f.sizeof, offset: i * channel_index * Matrix4f.sizeof);
-                // reset matrix
-                // matrix = MATRIX4F_IDENTITY;
-            };
-
-            gltf::Node node = gltf.nodes[channel.target.node];
             Accessor time_accessor = gltf.accessors[sampler.input];
             Accessor value_accessor = gltf.accessors[sampler.output];
 
-            for TIME_LOOP: (ulong j; j < time_accessor.count; j++) {
-                AnimationValue entry = {
+            for (ulong j; j < time_accessor.count; j++) {
+                gltf::Node* node = gltf.nodes.get_ref(channel.target.node);
+                AnimationValue current_value = {
                     .time = gltf.@cast_buffer(time_accessor, j, float),
                     .value = gltf.@cast_buffer(value_accessor, j, Vec4f),
                 };
-
-                if (sample_time < entry.time) {
-                    switch (channel.target.path) {
-                        case TRANSLATION: {
-                            node.translation = entry.value.xyz;
+                
+                if (current_value.time > frame_time) {
+                    if (sampler.interpolation == STEP) {
+                        switch (channel.target.path) {
+                            case TRANSLATION: {
+                                node.translation = current_value.value.xyz;
+                            }
+                            case ROTATION: {
+                                node.rotation = (Quaternionf){.v = current_value.value};
+                            }
+                            case SCALE: {
+                                node.scale = current_value.value.xyz;
+                            }
+                            default: {}
                         }
-                        case ROTATION: {
-                            node.rotation = (Quaternionf){.v = entry.value};
-                        }
-                        case SCALE: {
-                            node.scale = entry.value.xyz;
-                        }
-                        default: {}
                     }
-                    break TIME_LOOP;
+
+                    if (sampler.interpolation == LINEAR) {
+                        AnimationValue prev_value = {
+                            .time = gltf.@cast_buffer(time_accessor, j - 1, float),
+                            .value = gltf.@cast_buffer(value_accessor, j - 1, Vec4f),
+                        };
+
+                        float interpolation_value = (float)(frame_time - prev_value.time) / (float)(current_value.time - prev_value.time);
+                  
+                        switch (channel.target.path) {
+                            case TRANSLATION: {
+                                node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
+                            }
+                            case ROTATION: {
+                                node.rotation = (Quaternionf){.v = prev_value.value}.slerp({.v = current_value.value}, interpolation_value);
+                            }
+                            case SCALE: {
+                                node.scale = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
+                            }
+                            default: {}
+                        }
+                    }
+            
+                    break CHANNELS;
                 }
             }
         }
     }
 
-    // 
-    // foreach (uint channel_index, channel : animation.channels) {
-    //     AnimationSampler sampler = animation.samplers[channel.sampler];
-
-    //     Accessor time_accessor = gltf.accessors[sampler.input];
-    //     Accessor value_accessor = gltf.accessors[sampler.output];
-
-    //     uint node_index = (uint)channel.target.node;
-
-
-    //     AnimationRow* row = joint_matrixes.get_ref(joint_row);
-    //     io::printfn("%s %s", joint_row, time_accessor.count);
-    //     for (ulong i; i < time_accessor.count; i++) {
- 
-
-    //         AnimationItem* item = row.find_time(entry.time);
-
-    //         if (item == null) {
-    //             row.push({
-    //                 MATRIX4F_IDENTITY,
-    //                 entry.time,
-    //                 node_index
-    //             });
-    //             item = row.get_ref(row.len() - 1);
-    //         }
-
-    //         switch (channel.target.path) {
-    //             case TRANSLATION: {
-    //                 item.matrix = item.matrix.translate(entry.value.xyz);
-    //             }
-    //             case ROTATION: {
-    //                 item.matrix = item.matrix.mul((Quaternionf){entry.value.x, entry.value.y, entry.value.z, entry.value.w}.to_matrixf());
-    //             }
-    //             case SCALE: item.matrix = item.matrix.scale(entry.value.xyz);
-    //             default:  {}
-    //         }
-    //     }
-    // }
-
-    // AnimationRow row = joint_matrixes[22];
-
-    // for (uint i; i < times; i++) {
-
-    // }
-
-    // foreach (item: row) {
-    //     io::printfn("%s %s", item.time, item.matrix.m);
-    // }
-    
-    // uint index = 0;
-    // time_values.@each_entry(;item) {
-    //     index += 1;
-    //     String[] key = item.key.split(mem, " ");
-    //     defer mem::free(key);
-
-    //     uint node_index = key[0].to_uint()!!;
-    //     float time = key[1].to_float()!!;
-
-    //     gltf::Node node = gltf.nodes[node_index];
-
-    //     AnimationRow row = {
-    //         .matrix = node.global_matrix().mul(node.inverse_bind).transpose(),
-    //         .time = time
-    //     };
-
-    //     io::printfn("%s %s %s", node_index, time, row.matrix.m);
-    //     ecs::@upload(manager, component, &row, size: AnimationRow.sizeof, offset: index * AnimationRow.sizeof);
-    // };
+    foreach (index, joint: skin.joints) {
+        gltf::Node joint_node = gltf.nodes[joint];
+        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
+        io::printfn("%s", matrix.m);
+        ecs::@upload(manager, component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+    }
 }
 
 
@@ -992,7 +917,7 @@ fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, Anima
     foreach (&channel: self) {
         channel.elapsed_time += current_time;
         if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
-
+     
         for (uint index = 0; index < channel.value_count; index++) {
             AnimationValue current_value = values[index + channel.value_offset];
 

@@ -1499,7 +1499,7 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
         0, scale.y, 0, translation.y,
         0, 0, scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
-    };
+    }.mul(rotation.to_matrixf());
 }
 
 fn Matrix4f Node.global_matrix(self) {

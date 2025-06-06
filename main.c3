@@ -27,6 +27,7 @@ struct MoveEvent {
 struct PushConstantData {
    uint draw_index;
    bool collides;
+   vk::DeviceAddress animation;
 }
 
 struct Material @tag("BUFFER", 3) {
@@ -157,30 +158,26 @@ fn void main()
 
     defer manager.free();
 
+    Component animations = manager.@create_component(size: 1_000_000, buffer_index: 2)!!;
+
     Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
 
-    Animations char_animation = ecs::create_animation({
-        .skin = gltf.skins[0],
-        .buffer_index = 2,
-        .channels = { 
-                gltf.find_animation("zombie_walk")
+    Animations char_animation;
+
+    if (!gltf.animations.is_empty()) {
+        char_animation = ecs::create_animation({
+                .skin = gltf.skins[0],
+                .buffer_index = 2,
+                .channels = { gltf.find_animation("zombie_walk") },
             },
-        },
-        gltf,
-        manager,
-    )!!;
+            gltf,
+            manager,
+        )!!;
+    }   
 
     defer char_animation.free();
-
-    // ecs::load_step_animation(
-    //     manager: manager,
-    //     component: animations,
-    //     animation: gltf.find_animation("zombie_walk"),
-    //     gltf: gltf,
-    // )!!;
 
     List{Component} materials;
 
@@ -352,7 +349,7 @@ fn void main()
         image_data.free();
     }
 
-    gltf.free();
+    defer gltf.free();
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
@@ -508,13 +505,32 @@ fn void main()
         {DOWN_ARROW, {0, -speed, 0}},
     };
 
+    double elapsed_time = 0;
+
+    char_animation.run_animation("zombie_walk", 3.5)!!;
+
+    io::printfn("------");
+
+    ecs::build_joint_matrix(
+        manager: manager,
+        component: animations,
+        animation: gltf.find_animation("zombie_walk"),
+        skin: gltf.skins[0],
+        gltf: gltf,
+        frame_time: 3.5
+    )!!;
+      
     while (running) {
         NanoDuration start_time = render_time.mark();
-        
+        elapsed_time += animation_time.mark().to_sec();
+        if (elapsed_time > 5.5) elapsed_time = 0;
+
         EventMap event = win.getEvent();
 
-        char_animation.run_animation("zombie_walk", animation_time.mark().to_sec())!!;
-        
+        // if (!gltf.animations.is_empty()) char_animation.run_animation("zombie_walk", animation_time.mark().to_sec())!!;
+
+
+       
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
             camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
@@ -555,13 +571,6 @@ fn void main()
                     is_dirty = true;
                 }
             }
-
-            // if (event.is_pressed(T)) {
-            //     Matrix4f translation = player_render.node_matrix.scale({1, 1.05, 1});
-            //     collider_render.node_matrix = player_collider.to_matrix();
-            //     // player_render.node_matrix = translation;
-            //     is_dirty = true;
-            // }
 
             if (is_dirty && state.check_collision) {
                 if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
@@ -658,6 +667,7 @@ fn void main()
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
                 .collides = state.collides,
+                .animation = ecs::@get_address(manager, animations)
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -665,17 +675,17 @@ fn void main()
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
-        manager.@query("Collider"; Entity entity) {
-            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
+        // manager.@query("Collider"; Entity entity) {
+        //     uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
       
-            PushConstantData constant_data = {
-                .draw_index = offset / Collider.sizeof,
-            };
+        //     PushConstantData constant_data = {
+        //         .draw_index = offset / Collider.sizeof,
+        //     };
 
-            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
-        };
+        //     vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+        //     vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+        //     vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
+        // };
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
