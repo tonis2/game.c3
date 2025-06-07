@@ -56,7 +56,7 @@ struct Render @tag("BUFFER", 1) {
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
-    vk::DeviceAddress skin_data;
+    vk::DeviceAddress animation;
     vk::DeviceAddress material;
     vk::DeviceAddress instances;
     Matrix4f node_matrix;
@@ -164,21 +164,6 @@ fn void main()
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
 
-    Animations char_animation;
-
-    if (!gltf.animations.is_empty()) {
-        char_animation = ecs::create_animation({
-                .skin = gltf.skins[0],
-                .buffer_index = 2,
-                .channels = { gltf.find_animation("zombie_walk") },
-            },
-            gltf,
-            manager,
-        )!!;
-    }   
-
-    defer char_animation.free();
-
     List{Component} materials;
 
     foreach (material: gltf.materials) {
@@ -244,7 +229,7 @@ fn void main()
                 .node_matrix = matrix,
                 .instanceCount = 1,
                 .firstInstance = 0,
-                .skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
+                .animation = node.has_skin() ? ecs::@get_address(manager, animations) : 0
             };
 
             if (node.attributes.len() > 0) {
@@ -504,7 +489,6 @@ fn void main()
         {UP_ARROW, {0, speed, 0}},
         {DOWN_ARROW, {0, -speed, 0}},
     };
-
   
     while (running) {
         NanoDuration start_time = render_time.mark();
@@ -661,7 +645,6 @@ fn void main()
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
                 .collides = state.collides,
-                .animation = ecs::@get_address(manager, animations)
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
