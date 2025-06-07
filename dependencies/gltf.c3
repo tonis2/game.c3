@@ -14,7 +14,6 @@ import std::collections::map;
 
 alias SkinList = List{Skin};
 alias AttributeMap = HashMap{String, usz};
-alias AnimationChannels = List{AnimationChannel};
 alias Materials = List{Material};
 alias NodeList = List{Node};
 
@@ -169,7 +168,6 @@ struct Node {
     int light;
     Quaternionf rotation;
     Matrix4f matrix;
-    Matrix4f inverse_bind;
     Vec3f scale;
     Vec3f translation;
     List{uint} children;
@@ -317,16 +315,6 @@ struct AnimationValue {
     Vec4f value;
 }
 
-struct AnimationChannel {
-    double elapsed_time;
-    double max_time;
-    AnimationProperty path;
-    uint node;
-    any node_ptr;
-    Interpolation interpolation;
-    List{AnimationValue} values;
-}
-
 // Parsing JSON to structs
 fn void Scene.from_json(&self, Object* json) {
     String? name = json.get_string("name");
@@ -349,7 +337,6 @@ fn void Node.from_json(&self, Object* json) {
     self.scale = {1.0, 1.0, 1.0};
     self.translation = {0, 0, 0};
     self.matrix = MATRIX4F_IDENTITY;
-    self.inverse_bind = MATRIX4F_IDENTITY;
 
     String? name = json.get_string("name");
     // Parse node transforms
@@ -1241,23 +1228,6 @@ fn Gltf? parse(InStream stream) {
         }
     }
 
-    foreach (skin: content.skins) {
-        List{Matrix4f} inverseBindMatrices;
-        defer inverseBindMatrices.free();
-
-        Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
-
-        for (uint i = 0; i < skin_accessor.count; i++) {
-            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
-            inverseBindMatrices.push(matrix);
-        }
-
-        foreach (uint i, joint_index: skin.joints) {
-            Node* node = content.nodes.get_ref(joint_index);
-            node.inverse_bind = (i <= inverseBindMatrices.len()) ? inverseBindMatrices[i] : MATRIX4F_IDENTITY;
-        }
-    }
-
     return content;
 }
 
@@ -1319,135 +1289,6 @@ fn Animation? Gltf.find_animation(Gltf* self, String name) {
         }
     }
     return KEY_NOT_FOUND?;
-}
-
-<*
- @require self.animations.len() > 0 "GLTF animations must not be empty"
- @require self.animations.len() >= indexes.len "Theres more load indexes, than GLTF animations"
-*>
-fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
-    AnimationChannels channels;
-    foreach (index: indexes) {
-        Animation animation = self.animations[index];
-        foreach (channel : animation.channels) {
-            AnimationSampler sampler = animation.samplers[channel.sampler];
-
-            Accessor time_accessor = self.accessors[sampler.input];
-            Accessor value_accessor = self.accessors[sampler.output];
-            
-            AnimationChannel frame = {
-                .elapsed_time = 0,
-                .path = channel.target.path,
-                .node = (uint)channel.target.node,
-                .interpolation = sampler.interpolation,
-            };
-
-            if (channel.target.path == POINTER) {
-                String[] pointer_values = channel.target.pointer.split(mem, "/");
-
-                if (pointer_values[1] == "materials" && pointer_values[4] == "baseColorTexture") {
-                    frame.node = pointer_values[2].to_int()!!;
-                    frame.node_ptr = &self.materials[frame.node].baseColorTexture.offset;
-                }
-
-                mem::free(pointer_values);
-            }
-
-            if (time_accessor.max.x > 0) {
-                frame.max_time = time_accessor.max.x;
-            } else {
-                frame.max_time = 1;
-                io::printfn("Animation has no max time");
-            }
-
-            for (ulong i; i < time_accessor.count; i++) {
-                frame.values.push({
-                    .time = self.@cast_buffer(time_accessor, i, float),
-                    .value = self.@cast_buffer(value_accessor, i, Vec4f),
-                });
-            }
-            channels.push(frame);
-        };
-    }
-
-    return channels;
-}
-
-<*
- @require time > 0 "Time must be bigger than 0"
-*>
-fn void AnimationChannels.run_animation(&self, Gltf* gltf, double time) {
-    foreach (&channel: self) {
-        channel.elapsed_time += time;
-        if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
-
-        foreach (index, entry: channel.values) {
-            if (channel.elapsed_time < entry.time && index > 0) {
-                Node* node = &gltf.nodes[channel.node];
-                Vec4f next_value = entry.value;
-                double next_time = entry.time;
-
-                if (channel.path == WEIGHTS) {
-                    foreach (i, weight: node.weights) node.weights[i] = (float)channel.values[index * node.weights.len() + i].value.x;
-                } else {
-                    if (channel.interpolation == STEP) {
-                        switch (channel.path) {
-                            case POINTER: {
-                                any pointer = channel.node_ptr;
-                                switch (pointer.type) {
-                                    case Vec2f.typeid: mem::copy(pointer.ptr, &&next_value.xy, pointer.type.sizeof);
-                                    case Vec3f.typeid: mem::copy(pointer.ptr, &&next_value.xyz, pointer.type.sizeof);
-                                }
-                            }
-                            case TRANSLATION: {
-                                node.translation = next_value.xyz;
-                            }
-                            case ROTATION: {
-                               node.rotation = (Quaternionf){.v = next_value};
-                            }
-                            case SCALE: {
-                               node.scale = next_value.xyz;
-                            }
-                            default: {}
-                        }
-                    }
-
-                    if (channel.interpolation == LINEAR) {
-                        double prev_time = channel.values[index - 1].time;
-                        Vec4f prev_value = channel.values[index - 1].value;
-                        double interpolation_value = (channel.elapsed_time - prev_time) / (next_time - prev_time);
-
-                        switch (channel.path) {
-                            case POINTER: {
-                                any pointer = channel.node_ptr;
-                                // Copy new interpolated animation value to pointer
-                                switch (pointer.type) {
-                                    case Vec2f.typeid: {
-                                        Vec2f value = next_value.xy;
-                                        mem::copy(pointer.ptr, &value, pointer.type.sizeof);
-                                    }
-                                    case Vec3f.typeid: {
-                                        mem::copy(pointer.ptr, &&prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value), pointer.type.sizeof);
-                                    }
-                                }
-                            }
-                            case TRANSLATION: {
-                                node.translation = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
-                            }
-                            case ROTATION: {
-                                node.rotation = (Quaternionf){.v = prev_value}.slerp({.v = next_value}, (float)interpolation_value);
-                            }
-                            case SCALE: {
-                                node.scale = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
-                            }
-                            default: {}
-                        }
-                    }
-                }
-                break;
-            }
-        }
-    }
 }
 
 fn uint Accessor.componentLen(Accessor* self) {
@@ -1595,11 +1436,6 @@ fn void Gltf.debug_buffer(Gltf* self, Accessor accessor) {
     }
 
     io::printf(" \n _______ \n");
-}
-
-fn void AnimationChannels.release(&self) {
-    foreach (entry: self) entry.values.free();
-    self.free();
 }
 
 macro @when_extended(Object* object, String extension_name; @callback(Object* extension)) {
