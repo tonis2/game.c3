@@ -660,7 +660,6 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     }.mul(rotation.to_matrixf());
 }
 
-
 fn void? build_joint_matrix(EntityManager manager, Component component, gltf::Animation animation, gltf::Skin skin, Gltf gltf, double frame_time) {
     Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
 
@@ -670,6 +669,8 @@ fn void? build_joint_matrix(EntityManager manager, Component component, gltf::An
             Accessor time_accessor = gltf.accessors[sampler.input];
             Accessor value_accessor = gltf.accessors[sampler.output];
 
+            float max_frame_time = time_accessor.max[0];
+
             for (ulong j; j < time_accessor.count; j++) {
                 gltf::Node* node = gltf.nodes.get_ref(channel.target.node);
                 AnimationValue current_value = {
@@ -677,7 +678,7 @@ fn void? build_joint_matrix(EntityManager manager, Component component, gltf::An
                     .value = gltf.@cast_buffer(value_accessor, j, Vec4f),
                 };
                 
-                if (current_value.time > frame_time) {
+                if (current_value.time > frame_time && frame_time < max_frame_time) {
                     if (sampler.interpolation == STEP) {
                         switch (channel.target.path) {
                             case TRANSLATION: {
