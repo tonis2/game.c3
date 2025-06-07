@@ -498,8 +498,6 @@ fn void main()
 
         EventMap event = win.getEvent();
 
-        // if (!gltf.animations.is_empty()) char_animation.run_animation("zombie_walk", animation_time.mark().to_sec())!!;
-
         ecs::build_joint_matrix(
             manager: manager,
             component: animations,
