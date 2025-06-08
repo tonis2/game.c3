@@ -189,6 +189,7 @@ struct Mesh {
 
 struct Animation {
     String name;
+    float max_time;
     List{AnimationSampler} samplers;
     List{Channel} channels;
 }
@@ -1199,6 +1200,17 @@ fn Gltf? parse(InStream stream) {
        foreach (animation : animations.array) {
             Animation data;
             data.from_json(animation);
+      
+            foreach (channel_index, channel : data.channels) {
+                AnimationSampler sampler = data.samplers[channel.sampler];
+                Accessor time_accessor = content.accessors[sampler.input];
+                Accessor value_accessor = content.accessors[sampler.output];
+
+                if (time_accessor.max[0] != 0) {
+                    data.max_time = time_accessor.max[0];
+                }
+            }
+
             content.animations.push(data);
         }
     }
@@ -1227,6 +1239,9 @@ fn Gltf? parse(InStream stream) {
             }
         }
     }
+
+
+
 
     return content;
 }
@@ -1290,6 +1305,8 @@ fn Animation? Gltf.find_animation(Gltf* self, String name) {
     }
     return KEY_NOT_FOUND?;
 }
+
+macro bool Animation.equals(self, Animation b) @operator(==) => self.name == b.name;
 
 fn uint Accessor.componentLen(Accessor* self) {
     switch (self.type) {

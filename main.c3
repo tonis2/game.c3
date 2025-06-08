@@ -69,6 +69,13 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress draw_cmds;
 }
 
+struct AnimationInfo {
+   uint animation;
+   uint skin;
+   float max_time;
+   uint active_time;
+}
+
 typedef SceneLight @tag("BUFFER", 2) = Light;
 
 // Used to send buffer device addresses to GPU
@@ -159,7 +166,6 @@ fn void main()
     defer manager.free();
 
     Component animations = manager.@create_component(size: 1_000_000, buffer_index: 2)!!;
-
     Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
@@ -251,6 +257,27 @@ fn void main()
                 }
             }
 
+
+            if (node.has_skin()) {
+                gltf::Animation animation = gltf.find_animation("zombie_walk")!!;
+
+                AnimationInfo animation_info = {
+                    .skin = node.skin,
+                    .animation = (uint)gltf.animations.index_of(animation)!!,
+                    .max_time = animation.max_time,
+                    .active_time = 0
+                };
+
+                node_entity.@add(animation_info, &manager)!!;
+
+                // ecs::build_joint_matrix(
+                //     manager: manager,
+                //     component: animations,
+                //     gltf: gltf,
+                //     frame_time: frame_time
+                // )!!;
+            }
+
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
 
@@ -259,15 +286,6 @@ fn void main()
                 Aabb3 mesh_aabb = mesh_data.aabb;
 
                 MeshData collider_mesh = mesh_list["collider"]!!;
-
-                // MeshData bounding_box = ecs::load_mesh(
-                //     manager: manager,
-                //     vertices: &vertices,
-                //     indices: &indices,
-                //     mesh: ecs::create_bounding_box(mesh_aabb)
-                // )!!;
-
-                // io::printfn("%s %s", node.name, bounding_box.aabb.length_ratios(mesh_aabb));
             
                 Collider collider = {
                     .indexCount = collider_mesh.indexCount,
@@ -497,15 +515,6 @@ fn void main()
         if (frame_time > 5.5) animation_time = clock::now();
 
         EventMap event = win.getEvent();
-
-        ecs::build_joint_matrix(
-            manager: manager,
-            component: animations,
-            animation: gltf.find_animation("zombie_walk"),
-            skin: gltf.skins[0],
-            gltf: gltf,
-            frame_time: frame_time
-        )!!;
        
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
@@ -650,17 +659,17 @@ fn void main()
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
-        // manager.@query("Collider"; Entity entity) {
-        //     uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
+        manager.@query("Collider"; Entity entity) {
+            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
       
-        //     PushConstantData constant_data = {
-        //         .draw_index = offset / Collider.sizeof,
-        //     };
+            PushConstantData constant_data = {
+                .draw_index = offset / Collider.sizeof,
+            };
 
-        //     vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-        //     vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-        //     vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
-        // };
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
+        };
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
