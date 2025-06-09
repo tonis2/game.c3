@@ -45,8 +45,8 @@ struct Material @tag("BUFFER", 3) {
 }
 
 struct State {
-    bool collides;
     uint index;
+    bool collides;
     bool check_collision;
 }
 
@@ -74,6 +74,7 @@ struct AnimationInfo {
    uint skin;
    float max_time;
    uint active_time;
+   bool repeat;
 }
 
 typedef SceneLight @tag("BUFFER", 2) = Light;
@@ -85,6 +86,8 @@ Vec2f window_size = {1280, 620};
 char[*] shader = $embed("./shaders/shader.spv");
 
 DeviceContext context;
+
+Entity player;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -104,6 +107,51 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
     }!!;
 
     stage_buffer.free();
+}
+
+
+
+const float SPEED = 0.05;
+
+const MoveEvent[] MOVE_EVENTS = {
+    {W, {0, 0, -SPEED}},
+    {S, {0, 0, SPEED}},
+    {A, {-SPEED, 0, 0}},
+    {D, {SPEED, 0, 0}},
+    {UP_ARROW, {0, SPEED, 0}},
+    {DOWN_ARROW, {0, -SPEED, 0}},
+};
+
+fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
+    State state = ecs::@get(manager, entity, State);
+
+    Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+    Render entity_render = ecs::@get(manager, entity, Render);
+
+    Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
+    Render player_render = ecs::@get(manager, player, Render);
+    Collider collider_render = ecs::@get(manager, player, Collider);
+
+    bool is_dirty = false;
+    foreach (item: MOVE_EVENTS) {
+        if (key_map.is_pressed(item.key)) {
+            player_render.node_matrix = player_render.node_matrix.translate(item.move);
+            collider_render.node_matrix = player_render.node_matrix;
+            is_dirty = true;
+        }
+    }
+
+    if (is_dirty && state.check_collision) {
+        if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
+            state.collides = true;
+        } else {
+            state.collides = false;
+        }
+
+        ecs::@upload(manager, entity, state);
+        ecs::@upload(manager, player, player_render);
+        ecs::@upload(manager, player, collider_render);
+    }
 }
 
 fn void main()
@@ -171,6 +219,7 @@ fn void main()
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
 
     List{Component} materials;
+    HashMap{String, MeshData} mesh_list;
 
     foreach (material: gltf.materials) {
         materials.push(manager.@create_component(
@@ -189,13 +238,15 @@ fn void main()
         )!!);
     };
 
-    defer materials.free();
+    manager.add_system({
+        .query = {"Render", "Aabb3", "State", "Collider"}, 
+        .callback = &physics_system
+    });
 
-    Entity player;
-
-    HashMap{String, MeshData} mesh_list;
-
-    defer mesh_list.free();
+    defer {
+        materials.free();
+        mesh_list.free();
+    };
 
     mesh_list.set("collider", ecs::load_mesh(
         manager: manager,
@@ -265,7 +316,8 @@ fn void main()
                     .skin = node.skin,
                     .animation = (uint)gltf.animations.index_of(animation)!!,
                     .max_time = animation.max_time,
-                    .active_time = 0
+                    .active_time = 0,
+                    .repeat = true
                 };
 
                 node_entity.@add(animation_info, &manager)!!;
@@ -498,21 +550,10 @@ fn void main()
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
 
-    float speed = 0.05;
-    MoveEvent[] move_events = {
-        {W, {0, 0, -speed}},
-        {S, {0, 0, speed}},
-        {A, {-speed, 0, 0}},
-        {D, {speed, 0, 0}},
-        {UP_ARROW, {0, speed, 0}},
-        {DOWN_ARROW, {0, -speed, 0}},
-    };
-  
     while (running) {
         NanoDuration start_time = render_time.mark();
-        double frame_time = animation_time.to_now().to_sec();
 
-        if (frame_time > 5.5) animation_time = clock::now();
+        // if (frame_time > 5.5) animation_time = clock::now();
 
         EventMap event = win.getEvent();
        
@@ -537,38 +578,7 @@ fn void main()
             running = false;
         }
 
-        // Run collision checks and update movement
-        manager.@query("Render", "Aabb3", "State", "Collider"; Entity entity) {
-            State state = ecs::@get(manager, entity, State);
-
-            Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
-            Render entity_render = ecs::@get(manager, entity, Render);
-       
-            Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
-            Render player_render = ecs::@get(manager, player, Render);
-            Collider collider_render = ecs::@get(manager, player, Collider);
-
-            bool is_dirty = false;
-            foreach (item: move_events) {
-                if (event.is_pressed(item.key)) {
-                    player_render.node_matrix = player_render.node_matrix.translate(item.move);
-                    collider_render.node_matrix = player_render.node_matrix;
-                    is_dirty = true;
-                }
-            }
-
-            if (is_dirty && state.check_collision) {
-                if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
-                    state.collides = true;
-                } else {
-                    state.collides = false;
-                }
-
-                ecs::@upload(manager, entity, state);
-                ecs::@upload(manager, player, player_render);
-                ecs::@upload(manager, player, collider_render);
-            }
-        };
+        manager.run_systems(event, animation_time.mark().to_sec());
 
         uint next_image = context.next_image()!!;
     

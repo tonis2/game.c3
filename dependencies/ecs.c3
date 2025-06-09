@@ -59,14 +59,13 @@ alias ComponentMap = HashMap{String, Component};
 alias ViewMap = HashMap{BufferID, BufferView};
 alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
-macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
-
 struct EntityManager {
     ComponentMap keys;
     ViewMap views;
     List{Component} components;
     List{Allocator} buffers;
     List{Entity} entities;
+    List{System} systems @if($feature(ECS_EXTRA));
     UploadFN uploadFN;
 }
 
@@ -78,6 +77,8 @@ fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
     return manager;
 }
 
+macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
+
 fn void Component.reset(&self) => self.used_size = 0;
 
 fn void EntityManager.free(&self) {
@@ -88,12 +89,16 @@ fn void EntityManager.free(&self) {
     self.keys.free();
     self.views.free();
     self.entities.free();
+
+    $if $feature(ECS_EXTRA):
+        self.systems.free();
+    $endif
 }
 
 macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
-    foreach (entity: self.entities) {
+    foreach ENTITY: (entity: self.entities) {
         $for var $i = 0; $i < $vacount; $i++:
-            if (!entity.has_name($vaarg[$i], self)) continue;
+            if (!entity.has_name($vaarg[$i], self)) continue ENTITY;
         $endfor
         @callback(entity);
     }
@@ -453,6 +458,27 @@ import std::io;
 import std::collections::list;
 import std::collections::map;
 import std::time;
+import c3w;
+
+alias SystemCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
+
+struct System {
+    String[] query;
+    SystemCallback callback;
+}
+
+fn void EntityManager.add_system(&self, System system) {
+    self.systems.push(system);
+}
+
+fn void EntityManager.run_systems(self, EventMap events, double time) {
+    foreach (system: self.systems) {
+        foreach ENTITY: (entity: self.entities) {
+            foreach (name: system.query) if (!entity.has_name(name, self)) continue ENTITY;
+            system.callback(self, entity, events, time);
+        }
+    }
+}
 
 struct AnimationValue {
     float time;
