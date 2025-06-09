@@ -70,11 +70,20 @@ struct SceneData @tag("BUFFER", 2) {
 }
 
 struct AnimationInfo {
-   uint animation;
-   uint skin;
-   float max_time;
-   uint active_time;
+   uint animation_index;
+   uint skin_index;
+   Component component;
+   double max_time;
+   double active_time;
    bool repeat;
+}
+
+fn void AnimationInfo.run(&self, double time) {
+    if (self.active_time + time < self.max_time) {
+        self.active_time = self.active_time + time;
+    } else if (self.repeat) {
+        self.active_time = 0;
+    }
 }
 
 typedef SceneLight @tag("BUFFER", 2) = Light;
@@ -88,6 +97,7 @@ char[*] shader = $embed("./shaders/shader.spv");
 DeviceContext context;
 
 Entity player;
+Gltf gltf;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -109,8 +119,6 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
     stage_buffer.free();
 }
 
-
-
 const float SPEED = 0.05;
 
 const MoveEvent[] MOVE_EVENTS = {
@@ -123,6 +131,7 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
+
     State state = ecs::@get(manager, entity, State);
 
     Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
@@ -154,6 +163,24 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
     }
 }
 
+fn void animation_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
+    Render entity_render = ecs::@get(manager, entity, Render);
+    AnimationInfo animation = ecs::@get(manager, entity, AnimationInfo);
+
+    animation.run(time);
+
+    ecs::build_joint_matrix(
+        manager: manager,
+        component: animation.component,
+        animation: gltf.animations[animation.animation_index],
+        skin: gltf.skins[animation.skin_index],
+        gltf: gltf,
+        frame_time: animation.active_time
+    )!!;
+
+    ecs::@upload(manager, entity, animation);
+}
+
 fn void main()
 {
     c3w::Window win = c3w::new(
@@ -175,7 +202,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
 
     Memory draw_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
@@ -243,6 +270,11 @@ fn void main()
         .callback = &physics_system
     });
 
+    manager.add_system({
+        .query = {"Render", "AnimationInfo", "State"}, 
+        .callback = &animation_system
+    });
+
     defer {
         materials.free();
         mesh_list.free();
@@ -285,8 +317,7 @@ fn void main()
                 .instances = ecs::@get_address(manager, instances) + instances.used_size,
                 .node_matrix = matrix,
                 .instanceCount = 1,
-                .firstInstance = 0,
-                .animation = node.has_skin() ? ecs::@get_address(manager, animations) : 0
+                .firstInstance = 0
             };
 
             if (node.attributes.len() > 0) {
@@ -313,8 +344,9 @@ fn void main()
                 gltf::Animation animation = gltf.find_animation("zombie_walk")!!;
 
                 AnimationInfo animation_info = {
-                    .skin = node.skin,
-                    .animation = (uint)gltf.animations.index_of(animation)!!,
+                    .skin_index = node.skin,
+                    .component = animations,
+                    .animation_index = (uint)gltf.animations.index_of(animation)!!,
                     .max_time = animation.max_time,
                     .active_time = 0,
                     .repeat = true
@@ -322,12 +354,7 @@ fn void main()
 
                 node_entity.@add(animation_info, &manager)!!;
 
-                // ecs::build_joint_matrix(
-                //     manager: manager,
-                //     component: animations,
-                //     gltf: gltf,
-                //     frame_time: frame_time
-                // )!!;
+                render_data.animation = ecs::@get_address(manager, animations);
             }
 
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
@@ -552,8 +579,6 @@ fn void main()
 
     while (running) {
         NanoDuration start_time = render_time.mark();
-
-        // if (frame_time > 5.5) animation_time = clock::now();
 
         EventMap event = win.getEvent();
        
