@@ -163,20 +163,26 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
     }
 }
 
+
+
 fn void animation_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
     Render entity_render = ecs::@get(manager, entity, Render);
     AnimationInfo animation = ecs::@get(manager, entity, AnimationInfo);
 
     animation.run(time);
 
-    ecs::build_joint_matrix(
-        manager: manager,
-        component: animation.component,
+    assert(animation.component.size != 0, "Please initialize animation component");
+    
+    gltf::@build_joint_matrix(
         animation: gltf.animations[animation.animation_index],
         skin: gltf.skins[animation.skin_index],
         gltf: gltf,
-        frame_time: animation.active_time
-    )!!;
+        frame_time: animation.active_time;
+        uint joint_index,
+        Matrix4f matrix
+    ) {
+        ecs::@upload(manager, animation.component, &matrix, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
+    }!!;
 
     ecs::@upload(manager, entity, animation);
 }
