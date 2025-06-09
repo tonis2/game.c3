@@ -79,8 +79,9 @@ struct AnimationInfo {
 }
 
 fn void AnimationInfo.run(&self, double time) {
-    if (self.active_time + time < self.max_time) {
-        self.active_time = self.active_time + time;
+    double new_time = self.active_time + time;
+    if (new_time < self.max_time) {
+        self.active_time = new_time;
     } else if (self.repeat) {
         self.active_time = 0;
     }
@@ -131,7 +132,6 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
-
     State state = ecs::@get(manager, entity, State);
 
     Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
@@ -162,8 +162,6 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
         ecs::@upload(manager, player, collider_render);
     }
 }
-
-
 
 fn void animation_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
     Render entity_render = ecs::@get(manager, entity, Render);
