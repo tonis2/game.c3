@@ -207,6 +207,7 @@ fn void main()
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
     gltf = gltf::loadFile("assets/game.glb")!!;
+    defer gltf.free();
 
     Memory draw_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
@@ -435,7 +436,7 @@ fn void main()
         image_data.free();
     }
 
-    defer gltf.free();
+
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 

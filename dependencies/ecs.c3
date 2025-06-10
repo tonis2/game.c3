@@ -59,6 +59,8 @@ alias ComponentMap = HashMap{String, Component};
 alias ViewMap = HashMap{BufferID, BufferView};
 alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
+fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
+
 struct EntityManager {
     ComponentMap keys;
     ViewMap views;
@@ -121,6 +123,8 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
     });
 }   
 
+
+
 fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
 
@@ -139,7 +143,6 @@ fn Component? EntityManager.new_component(&self, void* data = null, uint size = 
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
         } else {
-            // io::printfn("%d", buffer_index);
             buffer.upload(data, size, buffer.get_used_size());
         }
     }
@@ -348,12 +351,12 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif
 }
 
-
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
+    usz $type_size = #type.sizeof;
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
         usz type_offset = #target.offset;
-        return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
+        return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
@@ -365,7 +368,30 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 
         Allocator buffer = manager.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
-        return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
+        return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
+    $endif;
+}
+
+// @typekind(#data) == POINTER
+
+macro @get_ptr(EntityManager manager, #target, #type = null, usz offset = 0) {
+
+    $if $typeof(#target).nameof == "Component":
+        Allocator buffer = manager.buffers[#target.buffer];
+        usz type_offset = #target.offset;
+        return (void*)buffer.data() + alignUp(type_offset, 16);
+    $endif;
+   
+    $if $typeof(#target).nameof == "Entity":
+        Component component = manager.keys[#type.nameof]!!;
+        BufferID index = {
+            .component = component.id,
+            .entity = #target.id,
+        };
+
+        Allocator buffer = manager.buffers[component.buffer];
+        uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
+        return (void*)buffer.data() + alignUp(type_offset, 16);
     $endif;
 }
 
@@ -420,9 +446,9 @@ fn void Buffer.push(&self, void* data, usz size) @dynamic {
     }
 }
 
-// fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 // usz size = alignUp(new_size, 256);
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
+    new_size = alignUp(new_size, 16);
     if (self.used_size + new_size > self.size) {
         self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
@@ -461,6 +487,15 @@ import std::time;
 import c3w;
 
 alias SystemCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
+alias NodeComponent = Component;
+
+// <*
+//  @require self.size == 0 : `Component is empty`
+// *>
+// fn Matrix4f NodeComponent.get(&self, usz index) @operator(&[]) @inline
+// {
+// 	return &self.entries[index];
+// }
 
 struct System {
     String[] query;
@@ -688,7 +723,6 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
 struct Position @private {
     Vec3f scale;
     Vec3f translation;
-    Quaternionf rotation;
 }
 
 struct Velocity @tag("BUFFER", 0) @private {
@@ -707,8 +741,8 @@ fn void test_ecs() @test {
 
     defer manager.free();
 
-    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
-    Component animation_comp = manager.@create_component(size: Position.sizeof);
+    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 })!!;
+    Component animation_comp = manager.@create_component(size: Position.sizeof)!!;
     
     ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
  
@@ -717,12 +751,12 @@ fn void test_ecs() @test {
             .translation = {1.0, 1.0, 1.0},
             .scale = {1.0, 1.0, 1.0}
         },
-    );
+    )!!;
 
     Entity player2 = manager.@create_entity(
         (Position){},
         velocity_comp,
-    );
+    )!!;
 
     player.add_component("Velocity", velocity_comp, manager);
     // player2.add("Animation", animation_comp, manager);
@@ -752,11 +786,4 @@ fn void test_ecs() @test {
         assert(position.translation.x == 5.000000);
     };
 }
-
-// Todo:
-// Test correct buffers on components
-// Test entity offset
-// Remove buffer.push()
-
-
 
