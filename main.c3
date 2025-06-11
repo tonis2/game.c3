@@ -25,9 +25,8 @@ struct MoveEvent {
 }
 
 struct PushConstantData {
-   uint draw_index;
-   bool collides;
-   vk::DeviceAddress animation;
+    uint draw_index;
+    bool collides;
 }
 
 struct Material @tag("BUFFER", 3) {
@@ -56,7 +55,7 @@ struct Render @tag("BUFFER", 1) {
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
-    vk::DeviceAddress animation;
+    int animation_offset;
     vk::DeviceAddress material;
     vk::DeviceAddress instances;
     Matrix4f node_matrix;
@@ -67,6 +66,7 @@ typedef Collider @tag("BUFFER", 1) = Render;
 struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
+    vk::DeviceAddress animations;
 }
 
 struct AnimationInfo {
@@ -170,18 +170,13 @@ fn void animation_system(EntityManager manager, Entity entity, EventMap key_map,
     animation.run(time);
 
     assert(animation.component.size != 0, "Please initialize animation component");
-    
-    gltf::@build_joint_matrix(
-        animation: gltf.animations[animation.animation_index],
-        skin: gltf.skins[animation.skin_index],
-        gltf: gltf,
-        frame_time: animation.active_time;
-        uint joint_index,
-        Matrix4f matrix
-    ) {
-        ecs::@upload(manager, animation.component, &matrix, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
-    }!!;
 
+    usz skin_len = gltf.skins[animation.skin_index].joints.len();
+
+    double frame_index = (animation.active_time / animation.max_time) * MAX_FPS * animation.max_time;
+    entity_render.animation_offset = (uint)skin_len * (uint)frame_index;
+
+    ecs::@upload(manager, entity, entity_render);
     ecs::@upload(manager, entity, animation);
 }
 
@@ -249,6 +244,7 @@ fn void main()
     Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    // NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, 3)!!;
 
     List{Component} materials;
     HashMap{String, MeshData} mesh_list;
@@ -279,6 +275,24 @@ fn void main()
         .query = {"Render", "AnimationInfo", "State"}, 
         .callback = &animation_system
     });
+
+    uint duration_seconds = 5;
+    uint num_frames = MAX_FPS * duration_seconds;
+
+    for (usz i = 0; i < num_frames; i++) {
+        double time = i / (double)MAX_FPS;
+        gltf::@build_joint_matrix(
+            animation: gltf.animations[3],
+            skin: gltf.skins[0],
+            gltf: gltf,
+            frame_time: time;
+            uint joint_index,
+            Matrix4f matrix
+        ) {
+            ecs::@upload(manager, animations, &matrix, size: Matrix4f.sizeof, offset: animations.used_size);
+            animations.used_size += Matrix4f.sizeof;
+        }!!;
+    }
 
     defer {
         materials.free();
@@ -322,7 +336,8 @@ fn void main()
                 .instances = ecs::@get_address(manager, instances) + instances.used_size,
                 .node_matrix = matrix,
                 .instanceCount = 1,
-                .firstInstance = 0
+                .firstInstance = 0,
+                .animation_offset = -1
             };
 
             if (node.attributes.len() > 0) {
@@ -347,7 +362,7 @@ fn void main()
 
             if (node.has_skin()) {
                 gltf::Animation animation = gltf.find_animation("zombie_walk")!!;
-
+                render_data.animation_offset = 0;
                 AnimationInfo animation_info = {
                     .skin_index = node.skin,
                     .component = animations,
@@ -358,8 +373,6 @@ fn void main()
                 };
 
                 node_entity.@add(animation_info, &manager)!!;
-
-                render_data.animation = ecs::@get_address(manager, animations);
             }
 
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
@@ -377,6 +390,7 @@ fn void main()
                     .vertexOffset = collider_mesh.vertexOffset,
                     .instanceCount = 1,
                     .node_matrix = render_data.node_matrix,
+                    .animation_offset = -1
                 };
 
                 node_entity.@add(collider, &manager)!!;
@@ -409,6 +423,7 @@ fn void main()
         (SceneData) {
             .vertices = ecs::@get_address(manager, vertices),
             .draw_cmds = draw_memory.address,
+            .animations = ecs::@get_address(manager, animations)
         },
     )!!;
 
@@ -435,8 +450,6 @@ fn void main()
 
         image_data.free();
     }
-
-
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
@@ -582,6 +595,7 @@ fn void main()
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
 
+    double time = 0;
     while (running) {
         NanoDuration start_time = render_time.mark();
 
@@ -691,7 +705,7 @@ fn void main()
            
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
-                .collides = state.collides,
+                .collides = state.collides
             };
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -699,17 +713,17 @@ fn void main()
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
-        manager.@query("Collider"; Entity entity) {
-            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
+        // manager.@query("Collider"; Entity entity) {
+        //     uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
       
-            PushConstantData constant_data = {
-                .draw_index = offset / Collider.sizeof,
-            };
+        //     PushConstantData constant_data = {
+        //         .draw_index = offset / Collider.sizeof,
+        //     };
 
-            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
-        };
+        //     vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+        //     vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+        //     vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
+        // };
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

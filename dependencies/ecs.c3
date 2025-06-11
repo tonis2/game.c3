@@ -121,9 +121,7 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
     self.views.set(buffer, {
         component.id, 
     });
-}   
-
-
+}  
 
 fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
@@ -312,10 +310,10 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         buffer = manager.buffers[#target.buffer];
         data_offset = #target.offset + offset;
         
-        if (update_size) {
-            Component* component = manager.components.get_ref(#target.id);
-            component.used_size += size;
-        };
+        // if (update_size) {
+        //     Component* component = manager.components.get_ref(#target.id);
+        //     component.used_size += size;
+        // };
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -328,10 +326,10 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         data_offset = (uint)manager.components[manager.views[index]!!.component].offset + offset;
         buffer = manager.buffers[component_info.buffer];
 
-        if (update_size) {
-            Component* component = manager.components.get_ref(component_info.id);
-            component.used_size += size;
-        };
+        // if (update_size) {
+        //     Component* component = manager.components.get_ref(component_info.id);
+        //     component.used_size += size;
+        // };
     $endif;
 
     $if @typekind(#data) == POINTER: {
@@ -487,7 +485,40 @@ import std::time;
 import c3w;
 
 alias SystemCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
+
+struct NodeMatrix {
+    Matrix4f matrix;
+    int parent;
+}
+
 alias NodeComponent = Component;
+
+
+fn NodeComponent? load_nodes(EntityManager manager, gltf::Node[] nodes, Gltf gltf, uint buffer_index) {
+   NodeComponent component = manager.@create_component(size: (uint)(nodes.len * NodeMatrix.sizeof), buffer_index: buffer_index)!;
+
+    foreach (uint index, node: nodes) {
+        gltf::Node parent_node = gltf.nodes[index];
+        @upload(manager, component, (NodeMatrix) {
+            .matrix = parent_node.local_matrix(),
+            .parent = -1,
+        });
+
+        if (node.children.len() > 0) {
+            foreach (child: node.children) {
+                gltf::Node child_node = gltf.nodes[child];
+                int parent = !child_node.has_skin() ? index : -1;
+
+                @upload(manager, component, (NodeMatrix) {
+                    .matrix = child_node.local_matrix(),
+                    .parent = parent,
+                });
+            }
+        }
+    }
+
+    return component;
+}
 
 // <*
 //  @require self.size == 0 : `Component is empty`
@@ -518,14 +549,6 @@ fn void EntityManager.run_systems(self, EventMap events, double time) {
 struct AnimationValue {
     float time;
     Vec4f value;
-}
-
-struct Node {
-    Vec3f scale;
-    Vec3f translation;
-    Quaternionf rotation;
-    Matrix4f matrix;
-    Node* parent;
 }
 
 struct MeshData {
@@ -697,28 +720,6 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
     }
 }
 
-
-fn Matrix4f Node.global_matrix(&self) {
-    Matrix4f global_matrix = self.local_matrix();
-    Node* node = self;
-    while (node.parent != null) {
-        global_matrix = node.parent.local_matrix().mul(global_matrix);
-        node = node.parent;
-    }
-
-    return global_matrix;
-}
-
-fn Matrix4f Node.local_matrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
-
-fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
-    return (Matrix4f) {
-        scale.x, 0, 0, translation.x,
-        0, scale.y, 0, translation.y,
-        0, 0, scale.z, translation.z,
-        0.0, 0.0, 0.0, 1.0,
-    }.mul(rotation.to_matrixf());
-}
 
 struct Position @private {
     Vec3f scale;

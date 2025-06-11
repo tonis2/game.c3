@@ -44,11 +44,15 @@ struct DrawCommand
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
-
-    row_major float4x4* skin_data;
-    Material* material;
+    int animation_offset;
+    Material* materials;
     row_major float4x4* instances;
     row_major float4x4 node_matrix;
+}
+
+struct Node {
+    float4x4 matrix;
+    int parent;
 }
 
 struct PushData
@@ -69,6 +73,7 @@ cbuffer Scene
     Light light;
     Vertex* vertices;
     DrawCommand* draw_cmds;
+    row_major float4x4* skin_data;
 }
 
 [vk_binding(1)]
@@ -103,13 +108,15 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (draw.skin_data != nullptr)
+    if (draw.animation_offset > -1)
     {
+        float4x4* skin_matrixes = skin_data + draw.animation_offset;
+
         skin_matrix =
-        vertex.skin_weight[0] * draw.skin_data[vertex.skin_pos[0]] +
-        vertex.skin_weight[1] * draw.skin_data[vertex.skin_pos[1]] +
-        vertex.skin_weight[2] * draw.skin_data[vertex.skin_pos[2]] +
-        vertex.skin_weight[3] * draw.skin_data[vertex.skin_pos[3]];
+        vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
+        vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
+        vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
+        vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
     }
 
     float4x4 node_matrix = mul(draw.node_matrix, skin_matrix);
@@ -123,7 +130,7 @@ FragmentData vertexMain(VertexInput input)
 
     FragmentData output = {
         vertex.tex_cord.xy,
-        (uint64_t)draw.material,
+        (uint64_t)draw.materials,
         vertex_pos
     };
 
