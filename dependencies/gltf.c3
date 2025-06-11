@@ -1473,14 +1473,13 @@ macro @when_extended(Object* object, String extension_name; @callback(Object* ex
 macro void? @build_joint_matrix(gltf::Animation animation, gltf::Skin skin, Gltf gltf, double frame_time; @callback(uint joint_index, Matrix4f matrix)) {
     Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
 
-    foreach (joint_index, joint: skin.joints) {
-        foreach CHANNELS: (channel_index, channel : animation.channels) {
+    foreach CHANNELS: (channel_index, channel : animation.channels) {
             AnimationSampler sampler = animation.samplers[channel.sampler];
             Accessor time_accessor = gltf.accessors[sampler.input];
             Accessor value_accessor = gltf.accessors[sampler.output];
 
             float max_frame_time = time_accessor.max[0];
-         
+            
             for TIMES: (ulong j; j < time_accessor.count; j++) {
                 float current_time = gltf.@cast_buffer(time_accessor, j, float);
 
@@ -1510,7 +1509,7 @@ macro void? @build_joint_matrix(gltf::Animation animation, gltf::Skin skin, Gltf
                         };
 
                         float interpolation_value = (float)(frame_time - prev_value.time) / (float)(current_time - prev_value.time);
-                  
+                    
                         switch (channel.target.path) {
                             case TRANSLATION: {
                                 node.translation = prev_value.value.xyz.lerp(current_value.xyz, interpolation_value);
@@ -1529,7 +1528,6 @@ macro void? @build_joint_matrix(gltf::Animation animation, gltf::Skin skin, Gltf
                 }
             }
         }
-    }
 
     foreach (uint index, joint: skin.joints) {
         gltf::Node joint_node = gltf.nodes[joint];
