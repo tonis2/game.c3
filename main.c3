@@ -12,6 +12,8 @@ import c3w;
 import helpers;
 import ecs;
 
+
+const ANIMATION_FPS = 30;
 const MAX_FPS = 90;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
@@ -69,6 +71,14 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress animations;
 }
 
+struct AnimationData {
+    int skin_index;
+    usz buffer_offset;
+    uint frames;
+    double max_time;
+    Component data;
+}
+
 struct AnimationInfo {
    uint animation_index;
    uint skin_index;
@@ -80,11 +90,7 @@ struct AnimationInfo {
 
 fn void AnimationInfo.run(&self, double time) {
     double new_time = self.active_time + time;
-    if (new_time < self.max_time) {
-        self.active_time = new_time;
-    } else if (self.repeat) {
-        self.active_time = 0;
-    }
+    self.active_time = new_time < self.max_time ? new_time : 0;
 }
 
 typedef SceneLight @tag("BUFFER", 2) = Light;
@@ -99,6 +105,8 @@ DeviceContext context;
 
 Entity player;
 Gltf gltf;
+HashMap{String, MeshData} mesh_list;
+HashMap{String, AnimationData} animation_list;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -166,15 +174,16 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
 fn void animation_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
     Render entity_render = ecs::@get(manager, entity, Render);
     AnimationInfo animation = ecs::@get(manager, entity, AnimationInfo);
+    AnimationData data = animation_list["zombie_walk"]!!;
 
     animation.run(time);
 
     assert(animation.component.size != 0, "Please initialize animation component");
 
-    usz skin_len = gltf.skins[animation.skin_index].joints.len();
+    usz skin_len = gltf.skins[data.skin_index].joints.len();
 
-    double frame_index = (animation.active_time / animation.max_time) * MAX_FPS * animation.max_time;
-    entity_render.animation_offset = (uint)skin_len * (uint)frame_index;
+    double frame_index = (animation.active_time / data.max_time) * ANIMATION_FPS * data.max_time;
+    entity_render.animation_offset = (uint)data.buffer_offset + (uint)skin_len * (uint)frame_index;
 
     ecs::@upload(manager, entity, entity_render);
     ecs::@upload(manager, entity, animation);
@@ -247,7 +256,6 @@ fn void main()
     // NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, 3)!!;
 
     List{Component} materials;
-    HashMap{String, MeshData} mesh_list;
 
     foreach (material: gltf.materials) {
         materials.push(manager.@create_component(
@@ -276,27 +284,40 @@ fn void main()
         .callback = &animation_system
     });
 
-    uint duration_seconds = 5;
-    uint num_frames = MAX_FPS * duration_seconds;
+    // Bake skin animations
+    foreach (uint index, animation : gltf.animations.array_view()[2..3]) {
+        AnimationData data = {
+            .buffer_offset = animations.used_size / Matrix4f.sizeof,
+            .data = animations,
+            .max_time = animation.max_time,
+            .frames = (uint)(ANIMATION_FPS * animation.max_time),
+            .skin_index = 0
+        };
 
-    for (usz i = 0; i < num_frames; i++) {
-        double time = i / (double)MAX_FPS;
-        gltf::@build_joint_matrix(
-            animation: gltf.animations[3],
-            skin: gltf.skins[0],
-            gltf: gltf,
-            frame_time: time;
-            uint joint_index,
-            Matrix4f matrix
-        ) {
-            ecs::@upload(manager, animations, &matrix, size: Matrix4f.sizeof, offset: animations.used_size);
-            animations.used_size += Matrix4f.sizeof;
-        }!!;
+        for (usz i = 0; i < data.frames; i++) {
+            double time = i / (double)ANIMATION_FPS;
+ 
+            gltf::@build_joint_matrix(
+                animation: animation,
+                skin: gltf.skins[data.skin_index],
+                gltf: gltf,
+                frame_time: time;
+                uint joint_index,
+                Matrix4f matrix
+            ) {
+                ecs::@upload(manager, animations, &matrix, size: Matrix4f.sizeof, offset: animations.used_size);
+                animations.used_size += Matrix4f.sizeof;
+            }!!;
+        }
+
+        io::printfn("animation loaded %s %s %s", animation.name, animations.used_size, animation.max_time);
+        animation_list.set(animation.name, data);
     }
 
     defer {
         materials.free();
         mesh_list.free();
+        animation_list.free();
     };
 
     mesh_list.set("collider", ecs::load_mesh(
