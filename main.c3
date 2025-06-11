@@ -79,18 +79,9 @@ struct AnimationData {
     Component data;
 }
 
-struct AnimationInfo {
-   uint animation_index;
-   uint skin_index;
-   Component component;
-   double max_time;
+struct MeshAnimation {
    double active_time;
    bool repeat;
-}
-
-fn void AnimationInfo.run(&self, double time) {
-    double new_time = self.active_time + time;
-    self.active_time = new_time < self.max_time ? new_time : 0;
 }
 
 typedef SceneLight @tag("BUFFER", 2) = Light;
@@ -173,12 +164,21 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
 
 fn void animation_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
     Render entity_render = ecs::@get(manager, entity, Render);
-    AnimationInfo animation = ecs::@get(manager, entity, AnimationInfo);
-    AnimationData data = animation_list["zombie_walk"]!!;
+    MeshAnimation animation = ecs::@get(manager, entity, MeshAnimation);
 
-    animation.run(time);
+    String animation_name;
 
-    assert(animation.component.size != 0, "Please initialize animation component");
+    if (key_map.is_pressed(SPACE)) {
+        animation_name = "Armature|Attack";
+    } else {
+        animation_name = "zombie_walk";
+    }
+
+    AnimationData data = animation_list[animation_name]!!;
+    assert(data.data.size != 0, "Please initialize animation component");
+
+    double new_time = animation.active_time + time;
+    animation.active_time = new_time < data.max_time ? new_time : 0.1;
 
     usz skin_len = gltf.skins[data.skin_index].joints.len();
 
@@ -280,12 +280,12 @@ fn void main()
     });
 
     manager.add_system({
-        .query = {"Render", "AnimationInfo", "State"}, 
+        .query = {"Render", "MeshAnimation", "State"}, 
         .callback = &animation_system
     });
 
     // Bake skin animations
-    foreach (uint index, animation : gltf.animations.array_view()[2..3]) {
+    foreach (uint index, animation : gltf.animations) {
         AnimationData data = {
             .buffer_offset = animations.used_size / Matrix4f.sizeof,
             .data = animations,
@@ -310,9 +310,11 @@ fn void main()
             }!!;
         }
 
-        io::printfn("animation loaded %s %s %s", animation.name, animations.used_size, animation.max_time);
+        io::printfn("animation loaded %s %s", animation.name, animation.max_time);
         animation_list.set(animation.name, data);
     }
+
+    io::printfn("animations size %f mb", animations.used_size * 0.00_0001);
 
     defer {
         materials.free();
@@ -358,7 +360,7 @@ fn void main()
                 .node_matrix = matrix,
                 .instanceCount = 1,
                 .firstInstance = 0,
-                .animation_offset = -1
+                .animation_offset = node.has_skin() ? 0 : -1
             };
 
             if (node.attributes.len() > 0) {
@@ -382,13 +384,7 @@ fn void main()
 
 
             if (node.has_skin()) {
-                gltf::Animation animation = gltf.find_animation("zombie_walk")!!;
-                render_data.animation_offset = 0;
-                AnimationInfo animation_info = {
-                    .skin_index = node.skin,
-                    .component = animations,
-                    .animation_index = (uint)gltf.animations.index_of(animation)!!,
-                    .max_time = animation.max_time,
+                MeshAnimation animation_info = {
                     .active_time = 0,
                     .repeat = true
                 };
