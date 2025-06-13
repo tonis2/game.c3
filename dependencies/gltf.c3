@@ -1303,6 +1303,25 @@ fn Animation? Gltf.find_animation(Gltf* self, String name) {
     return KEY_NOT_FOUND?;
 }
 
+fn uint? Gltf.find_animation_index(Gltf* self, String name) {
+    foreach (uint index, data : self.animations) {
+        if (data.name == name) return index;
+    }
+    return KEY_NOT_FOUND?;
+}
+
+fn List{Animation*} Gltf.find_skin_animations(Gltf self, Skin skin) {
+    List{Animation*} results;
+    foreach (&animation : self.animations) {
+        uint top_node = animation.channels[0].target.node;
+        if (self.nodes[top_node].parent.name == skin.name) {
+            results.push(animation);
+        }
+    }
+
+    return results;
+}
+
 macro bool Animation.equals(self, Animation b) @operator(==) => self.name == b.name;
 
 fn uint Accessor.componentLen(Accessor* self) {
@@ -1470,23 +1489,16 @@ macro @when_extended(Object* object, String extension_name; @callback(Object* ex
     }
 }
 
-macro void? @build_joint_matrix(gltf::Animation animation, gltf::Skin* skin, Gltf gltf, double frame_time; @callback(uint joint_index, Matrix4f matrix)) {
-
-    // HashMap{uint, Matrix4f} matrixes;
-
+fn void run_animation_channels(double frame_time, Gltf gltf, gltf::Animation animation) {
     foreach (channel : animation.channels) {
         AnimationSampler sampler = animation.samplers[channel.sampler];
         Accessor time_accessor = gltf.accessors[sampler.input];
         Accessor value_accessor = gltf.accessors[sampler.output];
 
-        // if (!matrixes.has_key(channel.target.node)) {
-        //     matrixes.set(channel.target.node, MATRIX4F_IDENTITY);
-        // }
-
-        gltf::Node* node = gltf.nodes.get_ref(channel.target.node);
         float max_frame_time = time_accessor.max[0];
         
         for TIMES: (ulong j; j < time_accessor.count; j++) {
+            gltf::Node* node = gltf.nodes.get_ref(channel.target.node);
             float current_time = gltf.@cast_buffer(time_accessor, j, float);
 
             if (current_time >= frame_time && frame_time < max_frame_time) {
@@ -1521,14 +1533,14 @@ macro void? @build_joint_matrix(gltf::Animation animation, gltf::Skin* skin, Glt
             }
         }
     }
+}
 
-    if (skin != null) {
-        Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
-        foreach (uint index, joint: skin.joints) {
-            gltf::Node joint_node = gltf.nodes[joint];
-            Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, index, Matrix4f).transpose();
-            Matrix4f matrix = joint_node.global_matrix().mul(inverse_matrix).transpose();
-            @callback(index, matrix);
-        }
+macro void @build_skin_matrixes(gltf::Skin skin, Gltf gltf; @callback(uint joint, Matrix4f matrix)) {
+    Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+    foreach (uint index, joint: skin.joints) {
+        gltf::Node joint_node = gltf.nodes[joint];
+        Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, index, Matrix4f).transpose();
+        Matrix4f matrix = joint_node.global_matrix().mul(inverse_matrix).transpose();
+        @callback(joint, matrix);
     }
 }

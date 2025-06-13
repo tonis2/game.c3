@@ -80,6 +80,7 @@ struct AnimationData {
 }
 
 struct MeshAnimation {
+   uint animation_index;
    double active_time;
    bool repeat;
 }
@@ -97,7 +98,7 @@ DeviceContext context;
 Entity player;
 Gltf gltf;
 HashMap{String, List{MeshData}} mesh_list;
-HashMap{String, AnimationData} animation_list;
+List{AnimationData} animation_list;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -162,31 +163,75 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
     }
 }
 
-fn void animation_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render entity_render = ecs::@get(manager, entity, Render);
-    MeshAnimation animation = ecs::@get(manager, entity, MeshAnimation);
+fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
+    // Render entity_render = ecs::@get(manager, entity, Render);
+    // MeshAnimation animation = ecs::@get(manager, entity, MeshAnimation);
 
-    String animation_name = "ball_move";
+    // AnimationData data = animation_list[animation.animation_index];
+    // assert(data.data.size != 0, "Please initialize animation component");
 
-    // if (key_map.is_pressed(SPACE)) {
-    //     animation_name = "Armature|Attack";
-    // } else {
-    //     animation_name = "zombie_walk";
+    // double new_time = animation.active_time + time;
+    // animation.active_time = new_time < data.max_time ? new_time : 0.1;
+
+    // usz skin_len = gltf.skins[data.skin_index].joints.len();
+
+    // double frame_index = (animation.active_time / data.max_time) * ANIMATION_FPS * data.max_time;
+    // entity_render.animation_offset = (uint)data.buffer_offset + (uint)skin_len * (uint)frame_index;
+
+    // ecs::@upload(manager, entity, entity_render);
+    // ecs::@upload(manager, entity, animation);
+}
+
+fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
+    // Render entity_render = ecs::@get(manager, entity, Render);
+    // MeshAnimation animation = ecs::@get(manager, entity, MeshAnimation);
+
+    // AnimationData data = animation_list[animation.animation_index];
+    // assert(data.data.size != 0, "Please initialize animation component");
+
+    // double new_time = animation.active_time + time;
+    // animation.active_time = new_time < data.max_time ? new_time : 0.1;
+
+    // usz skin_len = gltf.skins[data.skin_index].joints.len();
+
+    // double frame_index = (animation.active_time / data.max_time) * ANIMATION_FPS * data.max_time;
+    // entity_render.animation_offset = (uint)data.buffer_offset + (uint)skin_len * (uint)frame_index;
+
+    // ecs::@upload(manager, entity, entity_render);
+    // ecs::@upload(manager, entity, animation);
+}
+
+
+fn void bake_skin_animation() {
+    // // Bake skin animations
+    // foreach (uint index, animation : gltf.animations) {
+    //     uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+    //     AnimationData data = {
+    //         .buffer_offset = animations.used_size / Matrix4f.sizeof,
+    //         .data = animations,
+    //         .max_time = animation.max_time,
+    //         .frames = frame_count,
+    //         .skin_index = -1
+    //     };
+
+    //     for (usz i = 0; i < frame_count; i++) {
+    //         double time = i / (double)ANIMATION_FPS;
+    //         gltf::run_animation_channels(
+    //             frame_time: time,
+    //             gltf: gltf,
+    //             animation: animation
+    //         );
+
+    //         gltf::@build_skin_matrixes(gltf.skins[0], gltf; uint joint, Matrix4f matrix) {
+    //             ecs::@upload(manager, animations, &matrix, size: Matrix4f.sizeof, offset: animations.used_size);
+    //             animations.used_size += Matrix4f.sizeof;
+    //         };
+    //     }
+       
+    //     io::printfn("animation loaded %s %s", animation.name, animation.max_time);
+
+    //     animation_list.push(data);
     // }
-
-    AnimationData data = animation_list[animation_name]!!;
-    assert(data.data.size != 0, "Please initialize animation component");
-
-    double new_time = animation.active_time + time;
-    animation.active_time = new_time < data.max_time ? new_time : 0.1;
-
-    usz skin_len = gltf.skins[data.skin_index].joints.len();
-
-    double frame_index = (animation.active_time / data.max_time) * ANIMATION_FPS * data.max_time;
-    entity_render.animation_offset = (uint)data.buffer_offset + (uint)skin_len * (uint)frame_index;
-
-    ecs::@upload(manager, entity, entity_render);
-    ecs::@upload(manager, entity, animation);
 }
 
 fn void main()
@@ -210,7 +255,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/animation_3.glb")!!;
+    gltf = gltf::loadFile("assets/animation_2.glb")!!;
     defer gltf.free();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
@@ -273,6 +318,21 @@ fn void main()
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     // NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, 3)!!;
 
+    Entity scene = manager.@create_entity(
+        camera.data(),
+        (SceneLight) {
+            .position = {2, 12.0, 5},
+            .color = {1, 1, 1},
+            .intensity = 54351,
+            .type = DIRECTIONAL
+        },
+        (SceneData) {
+            .vertices = ecs::@get_address(manager, vertices),
+            .draw_cmds = draw_memory.address,
+            .animations = ecs::@get_address(manager, animations)
+        },
+    )!!;
+
     List{Component} materials;
 
     foreach (material: gltf.materials) {
@@ -297,42 +357,19 @@ fn void main()
         .callback = &physics_system
     });
 
-    manager.add_system({
-        .query = {"Render", "MeshAnimation", "State"}, 
-        .callback = &animation_system
-    });
+    // manager.add_system({
+    //     .query = {"Render", "SkinAnimation", "State"}, 
+    //     .callback = &skin_animation_player
+    // });
 
-    // Bake skin animations
-    foreach (uint index, animation : gltf.animations) {
-        io::printfn("%s", animation.max_time);
-        AnimationData data = {
-            .buffer_offset = animations.used_size / Matrix4f.sizeof,
-            .data = animations,
-            .max_time = animation.max_time,
-            .frames = (uint)(ANIMATION_FPS * animation.max_time),
-            .skin_index = -1
-        };
+    // manager.add_system({
+    //     .query = {"WorldAnimation"}, 
+    //     .callback = &world_animation_player
+    // });
 
-        for (usz i = 0; i < data.frames; i++) {
-            double time = i / (double)ANIMATION_FPS;
-            gltf::@build_joint_matrix(
-                animation: animation,
-                skin: data.skin_index > -1 ? &&gltf.skins[data.skin_index] : null,
-                gltf: gltf,
-                frame_time: time;
-                uint joint_index,
-                Matrix4f matrix
-            ) {
-                ecs::@upload(manager, animations, &matrix, size: Matrix4f.sizeof, offset: animations.used_size);
-                animations.used_size += Matrix4f.sizeof;
-            }!!;
-        }
 
-        io::printfn("animation loaded %s %s", animation.name, animation.max_time);
-        animation_list.set(animation.name, data);
-    }
 
-    io::printfn("animations size %f mb", animations.used_size * 0.00_0001);
+    // io::printfn("animations size %f mb", animations.used_size * 0.00_0001);
 
     defer {
         materials.free();
@@ -361,8 +398,20 @@ fn void main()
 
         mesh_list.set(mesh.name, meshes);
     }
+    
 
+    // Build draw commands for Vulkan
     foreach (uint index, node : gltf.nodes) {
+
+        if (node.has_skin()) {
+            gltf::Skin skin = gltf.skins[node.skin];
+            List{gltf::Animation*} skin_animations = gltf.find_skin_animations(skin);
+            io::printfn("%s", skin.name);
+            foreach (animation : skin_animations) {
+                io::printfn("%s", animation.name);
+            }
+            defer skin_animations.free();
+        }
 
         if (node.has_mesh()) {
             Matrix4f matrix = node.global_matrix();
@@ -404,12 +453,27 @@ fn void main()
                     }
                 }
 
-                if (node.has_skin()) {
-                    node_entity.@add((MeshAnimation) {
-                        .active_time = 0,
-                        .repeat = true
-                    }, &manager)!!;
-                }
+                if (node.extras.has_key("animation")) {
+                    String animation_name = node.extras["animation"]!!;
+                    uint animation_index = gltf.find_animation_index(animation_name)!!;
+
+               
+                    io::printfn("%s %s", animation_name, animation_index);
+                    // if (node.has_skin()) {
+                        
+                    // } else {
+
+                    // }
+                    
+                };
+
+
+                // if (node.has_skin()) {
+                //     node_entity.@add((MeshAnimation) {
+                //         .active_time = 0,
+                //         .repeat = true
+                //     }, &manager)!!;
+                // }
 
                 node_entity.@add((State) {
                     .collides = false,
@@ -420,8 +484,7 @@ fn void main()
                 node_entity.@add(render_data, &manager)!!;
             }
 
-            // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
-
+      
 
             // Add physics box           
             // if (!mesh_data.aabb.is_empty()) {
@@ -448,21 +511,6 @@ fn void main()
             // }
         }
     }
-
-    Entity scene = manager.@create_entity(
-        camera.data(),
-        (SceneLight) {
-            .position = {2, 12.0, 5},
-            .color = {1, 1, 1},
-            .intensity = 54351,
-            .type = DIRECTIONAL
-        },
-        (SceneData) {
-            .vertices = ecs::@get_address(manager, vertices),
-            .draw_cmds = draw_memory.address,
-            .animations = ecs::@get_address(manager, animations)
-        },
-    )!!;
 
     foreach (image : gltf.images) {
         stb::Image image_data;
