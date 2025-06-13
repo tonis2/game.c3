@@ -96,7 +96,7 @@ DeviceContext context;
 
 Entity player;
 Gltf gltf;
-HashMap{String, MeshData} mesh_list;
+HashMap{String, List{MeshData}} mesh_list;
 HashMap{String, AnimationData} animation_list;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
@@ -166,13 +166,13 @@ fn void animation_system(EntityManager manager, Entity entity, EventMap key_map,
     Render entity_render = ecs::@get(manager, entity, Render);
     MeshAnimation animation = ecs::@get(manager, entity, MeshAnimation);
 
-    String animation_name;
+    String animation_name = "ball_move";
 
-    if (key_map.is_pressed(SPACE)) {
-        animation_name = "Armature|Attack";
-    } else {
-        animation_name = "zombie_walk";
-    }
+    // if (key_map.is_pressed(SPACE)) {
+    //     animation_name = "Armature|Attack";
+    // } else {
+    //     animation_name = "zombie_walk";
+    // }
 
     AnimationData data = animation_list[animation_name]!!;
     assert(data.data.size != 0, "Please initialize animation component");
@@ -210,8 +210,26 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/animation_3.glb")!!;
     defer gltf.free();
+
+    // Create allocator of 150MB - DEVICE_ONLY memory
+    context.device_allocation = (vk::Allocation){
+        .device = context.device,
+        .pdevice = context.pdevice,
+        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
+        .size = 150_000_000
+    }.build()!!;
+
+    // Allocation where data can be changed from CPU
+    context.local_allocation = (vk::Allocation){
+        .device = context.device,
+        .pdevice = context.pdevice,
+        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
+        .size = 50_000_000
+    }.build()!!;
 
     Memory draw_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
@@ -231,7 +249,7 @@ fn void main()
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
         &context.device_allocation,
         null,
-        data_size: 35_000_000,
+        data_size: 30_000_000,
     )!!;
 
     ecs::Buffer cpu_only;
@@ -250,7 +268,7 @@ fn void main()
     defer manager.free();
 
     Component animations = manager.@create_component(size: 1_000_000, buffer_index: 2)!!;
-    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component vertices = manager.@create_component(size: 10_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     // NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, 3)!!;
@@ -286,20 +304,20 @@ fn void main()
 
     // Bake skin animations
     foreach (uint index, animation : gltf.animations) {
+        io::printfn("%s", animation.max_time);
         AnimationData data = {
             .buffer_offset = animations.used_size / Matrix4f.sizeof,
             .data = animations,
             .max_time = animation.max_time,
             .frames = (uint)(ANIMATION_FPS * animation.max_time),
-            .skin_index = 0
+            .skin_index = -1
         };
 
         for (usz i = 0; i < data.frames; i++) {
             double time = i / (double)ANIMATION_FPS;
- 
             gltf::@build_joint_matrix(
                 animation: animation,
-                skin: gltf.skins[data.skin_index],
+                skin: data.skin_index > -1 ? &&gltf.skins[data.skin_index] : null,
                 gltf: gltf,
                 frame_time: time;
                 uint joint_index,
@@ -318,114 +336,116 @@ fn void main()
 
     defer {
         materials.free();
+        mesh_list.@each_entry(;entry) { entry.value.free(); };
         mesh_list.free();
         animation_list.free();
     };
 
-    mesh_list.set("collider", ecs::load_mesh(
-        manager: manager,
-        vertices: &vertices,
-        indices: &indices,
-        mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
-    )!!);
+    // mesh_list.set("collider", ecs::load_mesh(
+    //         manager: manager,
+    //         vertices: &vertices,
+    //         indices: &indices,
+    //         mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
+    //     )!!
+    // );
+
+    // Load meshes from gltf
+    foreach (mesh: gltf.meshes) {
+        List{MeshData} meshes = ecs::parse_gltf_mesh(
+            gltf: gltf,
+            manager: manager,
+            vertices: &vertices,
+            indices: &indices,
+            mesh: mesh
+        )!!;
+
+        mesh_list.set(mesh.name, meshes);
+    }
 
     foreach (uint index, node : gltf.nodes) {
+
         if (node.has_mesh()) {
-            gltf::Mesh mesh = gltf.meshes[node.mesh];
-    
             Matrix4f matrix = node.global_matrix();
-            Entity node_entity = manager.@create_entity()!!;
-            if (node.name == "Player") player = node_entity;
+            
+            gltf::Mesh mesh = gltf.meshes[node.mesh];
+            List{MeshData} meshes = mesh_list[mesh.name]!!;
 
-            if (!mesh_list.has_key(mesh.name)) {
-                // Load mesh data from GLTF and save it as assets
-                ecs::@parse_gltf_mesh(
-                    gltf: gltf,
-                    manager: manager,
-                    vertices: &vertices,
-                    indices: &indices,
-                    mesh: mesh;
-                    MeshData mesh_data
-                ) { mesh_list.set(mesh.name, mesh_data); }!!;
-            }
-
-            MeshData mesh_data = mesh_list[mesh.name]!!;
-
-            Render render_data = {
-                .indexCount = mesh_data.indexCount,
-                .firstIndex = mesh_data.firstIndex,
-                .vertexOffset = mesh_data.vertexOffset,
-                .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
-                .instances = ecs::@get_address(manager, instances) + instances.used_size,
-                .node_matrix = matrix,
-                .instanceCount = 1,
-                .firstInstance = 0,
-                .animation_offset = node.has_skin() ? 0 : -1
-            };
-
-            if (node.attributes.len() > 0) {
-                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                render_data.instanceCount = translation_accessor.count;
-                render_data.firstInstance = 1;
-
-                for (uint i = 0; i < translation_accessor.count; i++) {
-                    Matrix4f instance_matrix = gltf::to_matrix(
-                        gltf.@cast_buffer(translation_accessor, i, Vec3f), 
-                        gltf.@cast_buffer(scale_accessor, i, Vec3f), 
-                        gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
-                    );
-
-                    ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
-                    instances.used_size += Matrix4f.sizeof;
-                }
-            }
-
-
-            if (node.has_skin()) {
-                MeshAnimation animation_info = {
-                    .active_time = 0,
-                    .repeat = true
+            foreach (mesh_data: meshes) {
+                Entity node_entity = manager.@create_entity()!!;
+                // if (node.name == "Player") player = node_entity;
+                Render render_data = {
+                    .indexCount = mesh_data.indexCount,
+                    .firstIndex = mesh_data.firstIndex,
+                    .vertexOffset = mesh_data.vertexOffset,
+                    .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
+                    .instances = ecs::@get_address(manager, instances) + instances.used_size,
+                    .node_matrix = matrix,
+                    .instanceCount = 1,
+                    .firstInstance = 0,
+                    .animation_offset = node.has_skin() ? 0 : -1
                 };
 
-                node_entity.@add(animation_info, &manager)!!;
+                if (node.attributes.len() > 0) {
+                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                    render_data.instanceCount = translation_accessor.count;
+                    render_data.firstInstance = 1;
+
+                    for (uint i = 0; i < translation_accessor.count; i++) {
+                        Matrix4f instance_matrix = gltf::to_matrix(
+                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
+                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
+                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
+                        );
+
+                        ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
+                        instances.used_size += Matrix4f.sizeof;
+                    }
+                }
+
+                if (node.has_skin()) {
+                    node_entity.@add((MeshAnimation) {
+                        .active_time = 0,
+                        .repeat = true
+                    }, &manager)!!;
+                }
+
+                node_entity.@add((State) {
+                    .collides = false,
+                    .index = index,
+                    .check_collision = node.name != "Player" ? true : false
+                }, &manager)!!;
+
+                node_entity.@add(render_data, &manager)!!;
             }
 
             // if (node.extras.has_key("collider")) io::printfn("collider %s", node.extras["collider"]!!);
 
 
             // Add physics box           
-            if (!mesh_data.aabb.is_empty()) {
-                Aabb3 mesh_aabb = mesh_data.aabb;
+            // if (!mesh_data.aabb.is_empty()) {
+            //     Aabb3 mesh_aabb = mesh_data.aabb;
 
-                MeshData collider_mesh = mesh_list["collider"]!!;
+            //     MeshData collider_mesh = mesh_list["collider"]!!;
             
-                Collider collider = {
-                    .indexCount = collider_mesh.indexCount,
-                    .firstIndex = collider_mesh.firstIndex,
-                    .vertexOffset = collider_mesh.vertexOffset,
-                    .instanceCount = 1,
-                    .node_matrix = render_data.node_matrix,
-                    .animation_offset = -1
-                };
+            //     Collider collider = {
+            //         .indexCount = collider_mesh.indexCount,
+            //         .firstIndex = collider_mesh.firstIndex,
+            //         .vertexOffset = collider_mesh.vertexOffset,
+            //         .instanceCount = 1,
+            //         .node_matrix = rmatrix,
+            //         .animation_offset = -1
+            //     };
 
-                node_entity.@add(collider, &manager)!!;
+            //     node_entity.@add(collider, &manager)!!;
 
-                if (node.name != "Player") {
-                    node_entity.@add(mesh_aabb.transform(render_data.node_matrix), &manager)!!;
-                } else {
-                    node_entity.@add(mesh_aabb, &manager)!!;
-                }
-             
-                node_entity.@add((State) {
-                    .collides = false,
-                    .index = index,
-                    .check_collision = node.name != "Player" ? true : false
-                }, &manager)!!;
-            }
-      
-            node_entity.@add(render_data, &manager)!!;
+            //     if (node.name != "Player") {
+            //         node_entity.@add(mesh_aabb.transform(matrix), &manager)!!;
+            //     } else {
+            //         node_entity.@add(mesh_aabb, &manager)!!;
+            //     }
+            // }
         }
     }
 

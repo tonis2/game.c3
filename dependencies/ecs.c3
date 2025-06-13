@@ -557,6 +557,7 @@ struct MeshData {
     uint instanceCount;
     uint firstIndex;
     uint vertexOffset;
+    uint meshCount;
     int materialIndex;
     Aabb3 aabb;
 }
@@ -604,8 +605,9 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
     return data;
 }
 
-macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
-    foreach (primitive: mesh.primitives) {
+fn List{MeshData}? parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh) {
+    List{MeshData} meshes;
+    foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
        
@@ -619,6 +621,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
             .indexCount = index_accessor.count,
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
+            .meshCount = prim_index,
         };
 
         // if (pos_accessor.max != (Vec4f){0,0,0,0}) {
@@ -713,11 +716,13 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
 
         data.aabb = bounding_box;
 
-        @callback(data);
+        meshes.push(data);
 
         vertex_data.free();
         index_data.free();
     }
+
+    return meshes;
 }
 
 
