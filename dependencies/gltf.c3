@@ -190,6 +190,7 @@ struct Mesh {
 struct Animation {
     String name;
     float max_time;
+    float min_time;
     List{AnimationSampler} samplers;
     List{Channel} channels;
 }
@@ -1209,6 +1210,10 @@ fn Gltf? parse(InStream stream) {
                 if (time_accessor.max[0] != 0) {
                     data.max_time = time_accessor.max[0];
                 }
+
+                if (time_accessor.min[0] != 0) {
+                    data.min_time = time_accessor.min[0];
+                }
             }
 
             content.animations.push(data);
@@ -1498,12 +1503,13 @@ fn void run_animation_channels(double frame_time, Gltf gltf, gltf::Animation ani
         Accessor value_accessor = gltf.accessors[sampler.output];
 
         float max_frame_time = time_accessor.max[0];
+        float min_frame_time = time_accessor.min[0];
         
         for TIMES: (ulong j; j < time_accessor.count; j++) {
             gltf::Node* node = gltf.nodes.get_ref(channel.target.node);
             float current_time = gltf.@cast_buffer(time_accessor, j, float);
 
-            if (current_time >= frame_time && frame_time < max_frame_time) {
+            if (current_time > frame_time && frame_time < max_frame_time && current_time > min_frame_time) {
                 Vec4f current_value = gltf.@cast_buffer(value_accessor, j, Vec4f);
               
                 if (sampler.interpolation == STEP) {
