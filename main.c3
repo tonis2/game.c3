@@ -449,7 +449,7 @@ fn void main()
                         instances.used_size += Matrix4f.sizeof;
                     }
                 }
-
+                
                 if (node.has_skin()) {
                     node_entity.@add((SkinAnimation) {
                         .animation_index = node.name == "Fox" ? 4 : 0,
