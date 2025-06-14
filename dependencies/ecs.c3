@@ -126,7 +126,7 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
 fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
 
-    if ((buffer.total_size() - buffer.get_used_size()) < size) return COMPONENT_BUFFER_OVERFLOW?;
+    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW?;
 
     Component component = {
         .id = (uint)self.components.len(),
@@ -286,6 +286,43 @@ fn uint get_size(Entity entity, EntityManager manager) {
 
 //     return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
 // }
+
+
+<*
+ @require self.size > (self.used_size + size) "Component total size is too small"
+*>
+macro void Component.@push(&self, EntityManager manager, #data, usz size = 0, usz offset = 0) {
+    usz data_size = size;
+    Allocator buffer = manager.buffers[self.buffer];
+    usz data_offset = self.offset + offset + self.used_size;
+
+    $if @typekind(#data) == POINTER: {
+        if (size == 0) data_size = $typeof(*#data).sizeof;
+    }
+    $else {
+        if (size == 0) data_size = $typeof(#data).sizeof;
+    }   
+    $endif
+
+    $if @typekind(#data) == POINTER: {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            manager.uploadFN(buffer, #data, data_size, data_offset);
+        } else  {
+            buffer.upload(#data, data_size, data_offset);
+        }
+    }
+    $else {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            manager.uploadFN(buffer, &&#data, data_size, data_offset);
+        } else  {
+            buffer.upload(&&#data, data_size, data_offset);
+        }
+    }
+    $endif
+
+    self.used_size += data_size;
+}
+
 
 <*
  @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
@@ -605,8 +642,8 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
     return data;
 }
 
-fn List{MeshData}? parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh) {
-    List{MeshData} meshes;
+fn void? parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh, List{MeshData}* buffer) {
+
     foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
@@ -716,13 +753,11 @@ fn List{MeshData}? parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* 
 
         data.aabb = bounding_box;
 
-        meshes.push(data);
+        buffer.push(data);
 
         vertex_data.free();
         index_data.free();
     }
-
-    return meshes;
 }
 
 

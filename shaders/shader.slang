@@ -13,6 +13,7 @@ struct Material
     int emissiveTexture;
     int baseColorTexture;
     int metallicRoughnessTexture;
+    float3 pad2;
 };
 
 struct Vertex
@@ -45,7 +46,7 @@ struct DrawCommand
     int vertexOffset;
     uint firstInstance;
     int animation_offset;
-    Material* materials;
+    int material;
     row_major float4x4* instances;
     row_major float4x4 node_matrix;
 }
@@ -73,7 +74,9 @@ cbuffer Scene
     Light light;
     Vertex* vertices;
     DrawCommand* draw_cmds;
+    Material* materials;
     row_major float4x4* skin_data;
+    uint32_t material_count;
 }
 
 [vk_binding(1)]
@@ -86,7 +89,7 @@ uniform Sampler2D shadow_samplers[];
 struct FragmentData
 {
     float2 tex_cord;
-    uint64_t material;
+    int material;
     float4 sv_position : SV_Position;
 };
 
@@ -130,7 +133,7 @@ FragmentData vertexMain(VertexInput input)
 
     FragmentData output = {
         vertex.tex_cord.xy,
-        (uint64_t)draw.materials,
+        draw.material,
         vertex_pos
     };
 
@@ -143,11 +146,11 @@ float4 fragmentMain(FragmentData input)
     : SV_Target
 {
     if (push_constant.collides == 1) return float4(0.8, 0.4, 0.7, 1.0);
-    Material* material = (Material*)input.material;
 
-    if (material != nullptr)
+    if (input.material > -1)
     {
-       return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
+        Material material = materials[input.material];
+        return input.material > material_count ? material.baseColorFactor : image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
     }
 
 
