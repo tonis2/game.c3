@@ -77,6 +77,7 @@ struct SceneData @tag("BUFFER", 2) {
 struct AnimationData {
     int skin_index;
     usz buffer_offset;
+    uint joints_len;
     uint frames;
     double max_time;
     double min_time;
@@ -90,7 +91,6 @@ struct Animation {
 }
 
 typedef SkinAnimation = Animation;
-
 typedef SceneLight @tag("BUFFER", 2) = Light;
 
 // Used to send buffer device addresses to GPU
@@ -179,10 +179,8 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
     double new_time = animation.active_time + time;
     animation.active_time = new_time < data.max_time ? new_time : 0;
 
-    usz skin_len = gltf.skins[data.skin_index].joints.len();
-
-    double frame_index = (animation.active_time / data.max_time) * ANIMATION_FPS * data.max_time;
-    entity_render.animation_offset = (uint)data.buffer_offset + (uint)skin_len * (uint)frame_index;
+    double frame_index = animation.active_time * ANIMATION_FPS;
+    entity_render.animation_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
 
     ecs::@upload(manager, entity, entity_render);
     ecs::@upload(manager, entity, animation);
@@ -383,6 +381,7 @@ fn void main()
             
             uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
             AnimationData data = {
+                .joints_len = (uint)skin.joints.len(),
                 .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
                 .data = skin_animations,
                 .max_time = animation.max_time,
