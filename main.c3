@@ -57,9 +57,9 @@ struct Render @tag("BUFFER", 1) {
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
+    uint instance_offset;
     int animation_offset;
     int material;
-    vk::DeviceAddress instances;
     Matrix4f node_matrix;
 }
 
@@ -70,6 +70,7 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
     vk::DeviceAddress animations;
+    vk::DeviceAddress instances;
     uint material_count;
 }
 
@@ -315,10 +316,10 @@ fn void main()
     defer manager.free();
 
     Component skin_animations = manager.@create_component(size: 1_000_000, buffer_index: 2)!!;
-    Component vertices = manager.@create_component(size: 15_000_000, buffer_index: 3)!!;
+    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component materials = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
     // NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, 3)!!;
   
     Entity scene = manager.@create_entity(
@@ -334,6 +335,7 @@ fn void main()
             .vertices = ecs::@get_address(manager, vertices),
             .materials = ecs::@get_address(manager, materials),
             .animations = ecs::@get_address(manager, skin_animations),
+            .instances = ecs::@get_address(manager, instances),
             .material_count = (uint)materials.used_size / Material.sizeof
         },
     )!!;
@@ -420,12 +422,12 @@ fn void main()
                     .indexCount = mesh_data.indexCount,
                     .firstIndex = mesh_data.firstIndex,
                     .vertexOffset = mesh_data.vertexOffset,
-                    .material = mesh_data.materialIndex,
-                    .instances = ecs::@get_address(manager, instances) + instances.used_size,
-                    .node_matrix = matrix,
                     .instanceCount = 1,
                     .firstInstance = 0,
-                    .animation_offset = -1
+                    .instance_offset = (uint)instances.used_size,
+                    .animation_offset = -1,
+                    .material = mesh_data.materialIndex,
+                    .node_matrix = matrix,
                 };
 
                 // if (node.attributes.len() > 0) {

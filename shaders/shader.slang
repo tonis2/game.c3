@@ -45,9 +45,9 @@ struct DrawCommand
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
+    uint instance_offset;
     int animation_offset;
     int material;
-    row_major float4x4* instances;
     row_major float4x4 node_matrix;
 }
 
@@ -76,6 +76,7 @@ cbuffer Scene
     DrawCommand* draw_cmds;
     Material* materials;
     row_major float4x4* skin_data;
+    row_major float4x4* instances;
     uint32_t material_count;
 }
 
@@ -125,7 +126,7 @@ FragmentData vertexMain(VertexInput input)
     float4x4 node_matrix = mul(draw.node_matrix, skin_matrix);
 
     if (input.instanceID > 0) {
-        node_matrix = mul(node_matrix, draw.instances[input.instanceID]);
+        node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
     }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
