@@ -286,7 +286,7 @@ fn void main()
 
     defer manager.free();
 
-    Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: 2)!!;
+    Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
@@ -374,11 +374,13 @@ fn void main()
     // Bake skin animations
     foreach (uint skin_index, skin: gltf.skins) {
         List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
+  
         defer animation_indexes.free();
 
         foreach (index: animation_indexes) {
             gltf::Animation animation = gltf.animations[index];
-
+            List{Matrix4f} skin_matrixes;
+            
             uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
             AnimationData data = {
                 .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
@@ -398,11 +400,13 @@ fn void main()
                 );
 
                 gltf::@build_skin_matrixes(gltf.skins[skin_index], gltf; uint joint, Matrix4f matrix) {
-                    skin_animations.@push(manager, &matrix);
+                    skin_matrixes.push(matrix);
                 };
             }
-
+            
+            skin_animations.@push(manager, skin_matrixes.entries, size: skin_matrixes.byte_size());
             animation_list.push(data);
+            skin_matrixes.free();
         };
     }
 
@@ -451,7 +455,7 @@ fn void main()
                 if (node.has_skin()) {
                     node_entity.@add((SkinAnimation) {
                         .animation_index = node.name == "Fox" ? 4 : 0,
-                        .active_time = 0.1,
+                        .active_time = 0.0,
                         .repeat = true
                     }, &manager)!!;
                 }
