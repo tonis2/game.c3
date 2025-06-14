@@ -206,6 +206,56 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
     // ecs::@upload(manager, entity, animation);
 }
 
+// Bake skin animations
+fn void bake_skin_animations(Component skin_animations) {
+    foreach (uint skin_index, skin: gltf.skins) {
+        List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
+        defer animation_indexes.free();
+
+        foreach (index: animation_indexes) {
+            gltf::Animation animation = gltf.animations[index];
+            List{Matrix4f} skin_matrixes;
+            
+            uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+            AnimationData data = {
+                .joints_len = (uint)skin.joints.len(),
+                .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
+                .data = skin_animations,
+                .max_time = animation.max_time,
+                .min_time =  animation.min_time,
+                .frames = frame_count,
+                .skin_index = skin_index,
+            };
+
+            for (usz i = 0; i < frame_count; i++) {
+                double time = i / (double)ANIMATION_FPS;
+                gltf.@run_animation_channels(
+                    frame_time: time,
+                    animation: animation;
+                    uint node_index,
+                    AnimationProperty property,
+                    Vec4f value
+                ) {
+                    gltf::Node* node = gltf.nodes.get_ref(node_index);
+                    switch (property) {
+                        case TRANSLATION: node.translation = value.xyz;
+                        case ROTATION: node.rotation = (Quaternionf){.v = value };
+                        case SCALE: node.scale = value.xyz;
+                        default: {}
+                    }
+                };
+
+                gltf.@build_skin_matrixes(gltf.skins[skin_index]; uint joint, Matrix4f matrix) {
+                    skin_matrixes.push(matrix);
+                };
+            }
+            
+            skin_animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());
+            animation_list.push(data);
+            skin_matrixes.free();
+        };
+    }
+}
 
 fn void main()
 {
@@ -291,6 +341,8 @@ fn void main()
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
     NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, buffer_index: 2)!!;
+
+    bake_skin_animations(skin_animations);
   
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -371,45 +423,6 @@ fn void main()
         mesh_list.set(mesh.name, meshes);
     }
 
-    // Bake skin animations
-    foreach (uint skin_index, skin: gltf.skins) {
-        List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-        defer animation_indexes.free();
-
-        foreach (index: animation_indexes) {
-            gltf::Animation animation = gltf.animations[index];
-            List{Matrix4f} skin_matrixes;
-            
-            uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-            AnimationData data = {
-                .joints_len = (uint)skin.joints.len(),
-                .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
-                .data = skin_animations,
-                .max_time = animation.max_time,
-                .min_time =  animation.min_time,
-                .frames = frame_count,
-                .skin_index = skin_index,
-            };
-
-            for (usz i = 0; i < frame_count; i++) {
-                double time = i / (double)ANIMATION_FPS;
-                gltf::run_animation_channels(
-                    frame_time: time,
-                    gltf: gltf,
-                    animation: animation
-                );
-
-                gltf::@build_skin_matrixes(gltf.skins[skin_index], gltf; uint joint, Matrix4f matrix) {
-                    skin_matrixes.push(matrix);
-                };
-            }
-            
-            skin_animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());
-            animation_list.push(data);
-            skin_matrixes.free();
-        };
-    }
-
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
@@ -445,8 +458,7 @@ fn void main()
                             gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
                         );
 
-                        ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
-                        instances.used_size += Matrix4f.sizeof;
+                        instances.@push(instance_matrix);
                     }
                 }
                 

@@ -554,7 +554,7 @@ fn NodeMatrix* NodeComponent.get(&self, usz index) @operator([]) @inline
 }
 
 <*
- @require self.size != 0 && self.used_size != 0 : `Component is empty`
+ @require self.size != 0 && index * NodeMatrix.sizeof <= self.size : `Component is empty`
 *>
 fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
 {
