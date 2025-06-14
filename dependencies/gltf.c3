@@ -1330,6 +1330,7 @@ fn List{uint} Gltf.find_skin_animations(Gltf self, uint skin_index) {
 }
 
 macro bool Animation.equals(self, Animation b) @operator(==) => self.name == b.name;
+macro bool Node.equals(self, Node b) @operator(==) => self.name == b.name;
 
 fn uint Accessor.componentLen(Accessor* self) {
     switch (self.type) {
@@ -1448,17 +1449,6 @@ fn BufferView Gltf.get_view(&self, ulong attribute) {
 fn char* Gltf.get_data(&self, BufferView view) {
     Buffer buffer = self.buffers[view.buffer];
     return buffer.data[view.offset..];
-}
-
-fn List{uint} flatten_nodes(List{uint} nodes, Gltf data, List{uint}* list = null) {
-    if (list == null) list = &&(List{uint}){};
-    foreach (index: nodes) {
-        Node node = data.nodes[index];
-        list.push(index);
-        flatten_nodes(node.children, data, list);
-    }
-
-    return *list;
 }
 
 fn void Gltf.debug_buffer(Gltf* self, Accessor accessor) {

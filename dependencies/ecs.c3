@@ -39,6 +39,7 @@ struct Component {
     uint buffer;
     usz used_size;
     usz offset;
+    EntityManager* manager;
 }
 
 struct BufferView {
@@ -132,7 +133,8 @@ fn Component? EntityManager.new_component(&self, void* data = null, uint size = 
         .id = (uint)self.components.len(),
         .size = size,
         .buffer = buffer_index,
-        .offset = buffer.get_used_size()
+        .offset = buffer.get_used_size(),
+        .manager = self
     };
 
     self.components.push(component);
@@ -291,9 +293,9 @@ fn uint get_size(Entity entity, EntityManager manager) {
 <*
  @require self.size > (self.used_size + size) "Component total size is too small"
 *>
-macro void Component.@push(&self, EntityManager manager, #data, usz size = 0, usz offset = 0) {
+macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
     usz data_size = size;
-    Allocator buffer = manager.buffers[self.buffer];
+    Allocator buffer = self.manager.buffers[self.buffer];
     usz data_offset = self.offset + offset + self.used_size;
 
     $if @typekind(#data) == POINTER: {
@@ -306,14 +308,14 @@ macro void Component.@push(&self, EntityManager manager, #data, usz size = 0, us
 
     $if @typekind(#data) == POINTER: {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, #data, data_size, data_offset);
+            self.manager.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
             buffer.upload(#data, data_size, data_offset);
         }
     }
     $else {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, &&#data, data_size, data_offset);
+            self.manager.uploadFN(buffer, &&#data, data_size, data_offset);
         } else  {
             buffer.upload(&&#data, data_size, data_offset);
         }
@@ -530,40 +532,34 @@ struct NodeMatrix {
 
 alias NodeComponent = Component;
 
-
 fn NodeComponent? load_nodes(EntityManager manager, gltf::Node[] nodes, Gltf gltf, uint buffer_index) {
-   NodeComponent component = manager.@create_component(size: (uint)(nodes.len * NodeMatrix.sizeof), buffer_index: buffer_index)!;
+    NodeComponent component = manager.@create_component(size: (uint)(nodes.len * NodeMatrix.sizeof), buffer_index: buffer_index)!;
 
-    foreach (uint index, node: nodes) {
-        gltf::Node parent_node = gltf.nodes[index];
-        @upload(manager, component, (NodeMatrix) {
-            .matrix = parent_node.local_matrix(),
-            .parent = -1,
+    foreach (node: nodes) {
+        component.@push((NodeMatrix) {
+            .matrix = node.global_matrix(),
+            .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
         });
-
-        if (node.children.len() > 0) {
-            foreach (child: node.children) {
-                gltf::Node child_node = gltf.nodes[child];
-                int parent = !child_node.has_skin() ? index : -1;
-
-                @upload(manager, component, (NodeMatrix) {
-                    .matrix = child_node.local_matrix(),
-                    .parent = parent,
-                });
-            }
-        }
     }
 
     return component;
 }
 
-// <*
-//  @require self.size == 0 : `Component is empty`
-// *>
-// fn Matrix4f NodeComponent.get(&self, usz index) @operator(&[]) @inline
-// {
-// 	return &self.entries[index];
-// }
+<*
+ @require self.size != 0 && self.used_size != 0 : `Component is empty`
+*>
+fn NodeMatrix* NodeComponent.get(&self, usz index) @operator([]) @inline
+{
+	return (void*)self.manager.buffers[self.buffer].data() + self.offset + (index * NodeMatrix.sizeof);
+}
+
+<*
+ @require self.size != 0 && self.used_size != 0 : `Component is empty`
+*>
+fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
+{
+    @upload(*self.manager, *self, matrix, size: Matrix4f.sizeof, offset: self.offset + (index * NodeMatrix.sizeof));
+}
 
 struct System {
     String[] query;

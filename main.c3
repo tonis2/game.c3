@@ -60,7 +60,7 @@ struct Render @tag("BUFFER", 1) {
     uint instance_offset;
     int animation_offset;
     int material;
-    Matrix4f node_matrix;
+    uint node_index;
 }
 
 typedef Collider @tag("BUFFER", 1) = Render;
@@ -69,6 +69,7 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
+    vk::DeviceAddress nodes;
     vk::DeviceAddress animations;
     vk::DeviceAddress instances;
     uint material_count;
@@ -148,25 +149,25 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
     Collider collider_render = ecs::@get(manager, player, Collider);
 
     bool is_dirty = false;
-    foreach (item: MOVE_EVENTS) {
-        if (key_map.is_pressed(item.key)) {
-            player_render.node_matrix = player_render.node_matrix.translate(item.move);
-            collider_render.node_matrix = player_render.node_matrix;
-            is_dirty = true;
-        }
-    }
+    // foreach (item: MOVE_EVENTS) {
+    //     if (key_map.is_pressed(item.key)) {
+    //         player_render.node_matrix = player_render.node_matrix.translate(item.move);
+    //         collider_render.node_matrix = player_render.node_matrix;
+    //         is_dirty = true;
+    //     }
+    // }
 
-    if (is_dirty && state.check_collision) {
-        if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
-            state.collides = true;
-        } else {
-            state.collides = false;
-        }
+    // if (is_dirty && state.check_collision) {
+    //     if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
+    //         state.collides = true;
+    //     } else {
+    //         state.collides = false;
+    //     }
 
-        ecs::@upload(manager, entity, state);
-        ecs::@upload(manager, player, player_render);
-        ecs::@upload(manager, player, collider_render);
-    }
+    //     ecs::@upload(manager, entity, state);
+    //     ecs::@upload(manager, player, player_render);
+    //     ecs::@upload(manager, player, collider_render);
+    // }
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
@@ -289,7 +290,7 @@ fn void main()
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
-    // NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, 3)!!;
+    NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, buffer_index: 2)!!;
   
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -305,12 +306,13 @@ fn void main()
             .materials = ecs::@get_address(manager, materials),
             .animations = ecs::@get_address(manager, skin_animations),
             .instances = ecs::@get_address(manager, instances),
+            .nodes = ecs::@get_address(manager, nodes),
             .material_count = (uint)materials.used_size / Material.sizeof
         },
     )!!;
 
     foreach (index, material: gltf.materials) {
-        materials.@push(manager, (Material) {
+        materials.@push((Material) {
             .emissiveStrength = material.emissiveStrength,
             .metallicFactor = material.metallicFactor,
             .roughnessFactor = material.roughnessFactor,
@@ -372,7 +374,6 @@ fn void main()
     // Bake skin animations
     foreach (uint skin_index, skin: gltf.skins) {
         List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-  
         defer animation_indexes.free();
 
         foreach (index: animation_indexes) {
@@ -403,7 +404,7 @@ fn void main()
                 };
             }
             
-            skin_animations.@push(manager, skin_matrixes.entries, size: skin_matrixes.byte_size());
+            skin_animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());
             animation_list.push(data);
             skin_matrixes.free();
         };
@@ -412,8 +413,6 @@ fn void main()
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
-            Matrix4f matrix = node.global_matrix();
-            
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             List{MeshData} meshes = mesh_list[mesh.name]!!;
 
@@ -429,7 +428,7 @@ fn void main()
                     .instance_offset = (uint)instances.used_size,
                     .animation_offset = -1,
                     .material = mesh_data.materialIndex,
-                    .node_matrix = matrix,
+                    .node_index = node_index,
                 };
 
                 if (node.attributes.len() > 0) {
@@ -814,7 +813,7 @@ fn void main()
         context.present_image(next_image, command_buffer)!!;
 
         NanoDuration time_delta = (start_time - render_time.mark());
-        if (time_delta < min_frame_time) {
+        if (time_delta <= min_frame_time) {
             std::thread::sleep_ns(min_frame_time - time_delta)!!;
             time_delta = (start_time - render_time.mark());
         }

@@ -48,12 +48,7 @@ struct DrawCommand
     uint instance_offset;
     int animation_offset;
     int material;
-    row_major float4x4 node_matrix;
-}
-
-struct Node {
-    float4x4 matrix;
-    int parent;
+    uint node_index;
 }
 
 struct PushData
@@ -61,6 +56,11 @@ struct PushData
     uint draw_index;
     uint8_t collides;
 };
+
+struct Node {
+    row_major float4x4 matrix;
+    int parent; 
+}
 
 [vk_push_constant]
 const PushData push_constant;
@@ -75,6 +75,7 @@ cbuffer Scene
     Vertex* vertices;
     DrawCommand* draw_cmds;
     Material* materials;
+    Node* nodes;
     row_major float4x4* skin_data;
     row_major float4x4* instances;
     uint32_t material_count;
@@ -123,7 +124,8 @@ FragmentData vertexMain(VertexInput input)
         vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
     }
 
-    float4x4 node_matrix = mul(draw.node_matrix, skin_matrix);
+    row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
+    node_matrix = mul(node_matrix, skin_matrix);
 
     if (input.instanceID > 0) {
         node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
