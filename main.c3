@@ -278,7 +278,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/animation_2.glb")!!;
+    gltf = gltf::loadFile("assets/animation_3.glb")!!;
     defer gltf.free();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
@@ -350,6 +350,24 @@ fn void main()
     }
 
     bake_skin_animations(skin_animations);
+
+    // gltf.@run_animation_channels(
+    //     frame_time: 0.5,
+    //     animation: gltf.animations[1];
+    //     uint node_index,
+    //     AnimationProperty property,
+    //     Vec4f value
+    // ) {
+    //     NodeMatrix* node = nodes[node_index];
+    //     switch (property) {
+    //         case TRANSLATION: node.matrix = node.matrix.translate(value.xyz);
+    //         // case ROTATION: node.rotation = (Quaternionf){.v = value };
+    //         case SCALE: node.matrix = node.matrix.scale(value.xyz);
+    //         default: {}
+    //     }
+
+    //     nodes.set(node_index, node.matrix);
+    // };
   
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -718,7 +736,8 @@ fn void main()
             running = false;
         }
 
-        manager.run_systems(event, animation_time.mark().to_sec());
+        double animation_value = animation_time.mark().to_sec();
+        manager.run_systems(event, animation_value);
 
         uint next_image = context.next_image()!!;
     
