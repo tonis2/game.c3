@@ -743,6 +743,7 @@ fn List{MeshData}? parse_gltf_mesh(Gltf gltf, Component* vertices, Component* in
         }
 
         if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
+            io::printfn("mesh size %s, total size, %s, mesh %s", vertices.used_size + vertex_data.byte_size() * 0.00_0001, vertices.size, mesh.name);
             return COMPONENT_BUFFER_OVERFLOW?;
         }
 

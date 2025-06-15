@@ -337,8 +337,8 @@ fn void main()
 
     NodeComponent nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * NodeMatrix.sizeof), buffer_index: 2)!!;
     Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component vertices = manager.@create_component(size: 2_000_000, buffer_index: 3)!!;
-    Component indices = manager.@create_component(size: 2_000_000, buffer_index: 3)!!;
+    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component indices = manager.@create_component(size: 3_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
 
@@ -427,7 +427,6 @@ fn void main()
         mesh_list.set(mesh.name, meshes);
     }
 
-    io::printfn("%s", nodes.manager.buffers.len());
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
