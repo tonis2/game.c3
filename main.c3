@@ -335,12 +335,19 @@ fn void main()
 
     defer manager.free();
 
+    NodeComponent nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * NodeMatrix.sizeof), buffer_index: 2)!!;
     Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component indices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
+    Component vertices = manager.@create_component(size: 2_000_000, buffer_index: 3)!!;
+    Component indices = manager.@create_component(size: 2_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
-    NodeComponent nodes = ecs::load_nodes(manager, gltf.nodes.array_view(), gltf, buffer_index: 2)!!;
+
+    foreach (node: gltf.nodes) {
+        nodes.@push((NodeMatrix) {
+            .matrix = node.global_matrix(),
+            .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
+        });
+    }
 
     bake_skin_animations(skin_animations);
   
@@ -411,24 +418,22 @@ fn void main()
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
-         List{MeshData} meshes;
-         ecs::parse_gltf_mesh(
+         List{MeshData} meshes = ecs::parse_gltf_mesh(
             gltf: gltf,
-            manager: manager,
             vertices: &vertices,
             indices: &indices,
-            mesh: mesh,
-            buffer: &meshes
+            mesh: mesh
         )!!;
         mesh_list.set(mesh.name, meshes);
     }
 
+    io::printfn("%s", nodes.manager.buffers.len());
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             List{MeshData} meshes = mesh_list[mesh.name]!!;
-
+         
             foreach (mesh_data: meshes) {
                 Entity node_entity = manager.@create_entity()!!;
                 // if (node.name == "Player") player = node_entity;
@@ -492,8 +497,6 @@ fn void main()
 
                 node_entity.@add(render_data, &manager)!!;
             }
-
-      
 
             // Add physics box           
             // if (!mesh_data.aabb.is_empty()) {

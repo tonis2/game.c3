@@ -143,7 +143,7 @@ fn Component? EntityManager.new_component(&self, void* data = null, uint size = 
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
         } else {
-            buffer.upload(data, size, buffer.get_used_size());
+            buffer.upload(data, size, component.offset);
         }
     }
 
@@ -532,19 +532,6 @@ struct NodeMatrix {
 
 alias NodeComponent = Component;
 
-fn NodeComponent? load_nodes(EntityManager manager, gltf::Node[] nodes, Gltf gltf, uint buffer_index) {
-    NodeComponent component = manager.@create_component(size: (uint)(nodes.len * NodeMatrix.sizeof), buffer_index: buffer_index)!;
-
-    foreach (node: nodes) {
-        component.@push((NodeMatrix) {
-            .matrix = node.global_matrix(),
-            .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
-        });
-    }
-
-    return component;
-}
-
 <*
  @require self.size != 0 && self.used_size != 0 : `Component is empty`
 *>
@@ -554,11 +541,29 @@ fn NodeMatrix* NodeComponent.get(&self, usz index) @operator([]) @inline
 }
 
 <*
- @require self.size != 0 && index * NodeMatrix.sizeof <= self.size : `Component is empty`
+ @require self.size != 0 && index * NodeMatrix.sizeof <= self.size : `Component is not big enough`
 *>
 fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
 {
     @upload(*self.manager, *self, matrix, size: Matrix4f.sizeof, offset: self.offset + (index * NodeMatrix.sizeof));
+}
+
+<*
+ @require self.size != 0 : `Component is empty`
+*>
+fn Matrix4f NodeComponent.global_matrix(&self, uint index) @inline
+{
+    char* buffer = self.manager.buffers[self.buffer].data();
+    NodeMatrix* current_node = (void*)buffer + self.offset + (index * NodeMatrix.sizeof);
+    Matrix4f global_matrix = current_node.matrix;
+
+    while (current_node.parent != - 1) {
+        NodeMatrix* parent_node = (void*)buffer + self.offset + (current_node.parent * NodeMatrix.sizeof);
+        global_matrix = parent_node.matrix.mul(global_matrix);
+        current_node = parent_node;
+    }
+    
+    return global_matrix;
 }
 
 struct System {
@@ -638,8 +643,8 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
     return data;
 }
 
-fn void? parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh, List{MeshData}* buffer) {
-
+fn List{MeshData}? parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices, gltf::Mesh mesh) {
+    List{MeshData} response;
     foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
@@ -741,19 +746,18 @@ fn void? parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, 
             return COMPONENT_BUFFER_OVERFLOW?;
         }
 
-        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
-        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
-
-        indices.used_size += index_data.byte_size();
-        vertices.used_size += vertex_data.byte_size();
+        vertices.@push(vertex_data.entries, size: vertex_data.byte_size());
+        indices.@push(index_data.entries, size: index_data.byte_size());
 
         data.aabb = bounding_box;
 
-        buffer.push(data);
+        response.push(data);
 
         vertex_data.free();
         index_data.free();
     }
+
+    return response;
 }
 
 
