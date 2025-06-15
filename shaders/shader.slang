@@ -153,9 +153,12 @@ float4 fragmentMain(FragmentData input)
     if (input.material > -1)
     {
         Material material = materials[input.material];
-        return input.material > material_count ? material.baseColorFactor : image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
+        if (material.baseColorTexture > -1) {
+            return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
+        } else {
+            return material.baseColorFactor;
+        }
     }
-
 
     return float4(0.5, 0.5, 0.5, 1.0);
 }

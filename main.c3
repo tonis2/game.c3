@@ -214,6 +214,7 @@ fn void bake_skin_animations(Component skin_animations) {
 
         foreach (index: animation_indexes) {
             gltf::Animation animation = gltf.animations[index];
+            io::printfn("%s", animation.name);
             List{Matrix4f} skin_matrixes;
             
             uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
@@ -257,6 +258,47 @@ fn void bake_skin_animations(Component skin_animations) {
     }
 }
 
+// fn void bake_world_animations(Component animations) {
+//         foreach (index: animation_indexes) {
+//         gltf::Animation animation = gltf.animations[index];
+//         List{Matrix4f} animation_frames;
+        
+//         uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+//         AnimationData data = {
+//             .joints_len = (uint)skin.joints.len(),
+//             .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
+//             .data = skin_animations,
+//             .max_time = animation.max_time,
+//             .min_time =  animation.min_time,
+//             .frames = frame_count,
+//             .skin_index = skin_index,
+//         };
+
+//         for (usz i = 0; i < frame_count; i++) {
+//             double time = i / (double)ANIMATION_FPS;
+//             gltf.@run_animation_channels(
+//                 frame_time: time,
+//                 animation: animation;
+//                 uint node_index,
+//                 AnimationProperty property,
+//                 Vec4f value
+//             ) {
+//                 gltf::Node* node = gltf.nodes.get_ref(node_index);
+//                 switch (property) {
+//                     case TRANSLATION: node.translation = value.xyz;
+//                     case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                     case SCALE: node.scale = value.xyz;
+//                     default: {}
+//                 }
+//             };
+//         }
+        
+//         animations.@push(animation_frames.entries, size: animation_frames.byte_size());
+//         animation_list.push(data);
+//         animation_frames.free();
+//     };
+// }
+
 fn void main()
 {
     c3w::Window win = c3w::new(
@@ -278,7 +320,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/animation_3.glb")!!;
+    gltf = gltf::loadFile("assets/animation_2.glb")!!;
     defer gltf.free();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
@@ -368,6 +410,22 @@ fn void main()
 
     //     nodes.set(node_index, node.matrix);
     // };
+
+
+    foreach (index, material: gltf.materials) {
+        materials.@push((Material) {
+            .emissiveStrength = material.emissiveStrength,
+            .metallicFactor = material.metallicFactor,
+            .roughnessFactor = material.roughnessFactor,
+            .emissiveFactor = material.emissiveFactor,
+            .baseColorFactor = material.baseColorFactor,
+            .normalTexture = material.normalTexture.source,
+            .occlusionTexture = material.occlusionTexture.source,
+            .emissiveTexture = material.emissiveTexture.source,
+            .baseColorTexture = material.baseColorTexture.source,
+            .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
+        });
+    };
   
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -387,21 +445,6 @@ fn void main()
             .material_count = (uint)materials.used_size / Material.sizeof
         },
     )!!;
-
-    foreach (index, material: gltf.materials) {
-        materials.@push((Material) {
-            .emissiveStrength = material.emissiveStrength,
-            .metallicFactor = material.metallicFactor,
-            .roughnessFactor = material.roughnessFactor,
-            .emissiveFactor = material.emissiveFactor,
-            .baseColorFactor = material.baseColorFactor,
-            .normalTexture = material.normalTexture.source,
-            .occlusionTexture = material.occlusionTexture.source,
-            .emissiveTexture = material.emissiveTexture.source,
-            .baseColorTexture = material.baseColorTexture.source,
-            .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
-        });
-    };
 
     manager.add_system({
         .query = {"Render", "Aabb3", "State", "Collider"}, 
@@ -486,7 +529,7 @@ fn void main()
                 
                 if (node.has_skin()) {
                     node_entity.@add((SkinAnimation) {
-                        .animation_index = node.name == "Fox" ? 4 : 0,
+                        .animation_index = 0,
                         .active_time = 0.0,
                         .repeat = true
                     }, &manager)!!;

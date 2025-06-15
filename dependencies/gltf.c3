@@ -1317,12 +1317,21 @@ fn uint? Gltf.find_animation_index(Gltf* self, String name) {
 
 fn List{uint} Gltf.find_skin_animations(Gltf self, uint skin_index) {
     gltf::Skin skin = self.skins[skin_index];
-    
+  
     List{uint} results;
-    foreach (uint index, animation : self.animations) {
-        uint top_node = animation.channels[0].target.node;
-        if (self.nodes[top_node].parent.name == skin.name) {
-            results.push(index);
+    foreach ANIMATIONS: (uint index, animation : self.animations) {
+        foreach (joint_index: skin.joints) {
+            gltf::Node joint_node = self.nodes[joint_index];
+
+            foreach (channel: animation.channels) {
+                uint node_index = channel.target.node;
+                Node channel_node = self.nodes[node_index];
+
+                if (channel_node.name == joint_node.name) {
+                    results.push(index);
+                    continue ANIMATIONS;
+                }
+            }
         }
     }
 
