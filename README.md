@@ -5,7 +5,9 @@ currently very basic and only works on linux, planning to port code for Windows 
 
 
 ### Example
-Running example:
+For running example:
+
 Install [C3](https://c3-lang.org/), [VulkanSDK](https://vulkan.lunarg.com/sdk/home)
-Then run example with `c3c run game`
+
+Clone repository, then you can run example with `c3c run game` inside the cloned directory
 
