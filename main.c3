@@ -186,31 +186,12 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
     ecs::@upload(manager, entity, animation);
 }
 
-fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    // Render entity_render = ecs::@get(manager, entity, Render);
-    // MeshAnimation animation = ecs::@get(manager, entity, MeshAnimation);
-
-    // AnimationData data = animation_list[animation.animation_index];
-    // assert(data.data.size != 0, "Please initialize animation component");
-
-    // double new_time = animation.active_time + time;
-    // animation.active_time = new_time < data.max_time ? new_time : 0.1;
-
-    // usz skin_len = gltf.skins[data.skin_index].joints.len();
-
-    // double frame_index = (animation.active_time / data.max_time) * ANIMATION_FPS * data.max_time;
-    // entity_render.animation_offset = (uint)data.buffer_offset + (uint)skin_len * (uint)frame_index;
-
-    // ecs::@upload(manager, entity, entity_render);
-    // ecs::@upload(manager, entity, animation);
-}
+fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {}
 
 // Bake skin animations
 fn void bake_skin_animations(Component skin_animations, uint parent_node_index) {
     gltf::Node parent_node = gltf.nodes[parent_node_index];
     uint skin_index = parent_node.skin;
-    io::printfn("%s", parent_node.name);
-
     gltf::Skin skin = gltf.skins[skin_index];
 
     List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
@@ -218,7 +199,7 @@ fn void bake_skin_animations(Component skin_animations, uint parent_node_index) 
 
     foreach (index: animation_indexes) {
         gltf::Animation animation = gltf.animations[index];
-        io::printfn("%s", animation.name);
+        io::printfn("animation loaded: %s", animation.name);
         
         List{Matrix4f} skin_matrixes;
         defer skin_matrixes.free();
@@ -266,47 +247,6 @@ fn void bake_skin_animations(Component skin_animations, uint parent_node_index) 
         animation_list.push(data);
     };
 }
-
-// fn void bake_world_animations(Component animations) {
-//         foreach (index: animation_indexes) {
-//         gltf::Animation animation = gltf.animations[index];
-//         List{Matrix4f} animation_frames;
-        
-//         uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-//         AnimationData data = {
-//             .joints_len = (uint)skin.joints.len(),
-//             .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
-//             .data = skin_animations,
-//             .max_time = animation.max_time,
-//             .min_time =  animation.min_time,
-//             .frames = frame_count,
-//             .skin_index = skin_index,
-//         };
-
-//         for (usz i = 0; i < frame_count; i++) {
-//             double time = i / (double)ANIMATION_FPS;
-//             gltf.@run_animation_channels(
-//                 frame_time: time,
-//                 animation: animation;
-//                 uint node_index,
-//                 AnimationProperty property,
-//                 Vec4f value
-//             ) {
-//                 gltf::Node* node = gltf.nodes.get_ref(node_index);
-//                 switch (property) {
-//                     case TRANSLATION: node.translation = value.xyz;
-//                     case ROTATION: node.rotation = (Quaternionf){.v = value };
-//                     case SCALE: node.scale = value.xyz;
-//                     default: {}
-//                 }
-//             };
-//         }
-        
-//         animations.@push(animation_frames.entries, size: animation_frames.byte_size());
-//         animation_list.push(data);
-//         animation_frames.free();
-//     };
-// }
 
 fn void main()
 {
@@ -400,25 +340,6 @@ fn void main()
         });
     }
 
-    // gltf.@run_animation_channels(
-    //     frame_time: 0.5,
-    //     animation: gltf.animations[1];
-    //     uint node_index,
-    //     AnimationProperty property,
-    //     Vec4f value
-    // ) {
-    //     NodeMatrix* node = nodes[node_index];
-    //     switch (property) {
-    //         case TRANSLATION: node.matrix = node.matrix.translate(value.xyz);
-    //         // case ROTATION: node.rotation = (Quaternionf){.v = value };
-    //         case SCALE: node.matrix = node.matrix.scale(value.xyz);
-    //         default: {}
-    //     }
-
-    //     nodes.set(node_index, node.matrix);
-    // };
-
-
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
             .emissiveStrength = material.emissiveStrength,
@@ -485,18 +406,21 @@ fn void main()
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
-         List{MeshData} meshes = ecs::parse_gltf_mesh(
-            gltf: gltf,
-            vertices: &vertices,
-            indices: &indices,
-            mesh: mesh
-        )!!;
-        mesh_list.set(mesh.name, meshes);
+        if (!mesh_list.has_key(mesh.name)) {
+            List{MeshData} meshes = ecs::parse_gltf_mesh(
+                gltf: gltf,
+                vertices: &vertices,
+                indices: &indices,
+                mesh: mesh
+            )!!;
+            mesh_list.set(mesh.name, meshes);
+        }
     }
 
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
+     
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             List{MeshData} meshes = mesh_list[mesh.name]!!;
          
@@ -533,28 +457,22 @@ fn void main()
                     }
                 }
                 
-                if (node.has_skin()) {
+                if (node.has_skin()) {     
                     bake_skin_animations(skin_animations, node_index);
                     node_entity.@add((SkinAnimation) {
-                        .animation_index = 0,
+                        .animation_index = 2,
                         .active_time = 0.0,
                         .repeat = true
                     }, &manager)!!;
                 }
 
-                // if (node.extras.has_key("animation")) {
-                //     String animation_name = node.extras["animation"]!!;
-                //     uint animation_index = gltf.find_animation_index(animation_name)!!;
-
-               
-                //     io::printfn("%s %s", animation_name, animation_index);
-                //     // if (node.has_skin()) {
-                        
-                //     // } else {
-
-                //     // }
-                    
-                // };
+                if (node.extras.has_key("skin_clone")) {
+                    node_entity.@add((SkinAnimation) {
+                        .animation_index = 2,
+                        .active_time = 0.0,
+                        .repeat = true
+                    }, &manager)!!;
+                }
 
                 node_entity.@add((State) {
                     .collides = false,
