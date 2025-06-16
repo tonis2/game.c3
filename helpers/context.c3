@@ -111,12 +111,12 @@ fn void? DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     self.frame = (self.frame + 1) % 2;
 }
 
-fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000, uint local_size = 50_000_000) {
+fn DeviceContext? createContext(c3w::Window win) {
     DeviceContext context;
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
+    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
     if (env::OS_TYPE == MACOS) {
@@ -268,6 +268,12 @@ fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000,
         .dynamicRenderingUnusedAttachments = vk::TRUE
     };
 
+    // PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
+    //     .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
+    //     .pNext = &unused_attchments,
+    //     .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
+    // };
+
     PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
         .pNext = &unused_attchments,
@@ -371,24 +377,6 @@ fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000,
         context.signal_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
         context.frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(context.device))!;
     }
-
-    // Create allocator of 150MB - DEVICE_ONLY memory
-    context.device_allocation = (vk::Allocation){
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = device_size
-    }.build()!!;
-
-    // Allocation where data can be changed from CPU
-    context.local_allocation = (vk::Allocation){
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = local_size
-    }.build()!!;
 
     return context;
 }

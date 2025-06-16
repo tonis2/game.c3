@@ -14,7 +14,6 @@ import std::collections::map;
 
 alias SkinList = List{Skin};
 alias AttributeMap = HashMap{String, usz};
-alias AnimationChannels = List{AnimationChannel};
 alias Materials = List{Material};
 alias NodeList = List{Node};
 
@@ -190,6 +189,8 @@ struct Mesh {
 
 struct Animation {
     String name;
+    float max_time;
+    float min_time;
     List{AnimationSampler} samplers;
     List{Channel} channels;
 }
@@ -214,7 +215,6 @@ struct Skin {
     uint inverseBindAccessor;
     uint skeleton;
     List{uint} joints;
-    List{Matrix4f} inverseBindMatrices;
 }
 
 struct TextureInfo {
@@ -315,16 +315,6 @@ struct Light {
 struct AnimationValue {
     float time;
     Vec4f value;
-}
-
-struct AnimationChannel {
-    double elapsed_time;
-    double max_time;
-    AnimationProperty path;
-    uint node;
-    any node_ptr;
-    Interpolation interpolation;
-    List{AnimationValue} values;
 }
 
 // Parsing JSON to structs
@@ -956,7 +946,6 @@ fn void Skin.from_json(&self, Object* json) {
 
 fn void Skin.free(&self) {
     self.joints.free();
-    self.inverseBindMatrices.free();
     self.name.free(mem);
 }
 
@@ -1212,6 +1201,21 @@ fn Gltf? parse(InStream stream) {
        foreach (animation : animations.array) {
             Animation data;
             data.from_json(animation);
+      
+            foreach (channel_index, channel : data.channels) {
+                AnimationSampler sampler = data.samplers[channel.sampler];
+                Accessor time_accessor = content.accessors[sampler.input];
+                Accessor value_accessor = content.accessors[sampler.output];
+
+                if (time_accessor.max[0] != 0) {
+                    data.max_time = time_accessor.max[0];
+                }
+
+                if (time_accessor.min[0] != 0) {
+                    data.min_time = time_accessor.min[0];
+                }
+            }
+
             content.animations.push(data);
         }
     }
@@ -1231,22 +1235,8 @@ fn Gltf? parse(InStream stream) {
         if (node.children.len() > 0) {
             foreach (child: node.children) {
                 Node* child_node = content.nodes.get_ref(child);
-                if (!child_node.has_skin()) {
-                    child_node.parent = parent_node;
-                }
-                else {
-                    io::printfn("%s is a skinned mesh that is not root. Parent transforms will not affect a skinned mesh.", child_node.name);
-                }
+                child_node.parent = parent_node;
             }
-        }
-    }
-
-    // Build inverseBindMatrixes for skins
-    foreach (&skin: content.skins) {
-        Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
-        for (uint i; i < skin_accessor.count; i++) {
-            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f);
-            skin.inverseBindMatrices.push(matrix);
         }
     }
 
@@ -1313,134 +1303,38 @@ fn Animation? Gltf.find_animation(Gltf* self, String name) {
     return KEY_NOT_FOUND?;
 }
 
-<*
- @require self.animations.len() > 0 "GLTF animations must not be empty"
- @require self.animations.len() >= indexes.len "Theres more load indexes, than GLTF animations"
-*>
-fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
-    AnimationChannels channels;
-    foreach (index: indexes) {
-        Animation animation = self.animations[index];
-        foreach (channel : animation.channels) {
-            AnimationSampler sampler = animation.samplers[channel.sampler];
-
-            Accessor time_accessor = self.accessors[sampler.input];
-            Accessor value_accessor = self.accessors[sampler.output];
-            
-            AnimationChannel frame = {
-                .elapsed_time = 0,
-                .path = channel.target.path,
-                .node = (uint)channel.target.node,
-                .interpolation = sampler.interpolation,
-            };
-
-            if (channel.target.path == POINTER) {
-                String[] pointer_values = channel.target.pointer.split(mem, "/");
-
-                if (pointer_values[1] == "materials" && pointer_values[4] == "baseColorTexture") {
-                    frame.node = pointer_values[2].to_int()!!;
-                    frame.node_ptr = &self.materials[frame.node].baseColorTexture.offset;
-                }
-
-                mem::free(pointer_values);
-            }
-
-            if (time_accessor.max.x > 0) {
-                frame.max_time = time_accessor.max.x;
-            } else {
-                frame.max_time = 1;
-                io::printfn("Animation has no max time");
-            }
-
-            for (ulong i; i < time_accessor.count; i++) {
-                frame.values.push({
-                    .time = self.@cast_buffer(time_accessor, i, float),
-                    .value = self.@cast_buffer(value_accessor, i, Vec4f),
-                });
-            }
-            channels.push(frame);
-        };
+fn uint? Gltf.find_animation_index(Gltf* self, String name) {
+    foreach (uint index, data : self.animations) {
+        if (data.name == name) return index;
     }
-
-    return channels;
+    return KEY_NOT_FOUND?;
 }
 
-<*
- @require time > 0 "Time must be bigger than 0"
-*>
-fn void AnimationChannels.run_animation(&self, Gltf* gltf, double time) {
-    foreach (&channel: self) {
-        channel.elapsed_time += time;
-        if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
+fn List{uint} Gltf.find_skin_animations(Gltf self, uint skin_index) {
+    gltf::Skin skin = self.skins[skin_index];
+  
+    List{uint} results;
+    foreach ANIMATIONS: (uint index, animation : self.animations) {
+        foreach (joint_index: skin.joints) {
+            gltf::Node joint_node = self.nodes[joint_index];
 
-        foreach (index, entry: channel.values) {
-            if (channel.elapsed_time < entry.time && index > 0) {
-                Node* node = &gltf.nodes[channel.node];
-                Vec4f next_value = entry.value;
-                double next_time = entry.time;
+            foreach (channel: animation.channels) {
+                uint node_index = channel.target.node;
+                Node channel_node = self.nodes[node_index];
 
-                if (channel.path == WEIGHTS) {
-                    foreach (i, weight: node.weights) node.weights[i] = (float)channel.values[index * node.weights.len() + i].value.x;
-                } else {
-                    if (channel.interpolation == STEP) {
-                        switch (channel.path) {
-                            case POINTER: {
-                                any pointer = channel.node_ptr;
-                                switch (pointer.type) {
-                                    case Vec2f.typeid: mem::copy(pointer.ptr, &&next_value.xy, pointer.type.sizeof);
-                                    case Vec3f.typeid: mem::copy(pointer.ptr, &&next_value.xyz, pointer.type.sizeof);
-                                }
-                            }
-                            case TRANSLATION: {
-                                node.translation = next_value.xyz;
-                            }
-                            case ROTATION: {
-                               node.rotation = (Quaternionf){.v = next_value};
-                            }
-                            case SCALE: {
-                               node.scale = next_value.xyz;
-                            }
-                            default: {}
-                        }
-                    }
-
-                    if (channel.interpolation == LINEAR) {
-                        double prev_time = channel.values[index - 1].time;
-                        Vec4f prev_value = channel.values[index - 1].value;
-                        double interpolation_value = (channel.elapsed_time - prev_time) / (next_time - prev_time);
-
-                        switch (channel.path) {
-                            case POINTER: {
-                                any pointer = channel.node_ptr;
-                                // Copy new interpolated animation value to pointer
-                                switch (pointer.type) {
-                                    case Vec2f.typeid: {
-                                        Vec2f value = next_value.xy;
-                                        mem::copy(pointer.ptr, &value, pointer.type.sizeof);
-                                    }
-                                    case Vec3f.typeid: {
-                                        mem::copy(pointer.ptr, &&prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value), pointer.type.sizeof);
-                                    }
-                                }
-                            }
-                            case TRANSLATION: {
-                                node.translation = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
-                            }
-                            case ROTATION: {
-                                node.rotation = (Quaternionf){.v = prev_value}.slerp({.v = next_value}, (float)interpolation_value);
-                            }
-                            case SCALE: {
-                                node.scale = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
-                            }
-                            default: {}
-                        }
-                    }
+                if (channel_node.name == joint_node.name) {
+                    results.push(index);
+                    continue ANIMATIONS;
                 }
-                break;
             }
         }
     }
+
+    return results;
 }
+
+macro bool Animation.equals(self, Animation b) @operator(==) => self.name == b.name;
+macro bool Node.equals(self, Node b) @operator(==) => self.name == b.name;
 
 fn uint Accessor.componentLen(Accessor* self) {
     switch (self.type) {
@@ -1491,7 +1385,7 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
         0, scale.y, 0, translation.y,
         0, 0, scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
-    };
+    }.mul(rotation.to_matrixf());
 }
 
 fn Matrix4f Node.global_matrix(self) {
@@ -1534,6 +1428,16 @@ macro Gltf.@cast_buffer(&self, Accessor accessor, usz index, #type) {
     return bitcast(*(char[#type.sizeof]*)buffer.data[(start_offset + (index * index_offset))..], #type);
 }
 
+// fn void* Gltf.data_ptr(&self, Accessor accessor, usz index) {
+//     BufferView bufferView = self.bufferViews[accessor.view];
+//     Buffer buffer = self.buffers[bufferView.buffer];
+//     usz index_offset = bufferView.byteStride > 0 ? bufferView.byteStride : accessor.stride();
+//     usz start_offset = accessor.offset + bufferView.offset;
+
+//     return mem::aligned_pointer((void*)buffer.data + start_offset + (index * index_offset), 16);
+// }
+
+
 fn usz Gltf.get_offset(&self, ulong attribute) {
     Accessor accessor = self.accessors[attribute];
     BufferView bufferView = self.bufferViews[accessor.view];
@@ -1549,17 +1453,6 @@ fn BufferView Gltf.get_view(&self, ulong attribute) {
 fn char* Gltf.get_data(&self, BufferView view) {
     Buffer buffer = self.buffers[view.buffer];
     return buffer.data[view.offset..];
-}
-
-fn List{uint} flatten_nodes(List{uint} nodes, Gltf data, List{uint}* list = null) {
-    if (list == null) list = &&(List{uint}){};
-    foreach (index: nodes) {
-        Node node = data.nodes[index];
-        list.push(index);
-        flatten_nodes(node.children, data, list);
-    }
-
-    return *list;
 }
 
 fn void Gltf.debug_buffer(Gltf* self, Accessor accessor) {
@@ -1589,11 +1482,6 @@ fn void Gltf.debug_buffer(Gltf* self, Accessor accessor) {
     io::printf(" \n _______ \n");
 }
 
-fn void AnimationChannels.release(&self) {
-    foreach (entry: self) entry.values.free();
-    self.free();
-}
-
 macro @when_extended(Object* object, String extension_name; @callback(Object* extension)) {
     Object*? extension = object.get("extensions");
     // Check if object has gltf extension, and then return it.
@@ -1602,3 +1490,56 @@ macro @when_extended(Object* object, String extension_name; @callback(Object* ex
     }
 }
 
+macro void Gltf.@run_animation_channels(&self, double frame_time, gltf::Animation animation; @callback(uint node_index, AnimationProperty path, Vec4f animation_value)) {
+    foreach (channel : animation.channels) {
+        AnimationSampler sampler = animation.samplers[channel.sampler];
+        Accessor time_accessor = self.accessors[sampler.input];
+        Accessor value_accessor = self.accessors[sampler.output];
+
+        float max_frame_time = time_accessor.max[0];
+        float min_frame_time = time_accessor.min[0];
+        
+        for TIMES: (ulong j; j < time_accessor.count; j++) {
+            float current_time = self.@cast_buffer(time_accessor, j, float);
+
+            if (current_time > frame_time && frame_time < max_frame_time && current_time > min_frame_time) {
+                Vec4f current_value = self.@cast_buffer(value_accessor, j, Vec4f);
+
+                if (sampler.interpolation == STEP) {
+                    @callback(channel.target.node, channel.target.path, current_value);
+                }
+
+                if (sampler.interpolation == LINEAR) {
+                    AnimationValue prev_value = {
+                        .time = self.@cast_buffer(time_accessor, j - 1, float),
+                        .value = self.@cast_buffer(value_accessor, j - 1, Vec4f),
+                    };
+                    
+                    Vec4f new_value;
+                    float interpolation_value = (float)(frame_time - prev_value.time) / (float)(current_time - prev_value.time);
+                    
+                    switch (channel.target.path) {
+                        case TRANSLATION: new_value.xyz = prev_value.value.xyz.lerp(current_value.xyz, interpolation_value).xyz;
+                        case ROTATION: new_value = (Quaternionf){.v = prev_value.value}.slerp({.v = current_value}, interpolation_value).v;
+                        case SCALE: new_value.xyz = prev_value.value.xyz.lerp(current_value.xyz, interpolation_value).xyz;
+                        default: {}
+                    }
+          
+                    @callback(channel.target.node, channel.target.path, new_value);
+                }
+
+                break TIMES;
+            }
+        }
+    }
+}
+
+macro void Gltf.@build_skin_matrixes(&self, gltf::Skin skin; @callback(uint joint, Matrix4f matrix)) {
+    Accessor skin_accessor = self.accessors[skin.inverseBindAccessor];
+    foreach (uint index, joint: skin.joints) {
+        gltf::Node joint_node = self.nodes[joint];
+        Matrix4f inverse_matrix = self.@cast_buffer(skin_accessor, index, Matrix4f).transpose();
+        Matrix4f matrix = joint_node.global_matrix().mul(inverse_matrix).transpose();
+        @callback(joint, matrix);
+    }
+}

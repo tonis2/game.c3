@@ -1,6 +1,7 @@
 # Prerequisites
 *.d
 
+notes.md
 build/*
 game.glb
 # Object files

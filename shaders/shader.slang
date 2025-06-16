@@ -13,6 +13,7 @@ struct Material
     int emissiveTexture;
     int baseColorTexture;
     int metallicRoughnessTexture;
+    float3 pad2;
 };
 
 struct Vertex
@@ -44,11 +45,10 @@ struct DrawCommand
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
-
-    row_major float4x4* skin_data;
-    Material* material;
-    row_major float4x4* instances;
-    row_major float4x4 node_matrix;
+    uint instance_offset;
+    int animation_offset;
+    int material;
+    uint node_index;
 }
 
 struct PushData
@@ -56,6 +56,11 @@ struct PushData
     uint draw_index;
     uint8_t collides;
 };
+
+struct Node {
+    row_major float4x4 matrix;
+    int parent; 
+}
 
 [vk_push_constant]
 const PushData push_constant;
@@ -69,6 +74,10 @@ cbuffer Scene
     Light light;
     Vertex* vertices;
     DrawCommand* draw_cmds;
+    Material* materials;
+    Node* nodes;
+    row_major float4x4* skin_data;
+    row_major float4x4* instances;
 }
 
 [vk_binding(1)]
@@ -81,7 +90,7 @@ uniform Sampler2D shadow_samplers[];
 struct FragmentData
 {
     float2 tex_cord;
-    uint64_t material;
+    int material;
     float4 sv_position : SV_Position;
 };
 
@@ -103,19 +112,22 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (draw.skin_data != nullptr)
+    if (draw.animation_offset > -1)
     {
+        float4x4* skin_matrixes = skin_data + draw.animation_offset;
+
         skin_matrix =
-            vertex.skin_weight[0] * draw.skin_data[vertex.skin_pos[0]] +
-            vertex.skin_weight[1] * draw.skin_data[vertex.skin_pos[1]] +
-            vertex.skin_weight[2] * draw.skin_data[vertex.skin_pos[2]] +
-            vertex.skin_weight[3] * draw.skin_data[vertex.skin_pos[3]];
+        vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
+        vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
+        vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
+        vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
     }
 
-    float4x4 node_matrix = mul(draw.node_matrix, skin_matrix);
+    row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
+    node_matrix = mul(node_matrix, skin_matrix);
 
     if (input.instanceID > 0) {
-        node_matrix = mul(node_matrix, draw.instances[input.instanceID]);
+        node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
     }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
@@ -123,7 +135,7 @@ FragmentData vertexMain(VertexInput input)
 
     FragmentData output = {
         vertex.tex_cord.xy,
-        (uint64_t)draw.material,
+        draw.material,
         vertex_pos
     };
 
@@ -136,13 +148,16 @@ float4 fragmentMain(FragmentData input)
     : SV_Target
 {
     if (push_constant.collides == 1) return float4(0.8, 0.4, 0.7, 1.0);
-    Material* material = (Material*)input.material;
 
-    if (material != nullptr)
+    if (input.material > -1)
     {
-       return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
+        Material material = materials[input.material];
+        if (material.baseColorTexture > -1) {
+            return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
+        } else {
+            return material.baseColorFactor;
+        }
     }
-
 
     return float4(0.5, 0.5, 0.5, 1.0);
 }

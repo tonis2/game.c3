@@ -20,13 +20,14 @@ enum GpuType : uint
 
 interface Allocator
 {
-    fn void setUsedSize(usz size);
+    fn usz total_size();
+    fn void set_used_size(usz size);
     fn char* data();
     fn void upload(void* data, usz size, usz offset);
-    fn ulong getAddress();
-    fn usz usedSize();
-    fn uint getType();
-    fn void* getBuffer();
+    fn ulong get_address();
+    fn usz get_used_size();
+    fn uint get_type();
+    fn void* get_buffer();
     fn void free();
 }
 
@@ -38,6 +39,7 @@ struct Component {
     uint buffer;
     usz used_size;
     usz offset;
+    EntityManager* manager;
 }
 
 struct BufferView {
@@ -58,7 +60,7 @@ alias ComponentMap = HashMap{String, Component};
 alias ViewMap = HashMap{BufferID, BufferView};
 alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
-macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
+fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 
 struct EntityManager {
     ComponentMap keys;
@@ -66,6 +68,7 @@ struct EntityManager {
     List{Component} components;
     List{Allocator} buffers;
     List{Entity} entities;
+    List{System} systems @if($feature(ECS_EXTRA));
     UploadFN uploadFN;
 }
 
@@ -77,6 +80,10 @@ fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
     return manager;
 }
 
+macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
+
+fn void Component.reset(&self) => self.used_size = 0;
+
 fn void EntityManager.free(&self) {
     // foreach (buffer: self.buffers) {
     //     buffer.free();
@@ -85,12 +92,16 @@ fn void EntityManager.free(&self) {
     self.keys.free();
     self.views.free();
     self.entities.free();
+
+    $if $feature(ECS_EXTRA):
+        self.systems.free();
+    $endif
 }
 
 macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
-    foreach (entity: self.entities) {
+    foreach ENTITY: (entity: self.entities) {
         $for var $i = 0; $i < $vacount; $i++:
-            if (!entity.has_name($vaarg[$i], self)) continue;
+            if (!entity.has_name($vaarg[$i], self)) continue ENTITY;
         $endfor
         @callback(entity);
     }
@@ -111,33 +122,36 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
     self.views.set(buffer, {
         component.id, 
     });
-}   
+}  
 
-fn Component EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
+fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
+
+    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW?;
+
     Component component = {
         .id = (uint)self.components.len(),
         .size = size,
         .buffer = buffer_index,
-        .offset = buffer.usedSize()
+        .offset = buffer.get_used_size(),
+        .manager = self
     };
 
     self.components.push(component);
  
     if (data != null) {
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
         } else {
-            // io::printfn("%d", buffer_index);
-            buffer.upload(data, size, buffer.usedSize());
+            buffer.upload(data, size, component.offset);
         }
     }
 
-    buffer.setUsedSize(buffer.usedSize() + size);
+    buffer.set_used_size(buffer.get_used_size() + size);
     return component;
 }
 
-macro Component EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
+macro Component? EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
     uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
     //$typeof(#type).typeid.kindof == STRUCT &&& 
     if (size == 0 && data == null) {
@@ -150,7 +164,7 @@ macro Component EntityManager.@create_component(&self, #type = null, uint size =
     }
 }
 
-macro Entity EntityManager.@create_entity(&self, ...) {
+macro Entity? EntityManager.@create_entity(&self, ...) {
     String type_name;
     Entity entity = {.id = (uint)self.entities.len()};
 
@@ -173,7 +187,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             // Todo: Component needs name
             component = $vaarg[$i];
         $else
-            component = self.@create_component($vaarg[$i], buffer_index: buffer_index);
+            component = self.@create_component($vaarg[$i], buffer_index: buffer_index)!;
         $endif
     
         if (!self.keys.has_key(type_name)) {
@@ -208,11 +222,11 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-macro void Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
+macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
     String type_name = $typeof(#type).nameof;
     uint size = $typeof(#type).sizeof;
 
-    Component component = manager.@create_component(#type, buffer_index: buffer_index);
+    Component component = manager.@create_component(#type, buffer_index: buffer_index)!;
 
     if (!manager.keys.has_key(type_name)) {
         manager.keys.set(type_name, 
@@ -275,10 +289,47 @@ fn uint get_size(Entity entity, EntityManager manager) {
 //     return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
 // }
 
+
+<*
+ @require self.size > (self.used_size + size) "Component total size is too small"
+*>
+macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
+    usz data_size = size;
+    Allocator buffer = self.manager.buffers[self.buffer];
+    usz data_offset = self.offset + offset + self.used_size;
+
+    $if @typekind(#data) == POINTER: {
+        if (size == 0) data_size = $typeof(*#data).sizeof;
+    }
+    $else {
+        if (size == 0) data_size = $typeof(#data).sizeof;
+    }   
+    $endif
+
+    $if @typekind(#data) == POINTER: {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            self.manager.uploadFN(buffer, #data, data_size, data_offset);
+        } else  {
+            buffer.upload(#data, data_size, data_offset);
+        }
+    }
+    $else {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            self.manager.uploadFN(buffer, &&#data, data_size, data_offset);
+        } else  {
+            buffer.upload(&&#data, data_size, data_offset);
+        }
+    }
+    $endif
+
+    self.used_size += data_size;
+}
+
+
 <*
  @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
 *>
-macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0) {
+macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0, bool update_size = false) {
     usz data_size = size;
     Allocator buffer;
     usz data_offset = 0;
@@ -297,6 +348,11 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $if $typeof(#target).nameof == "Component":
         buffer = manager.buffers[#target.buffer];
         data_offset = #target.offset + offset;
+        
+        // if (update_size) {
+        //     Component* component = manager.components.get_ref(#target.id);
+        //     component.used_size += size;
+        // };
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -308,17 +364,22 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 
         data_offset = (uint)manager.components[manager.views[index]!!.component].offset + offset;
         buffer = manager.buffers[component_info.buffer];
+
+        // if (update_size) {
+        //     Component* component = manager.components.get_ref(component_info.id);
+        //     component.used_size += size;
+        // };
     $endif;
 
     $if @typekind(#data) == POINTER: {
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
             buffer.upload(#data, data_size, data_offset);
         }
     }
     $else {
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, &&#data, data_size, data_offset);
         } else  {
             buffer.upload(&&#data, data_size, data_offset);
@@ -327,13 +388,12 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif
 }
 
-
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
-    
+    usz $type_size = #type.sizeof;
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
         usz type_offset = #target.offset;
-        return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
+        return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
@@ -345,13 +405,36 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 
         Allocator buffer = manager.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
-        return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
+        return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
+    $endif;
+}
+
+// @typekind(#data) == POINTER
+
+macro @get_ptr(EntityManager manager, #target, #type = null, usz offset = 0) {
+
+    $if $typeof(#target).nameof == "Component":
+        Allocator buffer = manager.buffers[#target.buffer];
+        usz type_offset = #target.offset;
+        return (void*)buffer.data() + alignUp(type_offset, 16);
+    $endif;
+   
+    $if $typeof(#target).nameof == "Entity":
+        Component component = manager.keys[#type.nameof]!!;
+        BufferID index = {
+            .component = component.id,
+            .entity = #target.id,
+        };
+
+        Allocator buffer = manager.buffers[component.buffer];
+        uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
+        return (void*)buffer.data() + alignUp(type_offset, 16);
     $endif;
 }
 
 macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
-        return manager.buffers[#target.buffer].getAddress() + #target.offset + offset;
+        return manager.buffers[#target.buffer].get_address() + #target.offset + offset;
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -363,7 +446,7 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
 
         Allocator buffer = manager.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
-        return manager.buffers[component.buffer].getAddress() + type_offset + offset;
+        return manager.buffers[component.buffer].get_address() + type_offset + offset;
     $endif;
 }
 
@@ -400,9 +483,9 @@ fn void Buffer.push(&self, void* data, usz size) @dynamic {
     }
 }
 
-// fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 // usz size = alignUp(new_size, 256);
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
+    new_size = alignUp(new_size, 16);
     if (self.used_size + new_size > self.size) {
         self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
@@ -421,11 +504,12 @@ fn void Buffer.free(&self) @dynamic {
 }
 
 fn char* Buffer.data(&self) @dynamic => self.mapped;
-fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
-fn ulong Buffer.getAddress(&self) @dynamic => 0;
-fn uint Buffer.getType(&self) @dynamic => 2;
-fn void* Buffer.getBuffer(&self) @dynamic => null;
-fn void Buffer.setUsedSize(&self, usz size) @dynamic {
+fn usz Buffer.total_size(&self) @dynamic => uint.max;
+fn usz Buffer.get_used_size(&self) @dynamic => self.used_size;
+fn ulong Buffer.get_address(&self) @dynamic => 0;
+fn uint Buffer.get_type(&self) @dynamic => 2;
+fn void* Buffer.get_buffer(&self) @dynamic => null;
+fn void Buffer.set_used_size(&self, usz size) @dynamic {
     self.ensure_size(size);
     self.used_size = size;
 }
@@ -437,60 +521,72 @@ import std::io;
 import std::collections::list;
 import std::collections::map;
 import std::time;
+import c3w;
 
-alias AnimationChannel = List{AnimationFrame};
-alias AnimationMap = HashMap{String, AnimationChannel};
+alias SystemCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
 
-struct Animations {
-    AnimationSkin skin;
-    AnimationMap channels;
-    EntityManager manager;
-    Component component;
-    List{AnimationValue} values;
+struct NodeMatrix {
+    Matrix4f matrix;
+    int parent;
 }
 
-struct AnimationSkin {
-    String name;
-    List{Node} nodes;
-    List{uint} joints;
+alias NodeComponent = Component;
+
+<*
+ @require self.size != 0 && self.used_size != 0 : `Component is empty`
+*>
+fn NodeMatrix* NodeComponent.get(&self, usz index) @operator([]) @inline
+{
+	return (void*)self.manager.buffers[self.buffer].data() + self.offset + (index * NodeMatrix.sizeof);
 }
 
-enum AnimationProperty {
-    TRANSLATION,
-    ROTATION,
-    SCALE,
-    WEIGHTS,
-    POINTER
+<*
+ @require self.size != 0 && index * NodeMatrix.sizeof <= self.size : `Component is not big enough`
+*>
+fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
+{
+    @upload(*self.manager, *self, matrix, size: Matrix4f.sizeof, offset: self.offset + (index * NodeMatrix.sizeof));
 }
 
-enum Interpolation {
-    LINEAR,
-    STEP,
-    CUBICSPLINE,
+<*
+ @require self.size != 0 : `Component is empty`
+*>
+fn Matrix4f NodeComponent.global_matrix(&self, uint index) @inline
+{
+    char* buffer = self.manager.buffers[self.buffer].data();
+    NodeMatrix* current_node = (void*)buffer + self.offset + (index * NodeMatrix.sizeof);
+    Matrix4f global_matrix = current_node.matrix;
+
+    while (current_node.parent != - 1) {
+        NodeMatrix* parent_node = (void*)buffer + self.offset + (current_node.parent * NodeMatrix.sizeof);
+        global_matrix = parent_node.matrix.mul(global_matrix);
+        current_node = parent_node;
+    }
+    
+    return global_matrix;
+}
+
+struct System {
+    String[] query;
+    SystemCallback callback;
+}
+
+fn void EntityManager.add_system(&self, System system) {
+    self.systems.push(system);
+}
+
+fn void EntityManager.run_systems(self, EventMap events, double time) {
+    foreach (system: self.systems) {
+        foreach ENTITY: (entity: self.entities) {
+            foreach (name: system.query) if (!entity.has_name(name, self)) continue ENTITY;
+            system.callback(self, entity, events, time);
+        }
+    }
 }
 
 struct AnimationValue {
     float time;
     Vec4f value;
-}
-
-struct AnimationFrame {
-    double elapsed_time;
-    double max_time;
-    uint node;
-    usz value_offset;
-    usz value_count;
-    AnimationProperty path;
-    Interpolation interpolation;
-}
-
-struct Node {
-    Vec3f scale;
-    Vec3f translation;
-    Quaternionf rotation;
-    Matrix4f matrix;
-    Matrix4f inverse_bind;
-    Node* parent;
 }
 
 struct MeshData {
@@ -499,14 +595,9 @@ struct MeshData {
     uint instanceCount;
     uint firstIndex;
     uint vertexOffset;
+    uint meshCount;
     int materialIndex;
     Aabb3 aabb;
-}
-
-struct AnimationInfo {
-    gltf::Skin skin;
-    uint buffer_index;
-    gltf::Animation[] channels;
 }
 
 struct Vertex {
@@ -538,7 +629,6 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
 
     @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
 
-
     MeshData data = {
         .firstIndex = (uint)indices.used_size / ushort.sizeof,
         .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
@@ -553,8 +643,9 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
     return data;
 }
 
-macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
-    foreach (primitive: mesh.primitives) {
+fn List{MeshData}? parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices, gltf::Mesh mesh) {
+    List{MeshData} response;
+    foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
        
@@ -568,6 +659,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
             .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
             .indexCount = index_accessor.count,
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
+            .meshCount = prim_index,
         };
 
         // if (pos_accessor.max != (Vec4f){0,0,0,0}) {
@@ -651,237 +743,28 @@ macro void? @parse_gltf_mesh(Gltf gltf, EntityManager manager, Component* vertic
         }
 
         if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
+            io::printfn("mesh size %s, total size, %s, mesh %s", vertices.used_size + vertex_data.byte_size() * 0.00_0001, vertices.size, mesh.name);
             return COMPONENT_BUFFER_OVERFLOW?;
         }
 
-        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
-        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
-
-        indices.used_size += index_data.byte_size();
-        vertices.used_size += vertex_data.byte_size();
+        vertices.@push(vertex_data.entries, size: vertex_data.byte_size());
+        indices.@push(index_data.entries, size: index_data.byte_size());
 
         data.aabb = bounding_box;
 
-        @callback(data);
+        response.push(data);
 
         vertex_data.free();
         index_data.free();
     }
-}
-
-
-fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager manager) {
-    AnimationSkin skin_data = load_skin_data(info.skin, gltf);
-
-    Animations animations =  {
-        .skin = skin_data,
-        .manager = manager,
-        .component = manager.@create_component(size: (uint)animations.skin.nodes.len() * Matrix4f.sizeof, buffer_index: info.buffer_index),
-    };
-
-    foreach (index, animation: info.channels) {
-        char[20] buffer;
-        String animation_name = animation.name.len > 0 ? animation.name : (String)io::bprintf(buffer[..], "%s", index)!!;
-
-        io::printfn("animation %s loaded", animation_name);
-        animations.channels[animation_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
-    }
-
-    return animations;
-}
-
-fn Matrix4f Node.global_matrix(&self) {
-    Matrix4f global_matrix = self.local_matrix();
-    Node* node = self;
-    while (node.parent != null) {
-        global_matrix = node.parent.local_matrix().mul(global_matrix);
-        node = node.parent;
-    }
-
-    return global_matrix;
-}
-
-fn Matrix4f Node.local_matrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
-
-fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
-    return (Matrix4f) {
-        scale.x, 0, 0, translation.x,
-        0, scale.y, 0, translation.y,
-        0, 0, scale.z, translation.z,
-        0.0, 0.0, 0.0, 1.0,
-    }.mul(rotation.to_matrixf());
-}
-
-fn void Animations.free(self) {
-    self.skin.free();
-    self.values.free();
-
-    @pool() {
-        foreach (key : self.channels.tkeys()) {
-            self.channels[key]!!.free();
-        }
-    };
-
-    self.channels.free();
-}
-
-<*
- @require time > 0 "Time must be bigger than 0"
-*>
-fn void? Animations.run_animation(&self, String name, double time) {
-    AnimationChannel*? channel = self.channels.get_ref(name);
-    if (catch err = channel) {
-        io::printfn("Animation not found %s", name);
-        return NO_KEY_FOUND?;
-    }
-
-    channel.run_animation(self.values, &self.skin, time);
-
-    foreach (index, joint: self.skin.joints) {
-        Node joint_node = self.skin.nodes[joint];
-        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
-        ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
-    }
-}
-
-fn void AnimationSkin.free(self) {
-    self.nodes.free();
-    self.joints.free();
-}
-
-fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
-    AnimationSkin animation;
-    Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
-    List{Matrix4f} inverseBindMatrices;
-
-    foreach (node: gltf.nodes) {
-        Node new_nodes = {
-            .scale = node.scale,
-            .translation = node.translation,
-            .rotation = node.rotation,
-            .matrix = node.matrix,
-            .parent = null
-        };
-    
-        animation.nodes.push(new_nodes);
-    }
-
-    animation.joints.add_all(&skin.joints);
-
-    // Map parent pointers
-    foreach (uint i, node: gltf.nodes) {
-        Node* parent_node = animation.nodes.get_ref(i);
-        if (node.children.len() > 0) {
-            foreach (child: node.children) {
-                Node* child_node = animation.nodes.get_ref(child);
-                child_node.parent = parent_node;
-            }
-        }
-    }
-
-    for (uint i = 0; i < skin_accessor.count; i++) {
-        Matrix4f matrix = gltf.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
-        inverseBindMatrices.push(matrix);
-    }
-
-    foreach (uint i, joint_index: skin.joints) {
-        Node* node = animation.nodes.get_ref(joint_index);
-        node.inverse_bind = (i <= inverseBindMatrices.len()) ? inverseBindMatrices[i] : MATRIX4F_IDENTITY;
-    }
-
-    inverseBindMatrices.free();
-    return animation;
-}
-
-
-fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSkin skin, Gltf gltf, List{AnimationValue}* values) {
-    AnimationChannel response;    
-    foreach (channel : animation.channels) {
-        AnimationSampler sampler = animation.samplers[channel.sampler];
-
-        Accessor time_accessor = gltf.accessors[sampler.input];
-        Accessor value_accessor = gltf.accessors[sampler.output];
-
-        AnimationFrame frame = {
-            .elapsed_time = 0,
-            .path = AnimationProperty.from_ordinal(channel.target.path.ordinal),
-            .node = (uint)channel.target.node,
-            .interpolation = Interpolation.from_ordinal(sampler.interpolation.ordinal),
-            .value_offset = values.len(),
-            .value_count = time_accessor.count
-        };
-
-        if (time_accessor.max.x > 0) {
-            frame.max_time = time_accessor.max.x;
-        } else {
-            frame.max_time = 1;
-            io::printfn("Animation has no max time");
-        }
-
-        for (ulong i; i < time_accessor.count; i++) {
-            values.push({
-                .time = gltf.@cast_buffer(time_accessor, i, float),
-                .value = gltf.@cast_buffer(value_accessor, i, Vec4f),
-            });
-        }
-        response.push(frame);
-    };
 
     return response;
 }
 
 
-fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, AnimationSkin* skin, double current_time) {
-    foreach (&channel: self) {
-        channel.elapsed_time += current_time;
-        if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
-
-        for (uint index = 0; index < channel.value_count; index++) {
-            AnimationValue current_value = values[index + channel.value_offset];
-
-            if (channel.elapsed_time < current_value.time && index > 0) {
-                    Node* node = &skin.nodes[channel.node];
-                    if (channel.interpolation == STEP) {
-                        switch (channel.path) {
-                            case TRANSLATION: {
-                                node.translation = current_value.value.xyz;
-                            }
-                            case ROTATION: {
-                                node.rotation = (Quaternionf){.v = current_value.value};
-                            }
-                            case SCALE: {
-                                node.scale = current_value.value.xyz;
-                            }
-                            default: {}
-                        }
-                    }
-
-                    if (channel.interpolation == LINEAR) {
-                        AnimationValue prev_value = values[index + channel.value_offset - 1];
-                        float interpolation_value = (float)(channel.elapsed_time - prev_value.time) / (float)(current_value.time - prev_value.time);
-                        switch (channel.path) {
-                            case TRANSLATION: {
-                                node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
-                            }
-                            case ROTATION: {
-                                node.rotation = (Quaternionf){.v = prev_value.value}.slerp({.v = current_value.value}, interpolation_value);
-                            }
-                            case SCALE: {
-                                node.scale = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
-                            }
-                            default: {}
-                        }
-                    }
-                break;
-            }
-        }
-    }
-}
-
 struct Position @private {
     Vec3f scale;
     Vec3f translation;
-    Quaternionf rotation;
 }
 
 struct Velocity @tag("BUFFER", 0) @private {
@@ -900,8 +783,8 @@ fn void test_ecs() @test {
 
     defer manager.free();
 
-    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
-    Component animation_comp = manager.@create_component(size: Position.sizeof);
+    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 })!!;
+    Component animation_comp = manager.@create_component(size: Position.sizeof)!!;
     
     ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
  
@@ -910,12 +793,12 @@ fn void test_ecs() @test {
             .translation = {1.0, 1.0, 1.0},
             .scale = {1.0, 1.0, 1.0}
         },
-    );
+    )!!;
 
     Entity player2 = manager.@create_entity(
         (Position){},
         velocity_comp,
-    );
+    )!!;
 
     player.add_component("Velocity", velocity_comp, manager);
     // player2.add("Animation", animation_comp, manager);
@@ -945,11 +828,4 @@ fn void test_ecs() @test {
         assert(position.translation.x == 5.000000);
     };
 }
-
-// Todo:
-// Test correct buffers on components
-// Test entity offset
-// Remove buffer.push()
-
-
 
