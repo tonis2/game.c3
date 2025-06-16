@@ -78,7 +78,6 @@ cbuffer Scene
     Node* nodes;
     row_major float4x4* skin_data;
     row_major float4x4* instances;
-    uint32_t material_count;
 }
 
 [vk_binding(1)]

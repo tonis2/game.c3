@@ -72,7 +72,6 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress nodes;
     vk::DeviceAddress animations;
     vk::DeviceAddress instances;
-    uint material_count;
 }
 
 struct AnimationData {
@@ -182,7 +181,7 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
 
     double frame_index = animation.active_time * ANIMATION_FPS;
     entity_render.animation_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
-
+ 
     ecs::@upload(manager, entity, entity_render);
     ecs::@upload(manager, entity, animation);
 }
@@ -221,6 +220,9 @@ fn void bake_skin_animations(Component skin_animations, uint parent_node_index) 
         gltf::Animation animation = gltf.animations[index];
         io::printfn("%s", animation.name);
         
+        List{Matrix4f} skin_matrixes;
+        defer skin_matrixes.free();
+
         uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
         AnimationData data = {
             .joints_len = (uint)skin.joints.len(),
@@ -249,24 +251,19 @@ fn void bake_skin_animations(Component skin_animations, uint parent_node_index) 
                     default: {}
                 }
             };
+
+
+            Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+            foreach (uint j, joint: skin.joints) {
+                gltf::Node joint_node = gltf.nodes[joint];
+                Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, j, Matrix4f).transpose();
+                Matrix4f matrix = (parent_node.global_matrix().inverse()!! * joint_node.global_matrix() * inverse_matrix).transpose();
+                skin_matrixes.push(matrix);
+            }
         }
 
-        // gltf.@build_skin_matrixes(gltf.skins[skin_index]; uint joint, Matrix4f matrix) {
-        //     skin_animations.@push(matrix);
-        // };
-
-        Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
-        foreach (uint i, joint: skin.joints) {
-            gltf::Node joint_node = gltf.nodes[joint];
-            Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
-            Matrix4f matrix = (joint_node.global_matrix() * inverse_matrix).transpose();
-            skin_animations.@push(matrix);
-        }
-        
+        skin_animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
         animation_list.push(data);
-
-        // List{Matrix4f} skin_matrixes;
-        // skin_matrixes.free();
     };
 }
 
@@ -341,7 +338,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 150_000_000
+        .size = 100_000_000
     }.build()!!;
 
     // Allocation where data can be changed from CPU
@@ -451,8 +448,7 @@ fn void main()
             .materials = ecs::@get_address(manager, materials),
             .animations = ecs::@get_address(manager, skin_animations),
             .instances = ecs::@get_address(manager, instances),
-            .nodes = ecs::@get_address(manager, nodes),
-            .material_count = (uint)materials.used_size / Material.sizeof
+            .nodes = ecs::@get_address(manager, nodes)
         },
     )!!;
 
@@ -716,7 +712,7 @@ fn void main()
         vk::DYNAMIC_STATE_VIEWPORT,
         vk::DYNAMIC_STATE_LINE_WIDTH,
         vk::DYNAMIC_STATE_SCISSOR,
-        vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
+        // vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
     });
 
     PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo()
@@ -737,7 +733,7 @@ fn void main()
         .setName("fragmentMain")
     })
     .setLayout(pipeline_layout.layout)
-    // .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
     .setDynamicState(&dynamic_state)
     .setRasterizationState(&rasterisation_state)
@@ -876,7 +872,7 @@ fn void main()
                 .collides = state.collides
             };
 
-            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+            // vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };

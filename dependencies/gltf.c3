@@ -1235,12 +1235,7 @@ fn Gltf? parse(InStream stream) {
         if (node.children.len() > 0) {
             foreach (child: node.children) {
                 Node* child_node = content.nodes.get_ref(child);
-                if (!child_node.has_skin()) {
-                    child_node.parent = parent_node;
-                }
-                else {
-                    io::printfn("%s is a skinned mesh that is not root. Parent transforms will not affect a skinned mesh.", child_node.name);
-                }
+                child_node.parent = parent_node;
             }
         }
     }
