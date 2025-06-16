@@ -207,55 +207,67 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
 }
 
 // Bake skin animations
-fn void bake_skin_animations(Component skin_animations) {
-    foreach (uint skin_index, skin: gltf.skins) {
-        List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-        defer animation_indexes.free();
+fn void bake_skin_animations(Component skin_animations, uint parent_node_index) {
+    gltf::Node parent_node = gltf.nodes[parent_node_index];
+    uint skin_index = parent_node.skin;
+    io::printfn("%s", parent_node.name);
 
-        foreach (index: animation_indexes) {
-            gltf::Animation animation = gltf.animations[index];
-            io::printfn("%s", animation.name);
-            List{Matrix4f} skin_matrixes;
-            
-            uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-            AnimationData data = {
-                .joints_len = (uint)skin.joints.len(),
-                .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
-                .data = skin_animations,
-                .max_time = animation.max_time,
-                .min_time =  animation.min_time,
-                .frames = frame_count,
-                .skin_index = skin_index,
-            };
+    gltf::Skin skin = gltf.skins[skin_index];
 
-            for (usz i = 0; i < frame_count; i++) {
-                double time = i / (double)ANIMATION_FPS;
-                gltf.@run_animation_channels(
-                    frame_time: time,
-                    animation: animation;
-                    uint node_index,
-                    AnimationProperty property,
-                    Vec4f value
-                ) {
-                    gltf::Node* node = gltf.nodes.get_ref(node_index);
-                    switch (property) {
-                        case TRANSLATION: node.translation = value.xyz;
-                        case ROTATION: node.rotation = (Quaternionf){.v = value };
-                        case SCALE: node.scale = value.xyz;
-                        default: {}
-                    }
-                };
+    List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
+    defer animation_indexes.free();
 
-                gltf.@build_skin_matrixes(gltf.skins[skin_index]; uint joint, Matrix4f matrix) {
-                    skin_matrixes.push(matrix);
-                };
-            }
-            
-            skin_animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());
-            animation_list.push(data);
-            skin_matrixes.free();
+    foreach (index: animation_indexes) {
+        gltf::Animation animation = gltf.animations[index];
+        io::printfn("%s", animation.name);
+        
+        uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+        AnimationData data = {
+            .joints_len = (uint)skin.joints.len(),
+            .buffer_offset = skin_animations.used_size / Matrix4f.sizeof,
+            .data = skin_animations,
+            .max_time = animation.max_time,
+            .min_time =  animation.min_time,
+            .frames = frame_count,
+            .skin_index = skin_index,
         };
-    }
+
+        for (usz i = 0; i < frame_count; i++) {
+            double time = i / (double)ANIMATION_FPS;
+            gltf.@run_animation_channels(
+                frame_time: time,
+                animation: animation;
+                uint node_index,
+                AnimationProperty property,
+                Vec4f value
+            ) {
+                gltf::Node* node = gltf.nodes.get_ref(node_index);
+                switch (property) {
+                    case TRANSLATION: node.translation = value.xyz;
+                    case ROTATION: node.rotation = (Quaternionf){.v = value };
+                    case SCALE: node.scale = value.xyz;
+                    default: {}
+                }
+            };
+        }
+
+        // gltf.@build_skin_matrixes(gltf.skins[skin_index]; uint joint, Matrix4f matrix) {
+        //     skin_animations.@push(matrix);
+        // };
+
+        Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+        foreach (uint i, joint: skin.joints) {
+            gltf::Node joint_node = gltf.nodes[joint];
+            Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
+            Matrix4f matrix = (joint_node.global_matrix() * inverse_matrix).transpose();
+            skin_animations.@push(matrix);
+        }
+        
+        animation_list.push(data);
+
+        // List{Matrix4f} skin_matrixes;
+        // skin_matrixes.free();
+    };
 }
 
 // fn void bake_world_animations(Component animations) {
@@ -390,8 +402,6 @@ fn void main()
             .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
         });
     }
-
-    bake_skin_animations(skin_animations);
 
     // gltf.@run_animation_channels(
     //     frame_time: 0.5,
@@ -528,6 +538,7 @@ fn void main()
                 }
                 
                 if (node.has_skin()) {
+                    bake_skin_animations(skin_animations, node_index);
                     node_entity.@add((SkinAnimation) {
                         .animation_index = 0,
                         .active_time = 0.0,
