@@ -189,9 +189,7 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
 fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {}
 
 // Bake skin animations
-fn void bake_skin_animations(Component skin_animations, uint parent_node_index) {
-    gltf::Node parent_node = gltf.nodes[parent_node_index];
-    uint skin_index = parent_node.skin;
+fn void bake_skin_animations(Component skin_animations, uint skin_index) {
     gltf::Skin skin = gltf.skins[skin_index];
 
     List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
@@ -238,7 +236,7 @@ fn void bake_skin_animations(Component skin_animations, uint parent_node_index) 
             foreach (uint j, joint: skin.joints) {
                 gltf::Node joint_node = gltf.nodes[joint];
                 Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, j, Matrix4f).transpose();
-                Matrix4f matrix = (parent_node.global_matrix().inverse()!! * joint_node.global_matrix() * inverse_matrix).transpose();
+                Matrix4f matrix = (joint_node.global_matrix() * inverse_matrix).transpose();
                 skin_matrixes.push(matrix);
             }
         }
@@ -339,6 +337,8 @@ fn void main()
             .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
         });
     }
+
+    foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
 
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
@@ -458,7 +458,6 @@ fn void main()
                 }
                 
                 if (node.has_skin()) {     
-                    bake_skin_animations(skin_animations, node_index);
                     node_entity.@add((SkinAnimation) {
                         .animation_index = 2,
                         .active_time = 0.0,
