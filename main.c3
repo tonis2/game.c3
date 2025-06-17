@@ -231,14 +231,9 @@ fn void bake_skin_animations(Component skin_animations, uint skin_index) {
                 }
             };
 
-
-            Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
-            foreach (uint j, joint: skin.joints) {
-                gltf::Node joint_node = gltf.nodes[joint];
-                Matrix4f inverse_matrix = gltf.@cast_buffer(skin_accessor, j, Matrix4f).transpose();
-                Matrix4f matrix = (joint_node.global_matrix() * inverse_matrix).transpose();
+            gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
                 skin_matrixes.push(matrix);
-            }
+            };
         }
 
         skin_animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
@@ -468,7 +463,7 @@ fn void main()
                 if (node.extras.has_key("skin_clone")) {
                     node_entity.@add((SkinAnimation) {
                         .animation_index = 2,
-                        .active_time = 0.0,
+                        .active_time = node_index * 0.02,
                         .repeat = true
                     }, &manager)!!;
                 }
