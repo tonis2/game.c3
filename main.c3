@@ -214,7 +214,6 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
     };
 
     nodes.recalculate();
-    // ecs::@upload(manager, entity, animation);
 }
 
 // Bake skin animations
@@ -422,13 +421,7 @@ fn void main()
         animation_list.free();
     };
 
-
-    meshes.add("collider", ecs::load_mesh(
-        manager: manager,
-        vertices: &vertices,
-        indices: &indices,
-        mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
-    )!!);
+    // meshes.add("collider", );
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
@@ -514,19 +507,22 @@ fn void main()
                 if (!mesh_data.aabb.is_empty()) {
                     Aabb3 mesh_aabb = mesh_data.aabb;
 
-                    meshes.@iter("collider"; MeshData collider_data) {
-                        Collider collider = {
-                            .indexCount = collider_data.indexCount,
-                            .firstIndex = collider_data.firstIndex,
-                            .vertexOffset = collider_data.vertexOffset,
-                            .instanceCount = 1,
-                            .node_index = node_index,
-                            .skin_offset = -1
-                        };  
-                    }!!;
-                
-                    // node_entity.@add(collider, &manager)!!;
+                    MeshData collider_mesh = ecs::load_mesh(
+                        manager: manager,
+                        vertices: &vertices,
+                        indices: &indices,
+                        mesh: ecs::create_bounding_box({.min = mesh_aabb.min, .max = mesh_aabb.max})
+                    )!!;
 
+                    Collider collider = {
+                        .indexCount = collider_mesh.indexCount,
+                        .firstIndex = collider_mesh.firstIndex,
+                        .vertexOffset = collider_mesh.vertexOffset,
+                        .instanceCount = 1,
+                        .node_index = node_index,
+                        .skin_offset = -1
+                    };
+                    node_entity.@add(collider, &manager)!!;
                     node_entity.@add(mesh_aabb.transform(node.global_matrix()), &manager)!!;
                 }
 
@@ -821,17 +817,17 @@ fn void main()
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
-        // manager.@query("Collider"; Entity entity) {
-        //     uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
+        manager.@query("Collider"; Entity entity) {
+            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
       
-        //     PushConstantData constant_data = {
-        //         .draw_index = offset / Collider.sizeof,
-        //     };
+            PushConstantData constant_data = {
+                .draw_index = offset / Collider.sizeof,
+            };
 
-        //     vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-        //     vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-        //     vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
-        // };
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
+        };
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

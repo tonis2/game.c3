@@ -739,12 +739,12 @@ macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices,
             .meshCount = prim_index,
         };
 
-        // if (pos_accessor.max != (Vec4f){0,0,0,0}) {
-        //     data.aabb = (Aabb3) {
-        //         pos_accessor.min.xyz,
-        //         pos_accessor.max.xyz
-        //     };
-        // }
+        if (pos_accessor.max != (Vec4f){0,0,0,0}) {
+            data.aabb = (Aabb3) {
+                pos_accessor.min.xyz,
+                pos_accessor.max.xyz
+            };
+        }
 
         for (usz i; i < index_accessor.count; i++) {
             index_data.push(gltf.@cast_buffer(index_accessor, i, ushort));
@@ -827,7 +827,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices,
         vertices.@push(vertex_data.entries, size: vertex_data.byte_size());
         indices.@push(index_data.entries, size: index_data.byte_size());
 
-        data.aabb = bounding_box;
+        // data.aabb = bounding_box;
 
         vertex_data.free();
         index_data.free();
