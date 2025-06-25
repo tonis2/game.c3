@@ -175,8 +175,8 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render entity_render = ecs::@get(manager, entity, Render);
-    SkinAnimation animation = ecs::@get(manager, entity, SkinAnimation);
+    Render* entity_render = ecs::@get_ptr(manager, entity, Render);
+    SkinAnimation* animation = ecs::@get_ptr(manager, entity, SkinAnimation);
 
     AnimationData data = animation_list[animation.animation_index];
     assert(data.data.size != 0, "Please initialize animation component");
@@ -186,9 +186,6 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
 
     double frame_index = animation.active_time * ANIMATION_FPS;
     entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
- 
-    ecs::@upload(manager, entity, entity_render);
-    ecs::@upload(manager, entity, animation);
 }
 
 fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
