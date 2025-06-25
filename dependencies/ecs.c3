@@ -538,59 +538,6 @@ struct Node {
     uint dirty;
 }
 
-// fn Matrix4f NodeMatrix.replace(&self, Vec4f value, gltf::AnimationProperty property)
-// {   
-//     if (property == TRANSLATION) {
-//         self.matrix.m03 = value.x;
-//         self.matrix.m13 = value.y;
-//         self.matrix.m23 = value.z;
-//     }
-
-//     if (property == SCALE) {
-//         self.matrix.m00 = value.x;
-//         self.matrix.m11 = value.y;
-//         self.matrix.m22 = value.z;
-//     }
-
-//     if (property == ROTATION) {
-//         self.matrix = (Matrix4f) {
-//         1, 0, 0, self.matrix.m03,
-//         0, 1, 0, self.matrix.m13,
-//         0, 0, 1, self.matrix.m23,
-//         0.0, 0.0, 0.0, 1.0,
-//         }.mul((Quaternionf){.v = value }.to_matrixf());
-//     }
-
-//     return self.matrix;
-// }
-
-// fn Matrix4f Matrix4f.replace(self, Vec4f value, gltf::AnimationProperty property)
-// {   
-//     if (property == TRANSLATION) {
-//         self.m03 = value.x;
-//         self.m13 = value.y;
-//         self.m23 = value.z;
-//     }
-
-//     if (property == SCALE) {
-//         self.m00 = value.x;
-//         self.m11 = value.y;
-//         self.m22 = value.z;
-//     }
-
-//     if (property == ROTATION) {
-//         self = (Matrix4f) {
-//         1, 0, 0, self.m03,
-//         0, 1, 0, self.m13,
-//         0, 0, 1, self.m23,
-//         0.0, 0.0, 0.0, 1.0,
-//         }.mul((Quaternionf){.v = value }.to_matrixf());
-//     }
-
-//     return self;
-// }
-
-
 alias NodeComponent = Component;
 
 <*
@@ -634,10 +581,14 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
 {
     for LOOP: (uint i = 0; i < self.size / Node.sizeof; i++) {
         Node* node = self.get(i);
+        node.matrix = gltf::to_matrix(node.translation, node.scale, (Quaternionf){.v = node.rotation});
+
         if (node.parent > -1) {
             Node* parent_node = self.get(node.parent);
+            Matrix4f parent_matrix = gltf::to_matrix(parent_node.translation, parent_node.scale, (Quaternionf){.v = parent_node.rotation});
+
             if (parent_node.dirty == 1) {
-                node.matrix = parent_node.matrix * node.matrix;
+                node.matrix = parent_matrix * node.matrix;
                 parent_node.dirty = (uint)false;
                 if (loop == false) break LOOP;
             }

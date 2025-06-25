@@ -207,16 +207,17 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
         Vec4f value
     ) {
             ecs::Node* node = nodes[node_index];
+            node.dirty = (uint)true;
+
             switch (property) {
                 case TRANSLATION: node.translation = value.xyz;
                 case ROTATION: node.rotation = value;
                 case SCALE: node.scale = value.xyz;
                 default: {}
             }
-            node.dirty = (uint)true;
-            // nodes.recalculate();
     };
 
+    nodes.recalculate();
     ecs::@upload(manager, entity, animation);
 }
 
