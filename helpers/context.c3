@@ -439,7 +439,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
             })
             .setImage(texture_image)
             .build(device)!;
-
+            
     Memory stage_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
         local_allocation,

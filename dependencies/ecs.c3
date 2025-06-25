@@ -573,7 +573,6 @@ fn Matrix4f NodeComponent.global_matrix(&self, uint index) @inline
     return global_matrix;
 }
 
-
 <*
  @require self.size != 0 : `Component is empty`
 *>
@@ -620,10 +619,48 @@ fn void EntityManager.run_systems(self, EventMap events, double time) {
     }
 }
 
-struct AnimationValue {
-    float time;
-    Vec4f value;
+struct MeshInfo {
+    usz offset;
+    usz count;
 }
+
+struct MeshContainer {
+    HashMap{String, MeshInfo} mesh_map;
+    List{MeshData} meshes;
+}
+
+fn MeshInfo? MeshContainer.get(&self, String name) => self.mesh_map.get(name);
+
+<*
+ @require self.mesh_map.len() > 0 : `MeshContainer is empty`
+*>
+macro void? MeshContainer.@iter(&self, String name; @callback(MeshData data)) {
+    MeshInfo info = self.get(name)!;
+    for (uint i = 0; i<info.count; i++) {
+        @callback(self.meshes[info.offset + i]);
+    }
+}
+
+fn void MeshContainer.add(&self, String name, MeshData mesh) {
+    if (self.mesh_map.has_key(name)) {
+        MeshInfo* mesh_info = self.mesh_map.get_ref(name)!!;
+        mesh_info.count +=1;
+        self.meshes.push(mesh);
+    }
+    else {
+        self.mesh_map.set(name, {
+            .offset = self.meshes.len(),
+            .count = 1
+        });
+        self.meshes.push(mesh);
+    }
+}
+
+fn void MeshContainer.free(&self) {
+    self.meshes.free();
+    self.mesh_map.free();
+}
+
 
 struct MeshData {
     uint indexCount;
@@ -679,8 +716,7 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
     return data;
 }
 
-fn List{MeshData}? parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices, gltf::Mesh mesh) {
-    List{MeshData} response;
+macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
     foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
@@ -788,13 +824,11 @@ fn List{MeshData}? parse_gltf_mesh(Gltf gltf, Component* vertices, Component* in
 
         data.aabb = bounding_box;
 
-        response.push(data);
-
         vertex_data.free();
         index_data.free();
-    }
 
-    return response;
+        @callback(data);
+    }
 }
 
 
