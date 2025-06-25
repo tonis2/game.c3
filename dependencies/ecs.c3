@@ -222,6 +222,10 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
+
+<*
+ @require (@typekind(#type) != OPTIONAL && @typekind(#type) != POINTER) "Added type should not be optional or pointer"
+*>
 macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
     String type_name = $typeof(#type).nameof;
     uint size = $typeof(#type).sizeof;
@@ -235,7 +239,7 @@ macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index =
             .buffer = component.buffer,
         });
     }
-    
+
     Entity* target = manager.entities.get_ref(self.id);
     uint type_id = manager.keys[type_name]!!.id;
     target.bitmask |= 1 << type_id;
@@ -525,27 +529,84 @@ import c3w;
 
 alias SystemCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
 
-struct NodeMatrix {
+struct Node {
     Matrix4f matrix;
+    Vec3f translation;
+    Vec3f scale;
+    Vec4f rotation;
     int parent;
+    uint dirty;
 }
+
+// fn Matrix4f NodeMatrix.replace(&self, Vec4f value, gltf::AnimationProperty property)
+// {   
+//     if (property == TRANSLATION) {
+//         self.matrix.m03 = value.x;
+//         self.matrix.m13 = value.y;
+//         self.matrix.m23 = value.z;
+//     }
+
+//     if (property == SCALE) {
+//         self.matrix.m00 = value.x;
+//         self.matrix.m11 = value.y;
+//         self.matrix.m22 = value.z;
+//     }
+
+//     if (property == ROTATION) {
+//         self.matrix = (Matrix4f) {
+//         1, 0, 0, self.matrix.m03,
+//         0, 1, 0, self.matrix.m13,
+//         0, 0, 1, self.matrix.m23,
+//         0.0, 0.0, 0.0, 1.0,
+//         }.mul((Quaternionf){.v = value }.to_matrixf());
+//     }
+
+//     return self.matrix;
+// }
+
+// fn Matrix4f Matrix4f.replace(self, Vec4f value, gltf::AnimationProperty property)
+// {   
+//     if (property == TRANSLATION) {
+//         self.m03 = value.x;
+//         self.m13 = value.y;
+//         self.m23 = value.z;
+//     }
+
+//     if (property == SCALE) {
+//         self.m00 = value.x;
+//         self.m11 = value.y;
+//         self.m22 = value.z;
+//     }
+
+//     if (property == ROTATION) {
+//         self = (Matrix4f) {
+//         1, 0, 0, self.m03,
+//         0, 1, 0, self.m13,
+//         0, 0, 1, self.m23,
+//         0.0, 0.0, 0.0, 1.0,
+//         }.mul((Quaternionf){.v = value }.to_matrixf());
+//     }
+
+//     return self;
+// }
+
 
 alias NodeComponent = Component;
 
 <*
  @require self.size != 0 && self.used_size != 0 : `Component is empty`
 *>
-fn NodeMatrix* NodeComponent.get(&self, usz index) @operator([]) @inline
+fn Node* NodeComponent.get(&self, usz index) @operator([]) @inline
 {
-	return (void*)self.manager.buffers[self.buffer].data() + self.offset + (index * NodeMatrix.sizeof);
+	return (void*)self.manager.buffers[self.buffer].data() + self.offset + (index * Node.sizeof);
 }
 
 <*
- @require self.size != 0 && index * NodeMatrix.sizeof <= self.size : `Component is not big enough`
+ @require self.size != 0 && index * Node.sizeof <= self.size : `Component is not big enough`
 *>
 fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
 {
-    @upload(*self.manager, *self, matrix, size: Matrix4f.sizeof, offset: self.offset + (index * NodeMatrix.sizeof));
+    @upload(*self.manager, *self, matrix, size: Matrix4f.sizeof, offset: self.offset + (index * Node.sizeof));
 }
 
 <*
@@ -553,17 +614,35 @@ fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
 *>
 fn Matrix4f NodeComponent.global_matrix(&self, uint index) @inline
 {
-    char* buffer = self.manager.buffers[self.buffer].data();
-    NodeMatrix* current_node = (void*)buffer + self.offset + (index * NodeMatrix.sizeof);
+    Node* current_node = self.get(index);
     Matrix4f global_matrix = current_node.matrix;
 
     while (current_node.parent != - 1) {
-        NodeMatrix* parent_node = (void*)buffer + self.offset + (current_node.parent * NodeMatrix.sizeof);
+        Node* parent_node = self.get(current_node.parent);
         global_matrix = parent_node.matrix.mul(global_matrix);
         current_node = parent_node;
     }
     
     return global_matrix;
+}
+
+
+<*
+ @require self.size != 0 : `Component is empty`
+*>
+fn void NodeComponent.recalculate(&self, bool loop = false) @inline
+{
+    for LOOP: (uint i = 0; i < self.size / Node.sizeof; i++) {
+        Node* node = self.get(i);
+        if (node.parent > -1) {
+            Node* parent_node = self.get(node.parent);
+            if (parent_node.dirty == 1) {
+                node.matrix = parent_node.matrix * node.matrix;
+                parent_node.dirty = (uint)false;
+                if (loop == false) break LOOP;
+            }
+        }
+    }
 }
 
 struct System {
@@ -578,7 +657,12 @@ fn void EntityManager.add_system(&self, System system) {
 fn void EntityManager.run_systems(self, EventMap events, double time) {
     foreach (system: self.systems) {
         foreach ENTITY: (entity: self.entities) {
-            foreach (name: system.query) if (!entity.has_name(name, self)) continue ENTITY;
+            foreach (name: system.query) {
+                if (!entity.has_name(name, self)) {
+                    continue ENTITY;
+                };
+            };
+      
             system.callback(self, entity, events, time);
         }
     }

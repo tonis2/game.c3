@@ -46,7 +46,7 @@ struct DrawCommand
     int vertexOffset;
     uint firstInstance;
     uint instance_offset;
-    int animation_offset;
+    int skin_offset;
     int material;
     uint node_index;
 }
@@ -59,7 +59,12 @@ struct PushData
 
 struct Node {
     row_major float4x4 matrix;
-    int parent; 
+    float4 position;
+    float4 scale;
+    float4 rotation;
+    int parent;
+    uint dirty;
+    float2 pad;
 }
 
 [vk_push_constant]
@@ -112,9 +117,9 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (draw.animation_offset > -1)
+    if (draw.skin_offset > -1)
     {
-        float4x4* skin_matrixes = skin_data + draw.animation_offset;
+        float4x4* skin_matrixes = skin_data + draw.skin_offset;
 
         skin_matrix =
         vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
@@ -123,8 +128,15 @@ FragmentData vertexMain(VertexInput input)
         vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
     }
 
+
     row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
     node_matrix = mul(node_matrix, skin_matrix);
+
+    // if (draw.animation_offset > -1)
+    // {
+    //     float4x4* animation_data = skin_data + draw.skin_offset;
+    //     node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
+    // }
 
     if (input.instanceID > 0) {
         node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
