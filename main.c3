@@ -143,16 +143,16 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    State state = ecs::@get(manager, entity, State);
+    // State state = ecs::@get(manager, entity, State);
 
-    Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
-    Render entity_render = ecs::@get(manager, entity, Render);
+    // Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
+    // Render entity_render = ecs::@get(manager, entity, Render);
 
-    Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
-    Render player_render = ecs::@get(manager, player, Render);
-    Collider collider_render = ecs::@get(manager, player, Collider);
+    // Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
+    // Render player_render = ecs::@get(manager, player, Render);
+    // Collider collider_render = ecs::@get(manager, player, Collider);
 
-    bool is_dirty = false;
+    // bool is_dirty = false;
     // foreach (item: MOVE_EVENTS) {
     //     if (key_map.is_pressed(item.key)) {
     //         player_render.node_matrix = player_render.node_matrix.translate(item.move);
@@ -167,11 +167,11 @@ fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, d
     //     } else {
     //         state.collides = false;
     //     }
-
     //     ecs::@upload(manager, entity, state);
-    //     ecs::@upload(manager, player, player_render);
     //     ecs::@upload(manager, player, collider_render);
     // }
+
+    // ecs::@upload(manager, player, player_render);
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
@@ -192,7 +192,7 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
 }
 
 fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    WorldAnimation animation = ecs::@get(manager, entity, WorldAnimation);
+    WorldAnimation* animation = ecs::@get_ptr(manager, entity, WorldAnimation);
     gltf::Animation data = gltf.animations[animation.animation_index];
 
     double new_time = animation.active_time + (time);
@@ -217,7 +217,7 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
     };
 
     nodes.recalculate();
-    ecs::@upload(manager, entity, animation);
+    // ecs::@upload(manager, entity, animation);
 }
 
 // Bake skin animations
@@ -405,10 +405,10 @@ fn void main()
         },
     )!!;
 
-    // manager.add_system({
-    //     .query = {"Render", "Aabb3", "State", "Collider"}, 
-    //     .callback = &physics_system
-    // });
+    manager.add_system({
+        .query = {"Render", "Aabb3", "State"}, 
+        .callback = &physics_system
+    });
 
     manager.add_system({
         .query = {"Render", "SkinAnimation"}, 
@@ -425,13 +425,13 @@ fn void main()
         animation_list.free();
     };
 
-    // mesh_list.set("collider", ecs::load_mesh(
-    //         manager: manager,
-    //         vertices: &vertices,
-    //         indices: &indices,
-    //         mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
-    //     )!!
-    // );
+
+    meshes.add("collider", ecs::load_mesh(
+        manager: manager,
+        vertices: &vertices,
+        indices: &indices,
+        mesh: ecs::create_bounding_box({.min = {-1.0, -1.0, -1.0}, .max = {1, 1, 1}})
+    )!!);
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
@@ -514,28 +514,24 @@ fn void main()
                 }
 
                 // Add physics box           
-                // if (!mesh_data.aabb.is_empty()) {
-                //     Aabb3 mesh_aabb = mesh_data.aabb;
+                if (!mesh_data.aabb.is_empty()) {
+                    Aabb3 mesh_aabb = mesh_data.aabb;
 
-                //     MeshData collider_mesh = mesh_list["collider"]!!;
+                    meshes.@iter("collider"; MeshData collider_data) {
+                        Collider collider = {
+                            .indexCount = collider_data.indexCount,
+                            .firstIndex = collider_data.firstIndex,
+                            .vertexOffset = collider_data.vertexOffset,
+                            .instanceCount = 1,
+                            .node_index = node_index,
+                            .skin_offset = -1
+                        };  
+                    }!!;
                 
-                //     Collider collider = {
-                //         .indexCount = collider_mesh.indexCount,
-                //         .firstIndex = collider_mesh.firstIndex,
-                //         .vertexOffset = collider_mesh.vertexOffset,
-                //         .instanceCount = 1,
-                //         .node_index = node_index,
-                //         .skin_offset = -1
-                //     };
+                    // node_entity.@add(collider, &manager)!!;
 
-                //     node_entity.@add(collider, &manager)!!;
-
-                //     if (node.name != "Player") {
-                //         node_entity.@add(mesh_aabb.transform(matrix), &manager)!!;
-                //     } else {
-                //         node_entity.@add(mesh_aabb, &manager)!!;
-                //     }
-                // }
+                    node_entity.@add(mesh_aabb.transform(node.global_matrix()), &manager)!!;
+                }
 
                 node_entity.@add(render_data, &manager)!!;
             }!!;

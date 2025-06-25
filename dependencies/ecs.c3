@@ -418,9 +418,8 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 macro @get_ptr(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
-        Allocator buffer = manager.buffers[#target.buffer];
-        usz type_offset = #target.offset;
-        return (void*)buffer.data() + alignUp(type_offset, 16);
+        // usz type_offset = #target.offset;
+        // return (void*)buffer.data() + alignUp(type_offset, 16);
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
@@ -430,11 +429,18 @@ macro @get_ptr(EntityManager manager, #target, #type = null, usz offset = 0) {
             .entity = #target.id,
         };
 
-        Allocator buffer = manager.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
-        return (void*)buffer.data() + alignUp(type_offset, 16);
+        return (void*)manager.buffers[component.buffer].data() + type_offset;
     $endif;
 }
+
+// <*
+//  @require self.size != 0 && self.used_size != 0 : `Component is empty`
+// *>
+// fn Node* Component.get(&self, usz index) @operator([]) @inline
+// {
+// 	return (void*)self.manager.buffers[self.buffer].data() + self.offset + (index * Node.sizeof);
+// }
 
 macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
@@ -661,7 +667,6 @@ fn void MeshContainer.free(&self) {
     self.mesh_map.free();
 }
 
-
 struct MeshData {
     uint indexCount;
     uint firstInstance;
@@ -882,11 +887,15 @@ fn void test_ecs() @test {
     assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
     assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
 
+
+    Velocity* velocity_ptr = @get_ptr(manager, player, Velocity);
+    velocity_ptr.x = 5.00;
+
     manager.@query("Position", "Velocity"; Entity entity) {
         Velocity velocity = @get(manager, entity, Velocity);
         io::printfn("QUERY ENTRY");
 
-        assert(velocity.x == 3.000000);
+        assert(velocity.x == 5.000000);
         assert(velocity.y == 3.000000);
 
         @upload(manager, entity, (Position) {
