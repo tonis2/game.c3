@@ -581,17 +581,18 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
 {
     for LOOP: (uint i = 0; i < self.size / Node.sizeof; i++) {
         Node* node = self.get(i);
-        node.matrix = gltf::to_matrix(node.translation, node.scale, (Quaternionf){.v = node.rotation});
 
-        if (node.parent > -1) {
-            Node* parent_node = self.get(node.parent);
-            Matrix4f parent_matrix = gltf::to_matrix(parent_node.translation, parent_node.scale, (Quaternionf){.v = parent_node.rotation});
+        if (node.dirty == 1) {
+            Matrix4f global_matrix = gltf::to_matrix(node.translation, node.scale, (Quaternionf){.v = node.rotation});
+            Node* parent_node = node.parent > -1 ? self.get(node.parent) : null;
 
-            if (parent_node.dirty == 1) {
-                node.matrix = parent_matrix * node.matrix;
-                parent_node.dirty = (uint)false;
-                if (loop == false) break LOOP;
+            while (parent_node != null) {
+                global_matrix = gltf::to_matrix(parent_node.translation, parent_node.scale, (Quaternionf){.v = parent_node.rotation}) * global_matrix;
+                parent_node = parent_node.parent > -1 ? self.get(parent_node.parent) : null;
             }
+
+            node.matrix = global_matrix;
+            node.dirty = (uint)false;
         }
     }
 }

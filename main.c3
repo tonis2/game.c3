@@ -274,49 +274,6 @@ fn void bake_skin_animations(Component animations, uint skin_index) {
     };
 }
 
-// fn void bake_world_animation(Component animations, uint animation_index) {
-//     gltf::Animation animation = gltf.animations[animation_index];
-//     List{Matrix4f} matrixes;
-//     defer matrixes.free();
-
-//     uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-//     AnimationData data = {
-//         .animation_index = animation_index,
-//         .buffer_offset = animations.used_size / Matrix4f.sizeof,
-//         .data = animations,
-//         .max_time = animation.max_time,
-//         .min_time =  animation.min_time,
-//         .frames = frame_count,
-//     };
-
-//     uint last_node;
-//     for (usz i = 0; i < frame_count; i++) {
-//         double time = i / (double)ANIMATION_FPS;
-//         gltf.@run_animation_channels(
-//             frame_time: time,
-//             animation: animation;
-//             uint node_index,
-//             AnimationProperty property,
-//             Vec4f value
-//         ) {
-//             gltf::Node* node = gltf.nodes.get_ref(node_index);
-//             switch (property) {
-//                 case TRANSLATION: node.translation = value.xyz;
-//                 case ROTATION: node.rotation = (Quaternionf){.v = value };
-//                 case SCALE: node.scale = value.xyz;
-//                 default: {}
-//             }
-//             if (last_node != node_index) {
-//                 matrixes.push(gltf.nodes[last_node].global_matrix());
-//             }
-//             last_node = node_index;
-//         };
-//     }
-
-//     animations.@push(matrixes.entries, size: matrixes.byte_size());
-//     animation_list.push(data);
-// }
-
 fn void main()
 {
     c3w::Window win = c3w::new(
@@ -414,11 +371,6 @@ fn void main()
         });
     }
 
-    // NodeMatrix* node_data = nodes[1];
-    // node_data.matrix = MATRIX4F_IDENTITY.translate({0, 0, 0});
-    // node_data.dirty = (uint)true;
- 
-
     foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
@@ -506,7 +458,6 @@ fn void main()
             Entity node_entity = manager.@create_entity()!!;
 
             if (node.extras.has_key("animation")) {
-                io::printfn("%s", node.extras.get("animation")!!);
                 node_entity.@add((WorldAnimation) {
                     .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
                     .active_time = 0,
@@ -718,7 +669,7 @@ fn void main()
         vk::DYNAMIC_STATE_VIEWPORT,
         vk::DYNAMIC_STATE_LINE_WIDTH,
         vk::DYNAMIC_STATE_SCISSOR,
-        // vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
+        vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
     });
 
     PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo()
@@ -878,7 +829,7 @@ fn void main()
                 .collides = state.collides
             };
 
-            // vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
