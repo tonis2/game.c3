@@ -5,6 +5,7 @@ import std::io;
 import std::collections::list;
 import std::collections::map;
 
+
 // collision primitives: Sphere, Circle, Rectangle, Cuboid, Particle, Convex Polygon, Convex Polyhedra
 
 struct Aabb3 {
@@ -340,6 +341,78 @@ fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..8] };
 
 fn float radians(float value) => value * (float)math::PI / 180;
 
+struct GridAabb3 {
+    Vec3f min;
+    Vec3f max;
+    usz id;
+}
+
+struct GridCoord {
+    int x, y, z;
+}
+
+fn bool GridCoord.equals(&self, GridCoord other) => self.x == other.x && self.y == other.y && self.z == other.z;
+
+fn usz GridCoord.hash(&self) {
+    usz h1 = self.x.hash();
+    usz h2 = self.y.hash();
+    usz h3 = self.z.hash();
+    return h1 ^ (h2 << 1) ^ (h3 << 2);
+}
+
+alias CellList = List{usz};
+alias SpatialMap = HashMap{usz, CellList};
+
+struct SpatialHash3D {
+    double cell_size;
+    SpatialMap table;
+}
+
+fn void SpatialHash3D.free(&self) {
+    self.table.@each(; usz id, CellList cells) {
+        cells.free();
+    };
+    self.table.free();
+}
+
+fn GridCoord SpatialHash3D.world_to_grid(&self, Vec3f pos) {
+    return (GridCoord) {
+        (int)(math::floor(pos.x / self.cell_size)),
+        (int)(math::floor(pos.y / self.cell_size)),
+        (int)(math::floor(pos.z / self.cell_size)),
+    };
+}
+
+fn void? SpatialHash3D.insert(&self, GridAabb3 box) {
+    GridCoord min_cell = self.world_to_grid(box.min);
+    GridCoord max_cell = self.world_to_grid(box.max);
+
+    for (uint x = min_cell.x; x <= max_cell.x; ++x) {
+        for (uint y = min_cell.y; y <= max_cell.y; ++y) {
+            for (uint z = min_cell.z; z <= max_cell.z; ++z) {
+                usz cell_id = (GridCoord){x, y, z}.hash();
+                if (!self.table.has_key(cell_id)) {
+                    self.table.set(cell_id, {});
+                };
+
+                self.table.get_ref(cell_id)!.push(box.id);
+            }
+        }
+    }
+}
+
+macro void SpatialHash3D.@get_potential_pairs(&self; @callback(usz first, usz second)) {
+    self.table.@each(;usz id, CellList cells) {
+        for (usz i = 0; i < cells.len(); ++i) {
+            for (usz j = i + 1; j < cells.len(); ++j) {
+                usz a = cells[i];
+                usz b = cells[j];
+                @callback(math::min(a, b), math::max(a, b));
+            }
+        }
+    };
+}
+
 fn void test_physics() @test {
     Aabb3 aabb = {
         {-1.0, -1.0, -1.0},
@@ -353,6 +426,20 @@ fn void test_physics() @test {
     assert(aabb.min == {-2, 4, 0});
     assert(aabb.max == {4, 6, 2});
 
+    Aabb3[] boxes = {
+        {{0,0,0}, {1,1,1}},
+        {{1,1,1}, {2.5,2.5,2.5}},
+        {{5,5,5}, {6,6,6}},
+    };
+
+    SpatialHash3D spatial_map = { .cell_size = 2.0 };
+    defer spatial_map.free();
+
+    foreach (usz i, item: boxes) spatial_map.insert({.min = item.min, .max = item.max, .id = i })!!;
+
+    spatial_map.@get_potential_pairs(;usz first, usz second) {
+        io::printfn("first %s second %s", first, second);
+    };
 
     // {
     //     Aabb3 aabb = {
