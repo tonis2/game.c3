@@ -149,22 +149,19 @@ const MoveEvent[] MOVE_EVENTS = {
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     spatial_map.@get_pairs(;Pair pair) {
-        CollisionData* first = ecs::@get_ptr(manager, (Entity)pair.first, CollisionData);
-        CollisionData* second = ecs::@get_ptr(manager, (Entity)pair.second, CollisionData);
+        CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData);
+        CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
 
-        if (second.aabb.collides(first.aabb)) {
+        if (first.aabb.collides(second.aabb)) {
             first.collides = true;
             second.collides = true;
-        } else {
-            first.collides = false;
-            second.collides = false;
         }
     };
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render* entity_render = ecs::@get_ptr(manager, entity, Render);
-    SkinAnimation* animation = ecs::@get_ptr(manager, entity, SkinAnimation);
+    Render* entity_render = ecs::@get_ref(manager, entity, Render);
+    SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation);
 
     AnimationData data = animation_list[animation.animation_index];
     assert(data.data.size != 0, "Please initialize animation component");
@@ -177,7 +174,7 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
 }
 
 fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    WorldAnimation* animation = ecs::@get_ptr(manager, entity, WorldAnimation);
+    WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation);
     gltf::Animation data = gltf.animations[animation.animation_index];
 
     double new_time = animation.active_time + (time);
@@ -420,33 +417,34 @@ fn void main()
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-            Entity node_entity = manager.@create_entity()!!;
-
-            if (node.extras.has_key("animation")) {
-                node_entity.@add((WorldAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
-                    .active_time = 0,
-                    .repeat = true
-                }, &manager)!!;
-            }
-                
-            if (node.extras.has_key("skin_clone")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-                    .active_time = node_index * 0.05,
-                    .repeat = true
-                }, &manager)!!;
-            }
-
-            if (node.has_skin()) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = 2,
-                    .active_time = 0.0,
-                    .repeat = true
-                }, &manager)!!;
-            }
 
             meshes.@iter(mesh.name; MeshData mesh_data) {
+                Entity node_entity = manager.@create_entity()!!;
+
+                if (node.extras.has_key("animation")) {
+                    node_entity.@add((WorldAnimation) {
+                        .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
+                        .active_time = 0,
+                        .repeat = true
+                    }, &manager)!!;
+                }
+                    
+                if (node.extras.has_key("skin_clone")) {
+                    node_entity.@add((SkinAnimation) {
+                        .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
+                        .active_time = node_index * 0.05,
+                        .repeat = true
+                    }, &manager)!!;
+                }
+
+                if (node.has_skin()) {
+                    node_entity.@add((SkinAnimation) {
+                        .animation_index = 2,
+                        .active_time = 0.0,
+                        .repeat = true
+                    }, &manager)!!;
+                }
+
                 // if (node.name == "Player") player = node_entity;
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,
@@ -505,7 +503,6 @@ fn void main()
                         .aabb = mesh_aabb
                     }, &manager)!!;
 
-              
                     spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
                 }
 
@@ -514,8 +511,8 @@ fn void main()
         };
     }
 
-    Aabb3 first = (Aabb3){{-3.218988, 0.000000, -3.218988}, {3.218988, 0.097606, 3.218988}};
-    Aabb3 second = (Aabb3){{-2.379080, -0.151056, 1.060155}, {-1.295498, 0.908525, 2.143737}};
+    // Aabb3 first = (Aabb3){{-3.218988, 0.000000, -3.218988}, {3.218988, 0.097606, 3.218988}};
+    // Aabb3 second = (Aabb3){{-2.379080, -0.151056, 1.060155}, {-1.295498, 0.908525, 2.143737}};
 
     // io::printfn("%s", first.collides(second));
 
@@ -794,7 +791,7 @@ fn void main()
 
         manager.@query("Render", "CollisionData"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;
-            CollisionData state = ecs::@get(manager, entity, CollisionData);
+            CollisionData* state = ecs::@get_ref(manager, entity, CollisionData);
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
                 .collides = state.collides
@@ -803,6 +800,8 @@ fn void main()
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+
+            state.collides = false;
         };
 
         manager.@query("Collider"; Entity entity) {

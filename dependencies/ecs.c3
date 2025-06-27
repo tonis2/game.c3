@@ -415,7 +415,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 
 // @typekind(#data) == POINTER
 
-macro @get_ptr(EntityManager manager, #target, #type = null, usz offset = 0) {
+macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
         // usz type_offset = #target.offset;
@@ -909,7 +909,7 @@ fn void test_ecs() @test {
     assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
 
 
-    Velocity* velocity_ptr = @get_ptr(manager, player, Velocity);
+    Velocity* velocity_ptr = @get_ref(manager, player, Velocity);
     velocity_ptr.x = 5.00;
 
     manager.@query("Position", "Velocity"; Entity entity) {
