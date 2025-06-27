@@ -104,7 +104,11 @@ typedef SceneLight @tag("BUFFER", 2) = Light;
 DescriptorImages descriptor_images;
 
 Vec2f window_size = {1280, 620};
+
+Vec3f gravity = {0, -9.81, 0};
+
 char[*] shader = $embed("./shaders/shader.spv");
+
 
 DeviceContext context;
 

@@ -392,6 +392,10 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif
 }
 
+
+<*
+ @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
+*>
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     usz $type_size = #type.sizeof;
     $if $typeof(#target).nameof == "Component":
@@ -413,8 +417,9 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     $endif;
 }
 
-// @typekind(#data) == POINTER
-
+<*
+ @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
+*>
 macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
