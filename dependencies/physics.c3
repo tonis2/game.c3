@@ -8,7 +8,7 @@ import std::collections::map;
 
 // collision primitives: Sphere, Circle, Rectangle, Cuboid, Particle, Convex Polygon, Convex Polyhedra
 
-struct Aabb3 {
+struct Aabb3 (Printable) {
     Vec3f min;
     Vec3f max;
 }
@@ -17,6 +17,8 @@ struct Obb3 {
     Vec3f min;
     Vec3f max;
 }
+
+fn usz? Aabb3.to_format(&self, Formatter* formatter) @dynamic => formatter.printf("min %s max %s", self.min, self.max)!;
 
 // macro bool Aabb3.@intersects(self, Aabb3 target) {
 //     return self.min.x < target.min.x && self.max.x > target.max.x;
@@ -363,9 +365,19 @@ fn usz GridCoord.hash(&self) {
 alias CellList = List{usz};
 alias SpatialMap = HashMap{usz, CellList};
 
+struct Pair (Printable) {
+    usz first;
+    usz second;
+}
+
+fn usz? Pair.to_format(&self, Formatter* formatter) @dynamic => formatter.printf("%s, %s", self.first, self.second)!;
+
+macro uint Pair.hash(Pair self) => builtin::@generic_hash(self.first) | builtin::@generic_hash(self.second);
+
 struct SpatialHash3D {
     double cell_size;
     SpatialMap table;
+    HashMap{usz, bool} unique_map;
 }
 
 fn void SpatialHash3D.free(&self) {
@@ -373,6 +385,7 @@ fn void SpatialHash3D.free(&self) {
         cells.free();
     };
     self.table.free();
+    self.unique_map.free();
 }
 
 fn GridCoord SpatialHash3D.world_to_grid(&self, Vec3f pos) {
@@ -403,19 +416,28 @@ fn void? SpatialHash3D.insert(&self, GridAabb3 box) {
     }
 }
 
-macro void SpatialHash3D.@get_pairs(&self; @callback(usz first, usz second)) {
+macro void SpatialHash3D.@get_pairs(&self; @callback(Pair pair)) {
     self.table.@each(;usz id, CellList cells) {
         for (usz i = 0; i < cells.len(); ++i) {
             for (usz j = i + 1; j < cells.len(); ++j) {
                 usz a = cells[i];
                 usz b = cells[j];
-                @callback(math::min(a, b), math::max(a, b));
+
+                Pair pair = {math::min(a, b), math::max(a, b)};
+                usz pair_hash = pair.hash();
+
+                if (!self.unique_map.has_key(pair_hash)) {
+                    @callback(pair);
+                    self.unique_map.set(pair_hash, true);
+                }
             }
         }
     };
+
+    self.unique_map.clear();
 }
 
-macro void SpatialHash3D.@get_pairs_in_region(&self, Vec3f min, Vec3f max ; @callback(usz first, usz second)) {
+macro void SpatialHash3D.@get_pairs_in_region(&self, Vec3f min, Vec3f max ; @callback(Pair pair)) {
     GridCoord min_cell = self.world_to_grid(box.min);
     GridCoord max_cell = self.world_to_grid(box.max);
 
@@ -429,12 +451,20 @@ macro void SpatialHash3D.@get_pairs_in_region(&self, Vec3f min, Vec3f max ; @cal
                     for (usz j = i + 1; j < cells.len(); ++j) {
                         usz a = cells[i];
                         usz b = cells[j];
-                        @callback(math::min(a, b), math::max(a, b));
+                        Pair pair = {math::min(a, b), math::max(a, b)};
+                        usz pair_hash = pair.hash();
+
+                        if (!self.unique_map.has_key(pair_hash)) {
+                            @callback(pair);
+                            self.unique_map.set(pair_hash, true);
+                        }
                     }
                 }
             }
         }
     }
+
+    self.unique_map.clear();
 }
 
 macro void SpatialHash3D.@get_neighbor_cells(&self, GridCoord cell; @callback(Vec3f position)) {

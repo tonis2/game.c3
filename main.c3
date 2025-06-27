@@ -148,11 +148,17 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
-    spatial_map.@get_pairs(;usz first, usz second) {
-        CollisionData* first_collider = ecs::@get_ptr(manager, (Entity)first, CollisionData);
-        CollisionData* second_collider = ecs::@get_ptr(manager, (Entity)second, CollisionData);
+    spatial_map.@get_pairs(;Pair pair) {
+        CollisionData* first = ecs::@get_ptr(manager, (Entity)pair.first, CollisionData);
+        CollisionData* second = ecs::@get_ptr(manager, (Entity)pair.second, CollisionData);
 
-        // io::printfn("first %s second %s", first_collider.node, second_collider.node);
+        if (second.aabb.collides(first.aabb)) {
+            first.collides = true;
+            second.collides = true;
+        } else {
+            first.collides = false;
+            second.collides = false;
+        }
     };
 }
 
@@ -275,7 +281,7 @@ fn void main()
     gltf = gltf::loadFile("assets/animation_2.glb")!!;
     defer gltf.free();
 
-    spatial_map = { .cell_size = 2.0 };
+    spatial_map = { .cell_size = 4.0 };
     defer spatial_map.free();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
@@ -496,9 +502,10 @@ fn void main()
                         .collides = false,
                         .node = node_index,
                         .check_collision = node.name != "Player" ? true : false,
-                        .aabb = mesh_data.aabb
+                        .aabb = mesh_aabb
                     }, &manager)!!;
 
+              
                     spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
                 }
 
@@ -506,6 +513,11 @@ fn void main()
             }!!;
         };
     }
+
+    Aabb3 first = (Aabb3){{-3.218988, 0.000000, -3.218988}, {3.218988, 0.097606, 3.218988}};
+    Aabb3 second = (Aabb3){{-2.379080, -0.151056, 1.060155}, {-1.295498, 0.908525, 2.143737}};
+
+    // io::printfn("%s", first.collides(second));
 
     foreach (image : gltf.images) {
         stb::Image image_data;
