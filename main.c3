@@ -68,10 +68,13 @@ struct SceneData @tag("BUFFER", 2) {
 }
 
 struct CollisionData @tag("BUFFER", 0) {
+    Vec3f velocity;
+    Vec3f force;
+    Vec3f mass;
+    Aabb3 aabb;
     uint node;
     bool collides;
     bool check_collision;
-    Aabb3 aabb;
 }
 
 struct AnimationData {

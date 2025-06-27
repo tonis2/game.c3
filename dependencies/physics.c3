@@ -437,6 +437,26 @@ macro void SpatialHash3D.@get_pairs_in_region(&self, Vec3f min, Vec3f max ; @cal
     }
 }
 
+macro void SpatialHash3D.@get_neighbor_cells(&self, GridCoord cell; @callback(Vec3f position)) {
+    for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dz = -1; dz <= 1; ++dz) {
+                @callback({cell.x + dx, cell.y + dy, cell.z + dz});
+            }
+        }
+    }
+}
+
+macro void SpatialHash3D.@get_nearby_objects(&self, Vec3f pos; @callback(usz id)) {
+    GridCoord cell = self.world_to_grid(pos);
+
+    self.@get_neighbor_cells(cell; Vec3f position) {
+        usz cell_id = (GridCoord){position.x, position.y, position.z}.hash();
+        CellList cells = self.table.get(cell_id);
+        foreach (cell: cells) @callback(cell);
+    };
+}
+
 fn void test_physics() @test {
     Aabb3 aabb = {
         {-1.0, -1.0, -1.0},
