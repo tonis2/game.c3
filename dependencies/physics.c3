@@ -387,10 +387,12 @@ fn void? SpatialHash3D.insert(&self, GridAabb3 box) {
     GridCoord min_cell = self.world_to_grid(box.min);
     GridCoord max_cell = self.world_to_grid(box.max);
 
-    for (uint x = min_cell.x; x <= max_cell.x; ++x) {
-        for (uint y = min_cell.y; y <= max_cell.y; ++y) {
-            for (uint z = min_cell.z; z <= max_cell.z; ++z) {
+    for (int x = min_cell.x; x <= max_cell.x; ++x) {
+        for (int y = min_cell.y; y <= max_cell.y; ++y) {
+
+            for (int z = min_cell.z; z <= max_cell.z; ++z) {
                 usz cell_id = (GridCoord){x, y, z}.hash();
+
                 if (!self.table.has_key(cell_id)) {
                     self.table.set(cell_id, {});
                 };
@@ -401,7 +403,7 @@ fn void? SpatialHash3D.insert(&self, GridAabb3 box) {
     }
 }
 
-macro void SpatialHash3D.@get_potential_pairs(&self; @callback(usz first, usz second)) {
+macro void SpatialHash3D.@get_pairs(&self; @callback(usz first, usz second)) {
     self.table.@each(;usz id, CellList cells) {
         for (usz i = 0; i < cells.len(); ++i) {
             for (usz j = i + 1; j < cells.len(); ++j) {
@@ -411,6 +413,28 @@ macro void SpatialHash3D.@get_potential_pairs(&self; @callback(usz first, usz se
             }
         }
     };
+}
+
+macro void SpatialHash3D.@get_pairs_in_region(&self, Vec3f min, Vec3f max ; @callback(usz first, usz second)) {
+    GridCoord min_cell = self.world_to_grid(box.min);
+    GridCoord max_cell = self.world_to_grid(box.max);
+
+    for (uint x = min_cell.x; x <= max_cell.x; ++x) {
+    for (uint y = min_cell.y; y <= max_cell.y; ++y) {
+            for (uint z = min_cell.z; z <= max_cell.z; ++z) {
+                usz cell_id = (GridCoord){x, y, z}.hash();
+                CellList cells = self.table.get(cell_id);
+                
+                for (usz i = 0; i < cells.len(); ++i) {
+                    for (usz j = i + 1; j < cells.len(); ++j) {
+                        usz a = cells[i];
+                        usz b = cells[j];
+                        @callback(math::min(a, b), math::max(a, b));
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn void test_physics() @test {
@@ -437,7 +461,7 @@ fn void test_physics() @test {
 
     foreach (usz i, item: boxes) spatial_map.insert({.min = item.min, .max = item.max, .id = i })!!;
 
-    spatial_map.@get_potential_pairs(;usz first, usz second) {
+    spatial_map.@get_pairs(;usz first, usz second) {
         io::printfn("first %s second %s", first, second);
     };
 

@@ -44,12 +44,6 @@ struct Material @tag("BUFFER", 3) {
     int metallicRoughnessTexture;
 }
 
-struct State {
-    uint index;
-    bool collides;
-    bool check_collision;
-}
-
 struct Render @tag("BUFFER", 1) {
     uint indexCount;
     uint instanceCount;
@@ -71,6 +65,13 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress nodes;
     vk::DeviceAddress animations;
     vk::DeviceAddress instances;
+}
+
+struct CollisionData @tag("BUFFER", 0) {
+    uint node;
+    bool collides;
+    bool check_collision;
+    Aabb3 aabb;
 }
 
 struct AnimationData {
@@ -110,6 +111,8 @@ Gltf gltf;
 List{AnimationData} animation_list;
 NodeComponent nodes;
 
+SpatialHash3D spatial_map;
+
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
     Memory stage_buffer = vk::new_buffer(
@@ -141,36 +144,13 @@ const MoveEvent[] MOVE_EVENTS = {
     {DOWN_ARROW, {0, -SPEED, 0}},
 };
 
-fn void physics_system(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    // State state = ecs::@get(manager, entity, State);
+fn void physics_system(EntityManager manager, EventMap key_map, double time) {
+    spatial_map.@get_pairs(;usz first, usz second) {
+        CollisionData* first_collider = ecs::@get_ptr(manager, (Entity)first, CollisionData);
+        CollisionData* second_collider = ecs::@get_ptr(manager, (Entity)second, CollisionData);
 
-    // Aabb3 entity_collider = ecs::@get(manager, entity, Aabb3);
-    // Render entity_render = ecs::@get(manager, entity, Render);
-
-    // Aabb3 player_collider = ecs::@get(manager, player, Aabb3);
-    // Render player_render = ecs::@get(manager, player, Render);
-    // Collider collider_render = ecs::@get(manager, player, Collider);
-
-    // bool is_dirty = false;
-    // foreach (item: MOVE_EVENTS) {
-    //     if (key_map.is_pressed(item.key)) {
-    //         player_render.node_matrix = player_render.node_matrix.translate(item.move);
-    //         collider_render.node_matrix = player_render.node_matrix;
-    //         is_dirty = true;
-    //     }
-    // }
-
-    // if (is_dirty && state.check_collision) {
-    //     if (player_collider.transform(player_render.node_matrix).collides(entity_collider)) {
-    //         state.collides = true;
-    //     } else {
-    //         state.collides = false;
-    //     }
-    //     ecs::@upload(manager, entity, state);
-    //     ecs::@upload(manager, player, collider_render);
-    // }
-
-    // ecs::@upload(manager, player, player_render);
+        // io::printfn("first %s second %s", first_collider.node, second_collider.node);
+    };
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
@@ -292,6 +272,9 @@ fn void main()
     gltf = gltf::loadFile("assets/animation_2.glb")!!;
     defer gltf.free();
 
+    spatial_map = { .cell_size = 2.0 };
+    defer spatial_map.free();
+
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
         .device = context.device,
@@ -400,20 +383,9 @@ fn void main()
         },
     )!!;
 
-    manager.add_system({
-        .query = {"Render", "Aabb3", "State"}, 
-        .callback = &physics_system
-    });
-
-    manager.add_system({
-        .query = {"Render", "SkinAnimation"}, 
-        .callback = &skin_animation_player
-    });
-
-    manager.add_system({
-        .query = {"WorldAnimation"}, 
-        .callback = &world_animation_player
-    });
+    manager.add_system({.query = {"Render", "SkinAnimation"}, .type = QUERY, .callback = &skin_animation_player});
+    manager.add_system({.query = {"WorldAnimation"}, .type = QUERY, .callback = &world_animation_player});
+    manager.add_system({.type = ON_FRAME, .callback = &physics_system});
 
     defer {
         meshes.free();
@@ -466,12 +438,6 @@ fn void main()
             }
 
             meshes.@iter(mesh.name; MeshData mesh_data) {
-                node_entity.@add((State) {
-                    .collides = false,
-                    .index = node_index,
-                    .check_collision = node.name != "Player" ? true : false
-                }, &manager)!!;
-          
                 // if (node.name == "Player") player = node_entity;
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,
@@ -504,13 +470,13 @@ fn void main()
 
                 // Add physics box           
                 if (!mesh_data.aabb.is_empty()) {
-                    Aabb3 mesh_aabb = mesh_data.aabb;
+                    Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
 
                     MeshData collider_mesh = ecs::load_mesh(
                         manager: manager,
                         vertices: &vertices,
                         indices: &indices,
-                        mesh: ecs::create_bounding_box({.min = mesh_aabb.min, .max = mesh_aabb.max})
+                        mesh: ecs::create_bounding_box({.min = mesh_data.aabb.min, .max = mesh_data.aabb.max})
                     )!!;
 
                     Collider collider = {
@@ -521,8 +487,16 @@ fn void main()
                         .node_index = node_index,
                         .skin_offset = -1
                     };
+
                     node_entity.@add(collider, &manager)!!;
-                    node_entity.@add(mesh_aabb.transform(node.global_matrix()), &manager)!!;
+                    node_entity.@add((CollisionData) {
+                        .collides = false,
+                        .node = node_index,
+                        .check_collision = node.name != "Player" ? true : false,
+                        .aabb = mesh_data.aabb
+                    }, &manager)!!;
+
+                    spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
                 }
 
                 node_entity.@add(render_data, &manager)!!;
@@ -803,9 +777,9 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("Render", "State"; Entity entity) {
+        manager.@query("Render", "CollisionData"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;
-            State state = ecs::@get(manager, entity, State);
+            CollisionData state = ecs::@get(manager, entity, CollisionData);
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
                 .collides = state.collides

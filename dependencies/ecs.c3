@@ -533,7 +533,7 @@ import std::collections::map;
 import std::time;
 import c3w;
 
-alias SystemCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
+
 
 struct Node {
     Matrix4f matrix;
@@ -602,9 +602,22 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
     }
 }
 
+
+alias EntityCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
+alias FrameCallback = fn void (EntityManager manager, EventMap keys, double time);
+
+enum SystemType : uint
+{
+    QUERY,
+    ON_FRAME,
+    ON_INIT,
+    ON_EXIT
+}
+
 struct System {
     String[] query;
-    SystemCallback callback;
+    void* callback;
+    SystemType type;
 }
 
 fn void EntityManager.add_system(&self, System system) {
@@ -613,14 +626,20 @@ fn void EntityManager.add_system(&self, System system) {
 
 fn void EntityManager.run_systems(self, EventMap events, double time) {
     foreach (system: self.systems) {
-        foreach ENTITY: (entity: self.entities) {
-            foreach (name: system.query) {
-                if (!entity.has_name(name, self)) {
-                    continue ENTITY;
+        if (system.type == ON_FRAME) {
+            FrameCallback callback = (FrameCallback)system.callback;
+            callback(self, events, time);
+        }
+        if (system.type == QUERY) {
+            foreach ENTITY: (entity: self.entities) {
+                foreach (name: system.query) {
+                    if (!entity.has_name(name, self)) {
+                        continue ENTITY;
+                    };
                 };
-            };
-      
-            system.callback(self, entity, events, time);
+                EntityCallback callback = (EntityCallback)system.callback;
+                callback(self, entity, events, time);
+            }
         }
     }
 }
@@ -676,6 +695,8 @@ struct MeshData {
     uint meshCount;
     int materialIndex;
     Aabb3 aabb;
+    bool visible;
+    bool calculated;
 }
 
 struct Vertex {
