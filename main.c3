@@ -120,7 +120,6 @@ NodeComponent nodes;
 MeshContainer meshes;
 
 SpatialHash3D spatial_map;
-// Gjk gjk;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -420,7 +419,7 @@ fn void main()
     foreach (mesh: gltf.meshes) {
         meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
     }
-  
+
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {

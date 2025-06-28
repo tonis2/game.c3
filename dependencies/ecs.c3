@@ -222,7 +222,6 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-
 <*
  @require (@typekind(#type) != OPTIONAL && @typekind(#type) != POINTER) "Added type should not be optional or pointer"
 *>
@@ -423,8 +422,8 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
-        // usz type_offset = #target.offset;
-        // return (void*)buffer.data() + alignUp(type_offset, 16);
+        usz type_offset = #target.offset;
+        return (void*)buffer.data() + type_offset;
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
@@ -438,6 +437,8 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
         return (void*)manager.buffers[component.buffer].data() + type_offset;
     $endif;
 }
+
+fn void* Component.get_ref(&self) => (void*)self.manager.buffers[self.buffer].data() + self.offset;
 
 // <*
 //  @require self.size != 0 && self.used_size != 0 : `Component is empty`
@@ -538,8 +539,6 @@ import std::collections::map;
 import std::time;
 import c3w;
 
-
-
 struct Node {
     Matrix4f matrix;
     Vec3f translation;
@@ -606,7 +605,6 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
         }
     }
 }
-
 
 alias EntityCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
 alias FrameCallback = fn void (EntityManager manager, EventMap keys, double time);

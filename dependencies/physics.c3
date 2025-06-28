@@ -300,135 +300,56 @@ fn bool contains_origin(Vec3f[] simplex, Vec3f direction) {
     return false;
 }
 
-// struct Edge {
-//     uint a;
-//     uint b;
-//     Vec3f normal;
-//     float distance;
-// }
+alias Simplex = ElasticArray{Vec3f, 65};
 
-// struct CollisionInfo {
-//     bool colliding;
-//     Vec3f normal;
-//     float depth;
-// }
+struct Triangle {
+    uint a, b, c;
+    Vec3f normal;
+    float distance;
+}
 
-// alias Triangle @private = uint[3];
+struct CollisionInfo {
+    bool colliding;
+    Vec3f normal;
+    float depth;
+}
 
-// fn Edge find_closest_edge(Vec3f[] polytope, Triangle[] faces) {
-//     Edge closest = {
-//         .distance = float.max
-//     };
+fn Vec3f triple_product(Vec3f a, Vec3f b, Vec3f c) => b * a.dot(c) - c * a.dot(b);
 
-//     foreach (face : faces) {
-//         Vec3f a = polytope[face[0]];
-//         Vec3f b = polytope[face[1]];
-//         Vec3f c = polytope[face[2]];
+fn Vec3f calculate_face_normal(Vec3f a, Vec3f b, Vec3f c) {
+    Vec3f ab = a-b;
+    Vec3f ac = a-c;
+    Vec3f normal = ab.cross(ac).normalize();
+    float distance = normal.dot(a);
 
-//         Vec3f normal = (a-b).cross(c-a).normalize();
-//         float distance = normal.dot(a);
+    return distance < 0 ? -normal : normal;
+}
 
-//         if (distance < closest.distance) {
-//             closest.distance = distance;
-//             closest.normal = normal;
-//             closest.a = face[0];
-//             closest.b = face[1];
-//         }
-//     }
+fn void epa(Simplex simplex, ConvexShape shape_1, ConvexShape shape_2) {
+    float epsilon = 0.0001f;
+    uint max_iterations = 64;
+    Simplex polytope = simplex;
+    ElasticArray{uint, 65} faces = {};
 
-//     return closest;
-// }
+    for (uint iteration = 0; iteration < max_iterations; iteration++) {
+        int closestFace = -1;
+        float minDistance = float.max;
 
-// EPA implementation
-// fn CollisionInfo epa(Vec3f[] first, Vec3f[] second, Vec3f[] simplex) {
-    // std::vector<Vec3> polytope = simplex;
-    // std::vector<Triangle> faces = {
-    //     {0, 1, 2}, // ABC
-    //     {0, 3, 1}, // ADB
-    //     {0, 2, 3}, // ACD
-    //     {1, 3, 2}  // BDC
-    // };
-
-    // const size_t maxIterations = 50;
-    // CollisionInfo result;
-    // result.colliding = true;
-
-    // for (size_t i = 0; i < maxIterations; ++i) {
-    //     Edge edge = findClosestEdge(polytope, faces);
-    //     Vec3 support = support(shapeA, shapeB, edge.normal);
-    //     float distance = dot(support, edge.normal);
-
-    //     if (std::abs(distance - edge.distance) < 0.001f) {
-    //         result.normal = edge.normal;
-    //         result.depth = distance;
-    //         return result;
-    //     }
-
-    //     // Add new vertex to polytope
-    //     size_t newIndex = polytope.size();
-    //     polytope.push_back(support);
-
-    //     // Remove faces that can see the new point
-    //     std::vector<Triangle> newFaces;
-    //     for (const auto& face : faces) {
-    //         Vec3 a = polytope[face[0]];
-    //         Vec3 b = polytope[face[1]];
-    //         Vec3 c = polytope[face[2]];
-
-    //         Vec3 normal = normalize(cross(subtract(b, a), subtract(c, a)));
-    //         if (dot(normal, subtract(support, a)) > 0) {
-    //             // Face can see the point, remove it
-    //             continue;
-    //         }
-    //         newFaces.push_back(face);
-    //     }
-
-    //     // Create new faces from the edge horizon
-    //     std::vector<Edge> edges;
-    //     for (const auto& face : newFaces) {
-    //         edges.push_back({face[0], face[1], Vec3(), 0});
-    //         edges.push_back({face[1], face[2], Vec3(), 0});
-    //         edges.push_back({face[2], face[0], Vec3(), 0});
-    //     }
-
-    //     // Remove duplicate edges
-    //     std::vector<Edge> uniqueEdges;
-    //     for (size_t j = 0; j < edges.size(); ++j) {
-    //         bool isUnique = true;
-    //         for (size_t k = j + 1; k < edges.size(); ++k) {
-    //             if ((edges[j].a == edges[k].b && edges[j].b == edges[k].a) ||
-    //                 (edges[j].a == edges[k].a && edges[j].b == edges[k].b)) {
-    //                 isUnique = false;
-    //                 break;
-    //             }
-    //         }
-    //         if (isUnique) {
-    //             uniqueEdges.push_back(edges[j]);
-    //         }
-    //     }
-
-    //     // Create new faces from unique edges
-    //     for (const auto& edge : uniqueEdges) {
-    //         newFaces.push_back({edge.a, edge.b, newIndex});
-    //     }
-
-    //     faces = newFaces;
-    // }
-
-    // // If we reach max iterations, return best estimate
-    // Edge edge = findClosestEdge(polytope, faces);
-    // result.normal = edge.normal;
-    // result.depth = edge.distance;
-    // return result;
-
-//     return {};
-// }
+        // for (uint i = 0; i < faces.len(); ++i) {
+        //     float dist = faces[i].normal.dot(polytope[faces[i].a]);
+        //     if (dist < minDistance) {
+        //         minDistance = dist;
+        //         closestFace = i;
+        //     }
+        // }
+    }
+}
 
 fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
     // Initial direction (arbitrary)
     Vec3f direction = {1, 0, 0};
     
-    ElasticArray{Vec3f, 60} simplex;
+    Simplex simplex;
     
     // Initial simplex point
     simplex.push(shape_1.support(direction) - shape_2.support(direction));
