@@ -3,6 +3,7 @@ module ecs;
 import std::math;
 import std::io;
 import std::collections::list;
+import std::collections::elastic_array;
 import std::collections::map;
 
 
@@ -10,7 +11,7 @@ fn Matrix3f Matrix4f.to_mat3(self) => { .m = self.m[0..8] };
 // collision primitives: Sphere, Circle, Rectangle, Cuboid, Particle, Convex Polygon, Convex Polyhedra
 fn float radians(float value) => value * (float)math::PI / 180;
 
-struct Aabb3 (Printable) {
+struct Aabb3 (Printable, ConvexShape) {
     Vec3f min;
     Vec3f max;
 }
@@ -162,168 +163,184 @@ fn Vec3f Aabb3.length_ratios(&self, Aabb3 second) {
     return ratios;
 }
 
+interface ConvexShape
+{
+    fn Vec3f support(Vec3f direction);
+}
 
-fn Vec3f support(Vec3f[] first, Vec3f[] second, Vec3f direction) {
-    // Find farthest point in shapeA along direction
-    Vec3f point_a = first[0];
+struct TransformedConvex (ConvexShape) {
+    Vec3f position;
+    Quaternionf rotation;
+    ConvexShape shape;
+}
+
+struct ConvexPolyhedron (ConvexShape) {
+    Vec3f[] vertices;
+}
+
+// fn Vec3f TransformedConvex.to_point(&self, Vec3f local_point) => self.rotation * local_point + self.position;
+// fn Vec3f TransformedConvex.inverse_to_direction(&self, Vec3f world_dir) => self.rotation.transpose() * world_dir;
+
+fn Vec3f TransformedConvex.support(&self, Vec3f direction) @dynamic { 
+    return self.shape.support(direction.rotate_quat(self.rotation.invert())).rotate_quat(self.rotation) + self.position;
+}
+
+fn Vec3f Aabb3.support(&self, Vec3f direction) @dynamic {
+    Vec3f point = {
+        (direction.x > 0) ? self.max.x : self.min.x,
+        (direction.y > 0) ? self.max.y : self.min.y,
+        (direction.z > 0) ? self.max.z : self.min.z
+    };
+    return point;
+}
+
+fn Vec3f ConvexPolyhedron.support(&self, Vec3f direction) @dynamic {
+    Vec3f point_a = self.vertices[0];
     float max_dot_a = point_a.dot(direction);
 
-    foreach (v : first) {
+    foreach (v : self.vertices) {
         float d = v.dot(direction);
         if (d > max_dot_a) {
             max_dot_a = d;
             point_a = v;
         }
     }
-    
-    // Find farthest point in shapeB along opposite direction
-    Vec3f point_b = second[0];
-    float max_dot_b = point_b.dot(-direction);
-
-    foreach (v : second) {
-        float d = v.dot(-direction);
-        if (d > max_dot_b) {
-            max_dot_b = d;
-            point_b = v;
-        }
-    }
-    
-    // Return Minkowski difference point
-    return point_a - point_b;
+    return point_a;
 }
 
 fn bool contains_origin(Vec3f[] simplex, Vec3f direction) {
-    if (simplex.len == 2) {
-        // Line segment case
-        Vec3f a = simplex[1];
-        Vec3f b = simplex[0];
-        Vec3f ab = b - a;
-        Vec3f ao = -a;
-        
-        if (ab.dot(ao) > 0) {
-            // New direction is perpendicular to AB towards origin
-            direction = ab.cross(ao).cross(ab);
-        } else {
-            simplex = {a};
-            direction = ao;
+    switch (simplex.len) {
+        case 2: {
+            // Line segment case
+            Vec3f a = simplex[1];
+            Vec3f b = simplex[0];
+            Vec3f ab = b - a;
+            Vec3f ao = -a;
+            
+            if (ab.dot(ao) > 0) {
+                // New direction is perpendicular to AB towards origin
+                direction = ab.cross(ao).cross(ab);
+            } else {
+                simplex = {a};
+                direction = ao;
+            }
         }
-    } 
-    else if (simplex.len == 3) {
-        // Triangle case
-        Vec3f a = simplex[2];
-        Vec3f b = simplex[1];
-        Vec3f c = simplex[0];
-        Vec3f ab = b - a;
-        Vec3f ac = c - a;
-        Vec3f ao = -a;
-        Vec3f abc = ab.cross(ac);
-        
-        // Edge AB
-        if (ab.cross(abc).dot(ao) > 0) {
-            simplex = {a, b};
-            direction = ab.cross(ao).cross(ab);
-            return false;
+        case 3: {
+            // Triangle case
+            Vec3f a = simplex[2];
+            Vec3f b = simplex[1];
+            Vec3f c = simplex[0];
+            Vec3f ab = b - a;
+            Vec3f ac = c - a;
+            Vec3f ao = -a;
+            Vec3f abc = ab.cross(ac);
+            
+            // Edge AB
+            if (ab.cross(abc).dot(ao) > 0) {
+                simplex = {a, b};
+                direction = ab.cross(ao).cross(ab);
+                return false;
+            }
+            
+            // Edge AC
+            if (abc.cross(ac).dot(ao) > 0) {
+                simplex = {a, c};
+                direction = ac.cross(ao).cross(ac);
+                return false;
+            }
+            
+            // Above/below triangle
+            if (abc.dot(ao) > 0) {
+                direction = abc;
+            } else {
+                direction = -abc;
+            }
         }
-        
-        // Edge AC
-        if (abc.cross(ac).dot(ao) > 0) {
-            simplex = {a, c};
-            direction = ac.cross(ao).cross(ac);
-            return false;
+        case 4: {
+            // Tetrahedron case
+            Vec3f a = simplex[3];
+            Vec3f b = simplex[2];
+            Vec3f c = simplex[1];
+            Vec3f d = simplex[0];
+            Vec3f ao = -a;
+            
+            Vec3f ab = b-a;
+            Vec3f ac = c-a;
+            Vec3f ad = d-a;
+            
+            Vec3f abc = ab.cross(ac);
+            Vec3f acd = ac.cross(ad);
+            Vec3f adb = ad.cross(ab);
+            
+            // ABC face
+            if (abc.dot(ao) > 0) {
+                simplex = {a, b, c};
+                direction = abc;
+                return false;
+            }
+            
+            // ACD face
+            if (acd.dot(ao) > 0) {
+                simplex = {a, c, d};
+                direction = acd;
+                return false;
+            }
+            
+            // ADB face
+            if (adb.dot(ao) > 0) {
+                simplex = {a, d, b};
+                direction = adb;
+                return false;
+            }
+            
+            // Origin is inside tetrahedron
+            return true;
         }
-        
-        // Above/below triangle
-        if (abc.dot(ao) > 0) {
-            direction = abc;
-        } else {
-            direction = -abc;
-        }
-    }
-    else if (simplex.len == 4) {
-        // Tetrahedron case
-        Vec3f a = simplex[3];
-        Vec3f b = simplex[2];
-        Vec3f c = simplex[1];
-        Vec3f d = simplex[0];
-        Vec3f ao = -a;
-        
-        Vec3f ab = b-a;
-        Vec3f ac = c-a;
-        Vec3f ad = d-a;
-        
-        Vec3f abc = ab.cross(ac);
-        Vec3f acd = ac.cross(ad);
-        Vec3f adb = ad.cross(ab);
-        
-        // ABC face
-        if (abc.dot(ao) > 0) {
-            simplex = {a, b, c};
-            direction = abc;
-            return false;
-        }
-        
-        // ACD face
-        if (acd.dot(ao) > 0) {
-            simplex = {a, c, d};
-            direction = acd;
-            return false;
-        }
-        
-        // ADB face
-        if (adb.dot(ao) > 0) {
-            simplex = {a, d, b};
-            direction = adb;
-            return false;
-        }
-        
-        // Origin is inside tetrahedron
-        return true;
-    }
-    
+    }    
     return false;
 }
 
-struct Edge {
-    uint a;
-    uint b;
-    Vec3f normal;
-    float distance;
-}
+// struct Edge {
+//     uint a;
+//     uint b;
+//     Vec3f normal;
+//     float distance;
+// }
 
-struct CollisionInfo {
-    bool colliding;
-    Vec3f normal;
-    float depth;
-}
+// struct CollisionInfo {
+//     bool colliding;
+//     Vec3f normal;
+//     float depth;
+// }
 
-alias Triangle @private = uint[3];
+// alias Triangle @private = uint[3];
 
-fn Edge find_closest_edge(Vec3f[] polytope, Triangle[] faces) {
-    Edge closest = {
-        .distance = float.max
-    };
+// fn Edge find_closest_edge(Vec3f[] polytope, Triangle[] faces) {
+//     Edge closest = {
+//         .distance = float.max
+//     };
 
-    foreach (face : faces) {
-        Vec3f a = polytope[face[0]];
-        Vec3f b = polytope[face[1]];
-        Vec3f c = polytope[face[2]];
+//     foreach (face : faces) {
+//         Vec3f a = polytope[face[0]];
+//         Vec3f b = polytope[face[1]];
+//         Vec3f c = polytope[face[2]];
 
-        Vec3f normal = (a-b).cross(c-a).normalize();
-        float distance = normal.dot(a);
+//         Vec3f normal = (a-b).cross(c-a).normalize();
+//         float distance = normal.dot(a);
 
-        if (distance < closest.distance) {
-            closest.distance = distance;
-            closest.normal = normal;
-            closest.a = face[0];
-            closest.b = face[1];
-        }
-    }
+//         if (distance < closest.distance) {
+//             closest.distance = distance;
+//             closest.normal = normal;
+//             closest.a = face[0];
+//             closest.b = face[1];
+//         }
+//     }
 
-    return closest;
-}
+//     return closest;
+// }
 
 // EPA implementation
-fn CollisionInfo epa(Vec3f[] first, Vec3f[] second, Vec3f[] simplex) {
+// fn CollisionInfo epa(Vec3f[] first, Vec3f[] second, Vec3f[] simplex) {
     // std::vector<Vec3> polytope = simplex;
     // std::vector<Triangle> faces = {
     //     {0, 1, 2}, // ABC
@@ -404,33 +421,27 @@ fn CollisionInfo epa(Vec3f[] first, Vec3f[] second, Vec3f[] simplex) {
     // result.depth = edge.distance;
     // return result;
 
-    return {};
-}
+//     return {};
+// }
 
-
-struct Gjk {
-    List{Vec3f} simplex;
-}
-
-fn void Gjk.free(&self) {
-    self.simplex.free();
-}
-
-fn bool Gjk.check_collision(&self, Vec3f[] first, Vec3f[] second) {
+fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
     // Initial direction (arbitrary)
     Vec3f direction = {1, 0, 0};
     
+    ElasticArray{Vec3f, 60} simplex;
+    
     // Initial simplex point
+    simplex.push(shape_1.support(direction) - shape_2.support(direction));
 
-    self.simplex.push(support(first, second, direction));
     // New search direction is towards origin
-    direction = -self.simplex[0];
+    direction = -simplex[0];
     // Main GJK loop
     uint max_iterations = 50;
 
     for (uint i = 0; i < max_iterations; ++i) {
+
         // Get new support point
-        Vec3f new_point = support(first, second, direction);
+        Vec3f new_point = shape_1.support(direction) - shape_2.support(direction);
         
         // If we didn't reach the origin, no collision
         if (new_point.dot(direction) < 0) {
@@ -438,19 +449,16 @@ fn bool Gjk.check_collision(&self, Vec3f[] first, Vec3f[] second) {
         }
         
         // Add new point to simplex
-        self.simplex.push(new_point);
-        
+        simplex.push(new_point);
+
         // Check if simplex contains origin
-        if (contains_origin(self.simplex.array_view(), direction)) {
+        if (contains_origin(simplex.array_view(), direction)) {
             return true;
         }
     }
 
-    self.simplex.clear();
     return false;
 }
-
-
 
 struct GridAabb3 {
     Vec3f min;
@@ -609,33 +617,36 @@ fn void test_physics() @test {
     assert(aabb.max == {4, 6, 2});
 
     ///
-    Vec3f[] shapeA = {
-        {0, 0, 0},
-        {1, 0, 0},
-        {0, 1, 0},
-        {0, 0, 1}
+    Vec3f[] cube = {
+      {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1},
+      {1,1,0}, {1,0,1}, {0,1,1}, {1,1,1}
     };
+
+    Vec3f[] cube2 = cube;
+    Vec3f[] cube3 = cube;
+
+    foreach (pos : &cube2) {
+        pos[0] += 0.5;
+        pos[1] += 0.5;
+        pos[2] += 0.5;
+    }
+
+    foreach (pos : &cube3) {
+        pos[0] += 5.0;
+        pos[1] += 5.0;
+        pos[2] += 5.0;
+    }
+
+    assert(check_collision(&&(ConvexPolyhedron){cube}, &&(ConvexPolyhedron){cube2}));
+    assert(check_collision(&&(ConvexPolyhedron){cube}, &&(ConvexPolyhedron){cube3}));
     
-    Vec3f[] shapeB = {
-        {0.5, 0.5, 0.5},
-        {1.5, 0.5, 0.5},
-        {0.5, 1.5, 0.5},
-        {0.5, 0.5, 1.5}
-    };
-
-    Gjk gjk = {};
-    defer gjk.free();
-
-    assert(gjk.check_collision(shapeA, shapeB));
-    ///
-
     Aabb3[] boxes = {
         {{0,0,0}, {1,1,1}},
         {{1,1,1}, {2.5,2.5,2.5}},
         {{5,5,5}, {6,6,6}},
     };
 
-    SpatialHash3D spatial_map = { .cell_size = 2.0 };
+    SpatialHash3D spatial_map = { .cell_size = 1.0 };
     defer spatial_map.free();
 
     // foreach (usz i, item: boxes) spatial_map.insert({.min = item.min, .max = item.max, .id = i })!!;

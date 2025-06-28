@@ -544,7 +544,7 @@ struct Node {
     Matrix4f matrix;
     Vec3f translation;
     Vec3f scale;
-    Vec4f rotation;
+    Quaternionf rotation;
     int parent;
     uint dirty;
 }
@@ -593,11 +593,11 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
         Node* node = self.get(i);
 
         if (node.dirty == 1) {
-            Matrix4f global_matrix = gltf::to_matrix(node.translation, node.scale, (Quaternionf){.v = node.rotation});
+            Matrix4f global_matrix = gltf::to_matrix(node.translation, node.scale, node.rotation);
             Node* parent_node = node.parent > -1 ? self.get(node.parent) : null;
 
             while (parent_node != null) {
-                global_matrix = gltf::to_matrix(parent_node.translation, parent_node.scale, (Quaternionf){.v = parent_node.rotation}) * global_matrix;
+                global_matrix = gltf::to_matrix(parent_node.translation, parent_node.scale, parent_node.rotation) * global_matrix;
                 parent_node = parent_node.parent > -1 ? self.get(parent_node.parent) : null;
             }
 
@@ -669,8 +669,12 @@ fn void MeshContainer.free(&self) {
 }
 
 fn MeshInfo? MeshContainer.get_name(&self, String name) => self.mesh_map.get(name);
-
 fn MeshData? MeshContainer.get(&self, uint index) => self.meshes[index];
+
+fn Vec3f[] MeshContainer.get_positions(&self, uint index) {
+    MeshData data = self.meshes[index];
+    return self.positions.entries[data.position_offset .. data.position_offset + data.position_len];
+}
 
 <*
  @require self.mesh_map.len() > 0 : `MeshContainer is empty`

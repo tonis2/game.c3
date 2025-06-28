@@ -72,7 +72,7 @@ struct CollisionData @tag("BUFFER", 0) {
     Vec3f force;
     Vec3f mass;
     Aabb3 aabb;
-    uint node;
+    uint node_index;
     uint mesh_index;
     bool collides;
     bool check_collision;
@@ -120,7 +120,7 @@ NodeComponent nodes;
 MeshContainer meshes;
 
 SpatialHash3D spatial_map;
-Gjk gjk;
+// Gjk gjk;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -159,11 +159,16 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
 
         if (first.aabb.collides(second.aabb)) {
-            MeshData first_mesh = meshes.get(first.mesh_index)!!;
-            MeshData second_mesh = meshes.get(second.mesh_index)!!;
+            ecs::Node* first_node = nodes[first.node_index];
+            ecs::Node* second_node = nodes[second.node_index];
 
-            first.collides = true;
-            second.collides = true;
+            Vec3f[] pos1 = meshes.get_positions(first.mesh_index);
+            Vec3f[] pos2 = meshes.get_positions(second.mesh_index);
+
+            if (ecs::check_collision(&&(ConvexPolyhedron){pos1}, &&(ConvexPolyhedron){pos2})) {
+                first.collides = true;
+                second.collides = true;
+            }
         }   
     };
 }
@@ -201,7 +206,7 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
 
             switch (property) {
                 case TRANSLATION: node.translation = value.xyz;
-                case ROTATION: node.rotation = value;
+                case ROTATION: node.rotation = (Quaternionf){.v = value };
                 case SCALE: node.scale = value.xyz;
                 default: {}
             }
@@ -287,9 +292,9 @@ fn void main()
     gltf = gltf::loadFile("assets/animation_2.glb")!!;
     defer gltf.free();
 
-    spatial_map = { .cell_size = 4.0 };
+    spatial_map = { .cell_size = 2.0 };
     defer spatial_map.free();
-    defer gjk.free();
+    // defer gjk.free();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -364,7 +369,7 @@ fn void main()
         nodes.@push((ecs::Node) {
             .matrix = node.global_matrix(),
             .translation = node.translation,
-            .rotation = node.rotation.v,
+            .rotation = node.rotation,
             .scale = node.scale,
             .dirty = (uint)false,
             .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
@@ -409,9 +414,7 @@ fn void main()
     manager.add_system({.query = {"WorldAnimation"}, .type = QUERY, .callback = &world_animation_player});
     manager.add_system({.type = ON_FRAME, .callback = &physics_system});
 
-    defer {
-        animation_list.free();
-    };
+    defer animation_list.free();
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
@@ -501,11 +504,10 @@ fn void main()
                         .skin_offset = -1
                     };
 
-
                     node_entity.@add(collider, &manager)!!;
                     node_entity.@add((CollisionData) {
                         .collides = false,
-                        .node = node_index,
+                        .node_index = node_index,
                         .mesh_index = mesh_index,
                         .check_collision = node.name != "Player" ? true : false,
                         .aabb = mesh_aabb,
