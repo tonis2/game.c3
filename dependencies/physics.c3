@@ -296,7 +296,7 @@ struct CollisionInfo {
     float depth;
 }
 
-alias Triangle = uint[3];
+alias Triangle @private = uint[3];
 
 fn Edge find_closest_edge(Vec3f[] polytope, Triangle[] faces) {
     Edge closest = {

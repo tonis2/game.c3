@@ -1428,15 +1428,13 @@ macro Gltf.@cast_buffer(&self, Accessor accessor, usz index, #type) {
     return bitcast(*(char[#type.sizeof]*)buffer.data[(start_offset + (index * index_offset))..], #type);
 }
 
-// fn void* Gltf.data_ptr(&self, Accessor accessor, usz index) {
-//     BufferView bufferView = self.bufferViews[accessor.view];
-//     Buffer buffer = self.buffers[bufferView.buffer];
-//     usz index_offset = bufferView.byteStride > 0 ? bufferView.byteStride : accessor.stride();
-//     usz start_offset = accessor.offset + bufferView.offset;
-
-//     return mem::aligned_pointer((void*)buffer.data + start_offset + (index * index_offset), 16);
-// }
-
+fn void* Gltf.get_data_array(&self, ulong accessor_index) {
+    Accessor accessor = self.accessors[accessor_index];
+    BufferView bufferView = self.bufferViews[accessor.view];
+    Buffer buffer = self.buffers[bufferView.buffer];
+    usz start_offset = accessor.offset + bufferView.offset;
+    return buffer.data[start_offset..(start_offset + bufferView.byteLength)];
+}
 
 fn usz Gltf.get_offset(&self, ulong attribute) {
     Accessor accessor = self.accessors[attribute];

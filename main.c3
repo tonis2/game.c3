@@ -73,6 +73,7 @@ struct CollisionData @tag("BUFFER", 0) {
     Vec3f mass;
     Aabb3 aabb;
     uint node;
+    uint mesh_index;
     bool collides;
     bool check_collision;
 }
@@ -109,7 +110,6 @@ Vec3f gravity = {0, -9.81, 0};
 
 char[*] shader = $embed("./shaders/shader.spv");
 
-
 DeviceContext context;
 
 Entity player;
@@ -117,8 +117,10 @@ Gltf gltf;
 
 List{AnimationData} animation_list;
 NodeComponent nodes;
+MeshContainer meshes;
 
 SpatialHash3D spatial_map;
+Gjk gjk;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -156,7 +158,9 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData);
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
 
-        if (first.aabb.collides(second.aabb)) {
+        if (first.aabb.collides(second.aabb)) {       
+        
+            // bool collides = gjk.check_collision(array, array);
             first.collides = true;
             second.collides = true;
         }
@@ -284,6 +288,7 @@ fn void main()
 
     spatial_map = { .cell_size = 4.0 };
     defer spatial_map.free();
+    defer gjk.free();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -346,7 +351,13 @@ fn void main()
     Component indices = manager.@create_component(size: 3_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
-    MeshContainer meshes;
+    
+    meshes = {
+        .vertex_buffer = &vertices,
+        .index_buffer = &indices,
+    };
+
+    defer meshes.free();
 
     foreach (index, node: gltf.nodes) {
         nodes.@push((ecs::Node) {
@@ -398,23 +409,12 @@ fn void main()
     manager.add_system({.type = ON_FRAME, .callback = &physics_system});
 
     defer {
-        meshes.free();
         animation_list.free();
     };
 
-    // meshes.add("collider", );
-
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
-        ecs::@parse_gltf_mesh(
-            gltf: gltf,
-            vertices: &vertices,
-            indices: &indices,
-            mesh: mesh;
-            MeshData data
-        ) {
-            meshes.add(mesh.name, data);
-        }!!;
+        meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
     }
   
     // Build draw commands for Vulkan
@@ -422,32 +422,33 @@ fn void main()
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
 
-            meshes.@iter(mesh.name; MeshData mesh_data) {
-                Entity node_entity = manager.@create_entity()!!;
+            Entity node_entity = manager.@create_entity()!!;
 
-                if (node.extras.has_key("animation")) {
-                    node_entity.@add((WorldAnimation) {
-                        .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
-                        .active_time = 0,
-                        .repeat = true
-                    }, &manager)!!;
-                }
-                    
-                if (node.extras.has_key("skin_clone")) {
-                    node_entity.@add((SkinAnimation) {
-                        .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-                        .active_time = node_index * 0.05,
-                        .repeat = true
-                    }, &manager)!!;
-                }
+            if (node.extras.has_key("animation")) {
+                node_entity.@add((WorldAnimation) {
+                    .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
+                    .active_time = 0,
+                    .repeat = true
+                }, &manager)!!;
+            }
+                
+            if (node.extras.has_key("skin_clone")) {
+                node_entity.@add((SkinAnimation) {
+                    .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
+                    .active_time = node_index * 0.05,
+                    .repeat = true
+                }, &manager)!!;
+            }
 
-                if (node.has_skin()) {
-                    node_entity.@add((SkinAnimation) {
-                        .animation_index = 2,
-                        .active_time = 0.0,
-                        .repeat = true
-                    }, &manager)!!;
-                }
+            if (node.has_skin()) {
+                node_entity.@add((SkinAnimation) {
+                    .animation_index = 2,
+                    .active_time = 0.0,
+                    .repeat = true
+                }, &manager)!!;
+            }
+
+            meshes.@iter(mesh.name; uint mesh_index, MeshData mesh_data) {
 
                 // if (node.name == "Player") player = node_entity;
                 Render render_data = {
@@ -503,8 +504,9 @@ fn void main()
                     node_entity.@add((CollisionData) {
                         .collides = false,
                         .node = node_index,
+                        .mesh_index = mesh_index,
                         .check_collision = node.name != "Player" ? true : false,
-                        .aabb = mesh_aabb
+                        .aabb = mesh_aabb,
                     }, &manager)!!;
 
                     spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
@@ -514,11 +516,6 @@ fn void main()
             }!!;
         };
     }
-
-    // Aabb3 first = (Aabb3){{-3.218988, 0.000000, -3.218988}, {3.218988, 0.097606, 3.218988}};
-    // Aabb3 second = (Aabb3){{-2.379080, -0.151056, 1.060155}, {-1.295498, 0.908525, 2.143737}};
-
-    // io::printfn("%s", first.collides(second));
 
     foreach (image : gltf.images) {
         stb::Image image_data;

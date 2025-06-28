@@ -655,8 +655,17 @@ struct MeshInfo {
 }
 
 struct MeshContainer {
+    Component* index_buffer;
+    Component* vertex_buffer;
     HashMap{String, MeshInfo} mesh_map;
     List{MeshData} meshes;
+    List{Vec3f} positions;
+}
+
+fn void MeshContainer.free(&self) {
+    self.meshes.free();
+    self.mesh_map.free();
+    self.positions.free();
 }
 
 fn MeshInfo? MeshContainer.get(&self, String name) => self.mesh_map.get(name);
@@ -664,90 +673,15 @@ fn MeshInfo? MeshContainer.get(&self, String name) => self.mesh_map.get(name);
 <*
  @require self.mesh_map.len() > 0 : `MeshContainer is empty`
 *>
-macro void? MeshContainer.@iter(&self, String name; @callback(MeshData data)) {
+macro void? MeshContainer.@iter(&self, String name; @callback(uint index, MeshData data)) {
     MeshInfo info = self.get(name)!;
     for (uint i = 0; i<info.count; i++) {
-        @callback(self.meshes[info.offset + i]);
+        uint index = (uint)info.offset + i;
+        @callback(index, self.meshes[index]);
     }
 }
 
-fn void MeshContainer.add(&self, String name, MeshData mesh) {
-    if (self.mesh_map.has_key(name)) {
-        MeshInfo* mesh_info = self.mesh_map.get_ref(name)!!;
-        mesh_info.count +=1;
-        self.meshes.push(mesh);
-    }
-    else {
-        self.mesh_map.set(name, {
-            .offset = self.meshes.len(),
-            .count = 1
-        });
-        self.meshes.push(mesh);
-    }
-}
-
-fn void MeshContainer.free(&self) {
-    self.meshes.free();
-    self.mesh_map.free();
-}
-
-struct MeshData {
-    uint indexCount;
-    uint firstInstance;
-    uint instanceCount;
-    uint firstIndex;
-    uint vertexOffset;
-    uint meshCount;
-    int materialIndex;
-    Aabb3 aabb;
-    bool visible;
-    bool calculated;
-}
-
-struct Vertex {
-    Vec3f pos;
-    Vec3f normal;
-    Vec2f tex_cord;
-    Vec4f tangent;
-    uint[4] skin_pos;
-    Vec4f skin_weight;
-}
-
-fn bool MeshData.has_material(self) => self.materialIndex > -1;
-
-fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* indices, ecs::Mesh mesh) {
-    if ((Vertex.sizeof * mesh.vertices.len) + vertices.used_size > vertices.size || ushort.sizeof * mesh.indices.len + indices.used_size > indices.size) {
-        return COMPONENT_BUFFER_OVERFLOW?;
-    }
-
-    @upload(manager, *indices, &mesh.indices, size: ushort.sizeof * mesh.indices.len, offset: indices.used_size);
-
-    List{Vertex} vertex_data;
-    defer vertex_data.free();
-    Aabb3 bounding_box;
-
-    foreach (item: mesh.vertices) {
-        bounding_box.expand_by_point(item);
-        vertex_data.push({ .pos = item });
-    }
-
-    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
-
-    MeshData data = {
-        .firstIndex = (uint)indices.used_size / ushort.sizeof,
-        .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
-        .indexCount = mesh.indices.len,
-        .materialIndex = -1,
-        .aabb = bounding_box
-    };
-
-    indices.used_size += ushort.sizeof * mesh.indices.len;
-    vertices.used_size += vertex_data.byte_size();
-   
-    return data;
-}
-
-macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices, gltf::Mesh mesh; @callback(MeshData data)) {
+fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
     foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
@@ -758,10 +692,12 @@ macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices,
         Aabb3 bounding_box;
 
         MeshData data = {
-            .firstIndex = (uint)indices.used_size / ushort.sizeof,
-            .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
+            .firstIndex = (uint)self.index_buffer.used_size / ushort.sizeof,
+            .vertexOffset = (uint)self.vertex_buffer.used_size / Vertex.sizeof,
             .indexCount = index_accessor.count,
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
+            .position_offset = (uint)self.positions.len(),
+            .position_len = pos_accessor.count,
             .meshCount = prim_index,
         };
 
@@ -834,6 +770,7 @@ macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices,
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
             bounding_box.expand_by_point(position);
+            self.positions.push(position);
 
             vertex_data.push({
                 .pos = position,
@@ -845,23 +782,94 @@ macro void? @parse_gltf_mesh(Gltf gltf, Component* vertices, Component* indices,
             });
         }
 
-        if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
-            io::printfn("mesh size %s, total size, %s, mesh %s", vertices.used_size + vertex_data.byte_size() * 0.00_0001, vertices.size, mesh.name);
+        if (vertex_data.byte_size() + self.vertex_buffer.used_size > self.vertex_buffer.size || index_data.byte_size() + self.index_buffer.used_size > self.index_buffer.size) {
+            io::printfn("mesh size %s, total size, %s, mesh %s", self.vertex_buffer.used_size + vertex_data.byte_size() * 0.00_0001, self.vertex_buffer.size, mesh.name);
             return COMPONENT_BUFFER_OVERFLOW?;
         }
 
-        vertices.@push(vertex_data.entries, size: vertex_data.byte_size());
-        indices.@push(index_data.entries, size: index_data.byte_size());
+        self.vertex_buffer.@push(vertex_data.entries, size: vertex_data.byte_size());
+        self.index_buffer.@push(index_data.entries, size: index_data.byte_size());
 
         // data.aabb = bounding_box;
 
         vertex_data.free();
         index_data.free();
 
-        @callback(data);
+        self.add(mesh.name, data);
     }
 }
 
+fn void MeshContainer.add(&self, String name, MeshData mesh) {
+    if (self.mesh_map.has_key(name)) {
+        MeshInfo* mesh_info = self.mesh_map.get_ref(name)!!;
+        mesh_info.count +=1;
+        self.meshes.push(mesh);
+    }
+    else {
+        self.mesh_map.set(name, {
+            .offset = self.meshes.len(),
+            .count = 1
+        });
+        self.meshes.push(mesh);
+    }
+}
+
+struct MeshData {
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+    uint meshCount;
+    uint position_offset;
+    uint position_len;
+    int materialIndex;
+    Aabb3 aabb;
+    bool visible;
+}
+
+struct Vertex {
+    Vec3f pos;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    uint[4] skin_pos;
+    Vec4f skin_weight;
+}
+
+fn bool MeshData.has_material(self) => self.materialIndex > -1;
+
+fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* indices, ecs::Mesh mesh) {
+    if ((Vertex.sizeof * mesh.vertices.len) + vertices.used_size > vertices.size || ushort.sizeof * mesh.indices.len + indices.used_size > indices.size) {
+        return COMPONENT_BUFFER_OVERFLOW?;
+    }
+
+    @upload(manager, *indices, &mesh.indices, size: ushort.sizeof * mesh.indices.len, offset: indices.used_size);
+
+    List{Vertex} vertex_data;
+    defer vertex_data.free();
+    Aabb3 bounding_box;
+
+    foreach (item: mesh.vertices) {
+        bounding_box.expand_by_point(item);
+        vertex_data.push({ .pos = item });
+    }
+
+    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
+
+    MeshData data = {
+        .firstIndex = (uint)indices.used_size / ushort.sizeof,
+        .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
+        .indexCount = mesh.indices.len,
+        .materialIndex = -1,
+        .aabb = bounding_box
+    };
+
+    indices.used_size += ushort.sizeof * mesh.indices.len;
+    vertices.used_size += vertex_data.byte_size();
+   
+    return data;
+}
 
 struct Position @private {
     Vec3f scale;
