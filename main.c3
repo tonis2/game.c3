@@ -158,12 +158,13 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData);
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
 
-        if (first.aabb.collides(second.aabb)) {       
-        
-            // bool collides = gjk.check_collision(array, array);
+        if (first.aabb.collides(second.aabb)) {
+            MeshData first_mesh = meshes.get(first.mesh_index)!!;
+            MeshData second_mesh = meshes.get(second.mesh_index)!!;
+
             first.collides = true;
             second.collides = true;
-        }
+        }   
     };
 }
 
@@ -499,6 +500,7 @@ fn void main()
                         .node_index = node_index,
                         .skin_offset = -1
                     };
+
 
                     node_entity.@add(collider, &manager)!!;
                     node_entity.@add((CollisionData) {

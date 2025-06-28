@@ -668,13 +668,15 @@ fn void MeshContainer.free(&self) {
     self.positions.free();
 }
 
-fn MeshInfo? MeshContainer.get(&self, String name) => self.mesh_map.get(name);
+fn MeshInfo? MeshContainer.get_name(&self, String name) => self.mesh_map.get(name);
+
+fn MeshData? MeshContainer.get(&self, uint index) => self.meshes[index];
 
 <*
  @require self.mesh_map.len() > 0 : `MeshContainer is empty`
 *>
 macro void? MeshContainer.@iter(&self, String name; @callback(uint index, MeshData data)) {
-    MeshInfo info = self.get(name)!;
+    MeshInfo info = self.get_name(name)!;
     for (uint i = 0; i<info.count; i++) {
         uint index = (uint)info.offset + i;
         @callback(index, self.meshes[index]);
@@ -682,6 +684,8 @@ macro void? MeshContainer.@iter(&self, String name; @callback(uint index, MeshDa
 }
 
 fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
+    if (self.mesh_map.has_key(mesh.name)) return;
+    
     foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
@@ -696,9 +700,9 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             .vertexOffset = (uint)self.vertex_buffer.used_size / Vertex.sizeof,
             .indexCount = index_accessor.count,
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
+            .meshCount = prim_index,
             .position_offset = (uint)self.positions.len(),
             .position_len = pos_accessor.count,
-            .meshCount = prim_index,
         };
 
         if (pos_accessor.max != (Vec4f){0,0,0,0}) {
@@ -770,6 +774,7 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
             bounding_box.expand_by_point(position);
+
             self.positions.push(position);
 
             vertex_data.push({
