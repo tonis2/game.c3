@@ -652,26 +652,31 @@ struct MeshInfo {
     usz count;
 }
 
+struct CollisionVertex {
+    Vec3f position;
+    Vec3f normal;
+}
+
 struct MeshContainer {
     Component* index_buffer;
     Component* vertex_buffer;
     HashMap{String, MeshInfo} mesh_map;
     List{MeshData} meshes;
-    List{Vec3f} positions;
+    List{CollisionVertex} vertices;
 }
 
 fn void MeshContainer.free(&self) {
     self.meshes.free();
     self.mesh_map.free();
-    self.positions.free();
+    self.vertices.free();
 }
 
 fn MeshInfo? MeshContainer.get_name(&self, String name) => self.mesh_map.get(name);
 fn MeshData? MeshContainer.get(&self, uint index) => self.meshes[index];
 
-fn Vec3f[] MeshContainer.get_positions(&self, uint index) {
+fn CollisionVertex[] MeshContainer.get_vertices(&self, uint index) {
     MeshData data = self.meshes[index];
-    return self.positions.entries[data.position_offset .. data.position_offset + data.position_len];
+    return self.vertices.entries[data.vertex_offset .. data.vertex_offset + data.vertex_len];
 }
 
 <*
@@ -703,8 +708,8 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             .indexCount = index_accessor.count,
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
             .meshCount = prim_index,
-            .position_offset = (uint)self.positions.len(),
-            .position_len = pos_accessor.count,
+            .vertex_offset = (uint)self.vertices.len(),
+            .vertex_len = pos_accessor.count,
         };
 
         if (pos_accessor.max != (Vec4f){0,0,0,0}) {
@@ -777,7 +782,10 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
             bounding_box.expand_by_point(position);
 
-            self.positions.push(position);
+            self.vertices.push({
+                .position = position,
+                .normal = normal,
+            });
 
             vertex_data.push({
                 .pos = position,
@@ -828,8 +836,8 @@ struct MeshData {
     uint firstIndex;
     uint vertexOffset;
     uint meshCount;
-    uint position_offset;
-    uint position_len;
+    uint vertex_offset;
+    uint vertex_len;
     int materialIndex;
     Aabb3 aabb;
     bool visible;

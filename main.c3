@@ -161,8 +161,8 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             ecs::Node* first_node = nodes[first.node_index];
             ecs::Node* second_node = nodes[second.node_index];
 
-            Vec3f[] pos1 = meshes.get_positions(first.mesh_index);
-            Vec3f[] pos2 = meshes.get_positions(second.mesh_index);
+            CollisionVertex[] pos1 = meshes.get_vertices(first.mesh_index);
+            CollisionVertex[] pos2 = meshes.get_vertices(second.mesh_index);
 
             if (ecs::check_collision(&&(ConvexPolyhedron){pos1}, &&(ConvexPolyhedron){pos2})) {
                 first.collides = true;

@@ -175,12 +175,13 @@ struct TransformedConvex (ConvexShape) {
 }
 
 struct ConvexPolyhedron (ConvexShape) {
-    Vec3f[] vertices;
+    CollisionVertex[] vertices;
 }
 
 // fn Vec3f TransformedConvex.to_point(&self, Vec3f local_point) => self.rotation * local_point + self.position;
 // fn Vec3f TransformedConvex.inverse_to_direction(&self, Vec3f world_dir) => self.rotation.transpose() * world_dir;
 
+//TODO: not working
 fn Vec3f TransformedConvex.support(&self, Vec3f direction) @dynamic { 
     return self.shape.support(direction.rotate_quat(self.rotation.invert())).rotate_quat(self.rotation) + self.position;
 }
@@ -195,14 +196,16 @@ fn Vec3f Aabb3.support(&self, Vec3f direction) @dynamic {
 }
 
 fn Vec3f ConvexPolyhedron.support(&self, Vec3f direction) @dynamic {
-    Vec3f point_a = self.vertices[0];
+    Vec3f point_a = self.vertices[0].position;
     float max_dot_a = point_a.dot(direction);
 
     foreach (v : self.vertices) {
-        float d = v.dot(direction);
+        Vec3f pos = v.position;
+
+        float d = pos.dot(direction);
         if (d > max_dot_a) {
             max_dot_a = d;
-            point_a = v;
+            point_a = pos;
         }
     }
     return point_a;
