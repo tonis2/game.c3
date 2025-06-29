@@ -178,6 +178,14 @@ struct ConvexPolyhedron (ConvexShape) {
     Vec3f[] vertices;
 }
 
+struct SupportPoint {
+    Vec3f point;  // A - B
+    Vec3f support_a;
+    Vec3f support_b;
+}
+
+alias SimplexArray = ElasticArray{SupportPoint, 4};
+
 // fn Vec3f TransformedConvex.to_point(&self, Vec3f local_point) => self.rotation * local_point + self.position;
 // fn Vec3f TransformedConvex.inverse_to_direction(&self, Vec3f world_dir) => self.rotation.transpose() * world_dir;
 
@@ -211,43 +219,52 @@ fn Vec3f ConvexPolyhedron.support(&self, Vec3f direction) @dynamic {
     return point_a;
 }
 
-fn bool contains_origin(Vec3f[] simplex, Vec3f direction) {
-    switch (simplex.len) {
+fn void SimplexArray.replace_values(&self, SupportPoint[] array)
+{
+	if (!array.len) return;
+	foreach (index, &value : array)
+	{
+		self.entries[index] = *value;
+	}
+}
+
+fn bool contains_origin(SimplexArray* simplex, Vec3f direction) {
+    switch (simplex.len()) {
         case 2: {
             // Line segment case
-            Vec3f a = simplex[1];
-            Vec3f b = simplex[0];
-            Vec3f ab = b - a;
-            Vec3f ao = -a;
-            
+            SupportPoint a = simplex.get(1);
+            SupportPoint b = simplex.get(0);
+            Vec3f ab = b.point - a.point;
+            Vec3f ao = -a.point;
+
             if (ab.dot(ao) > 0) {
                 // New direction is perpendicular to AB towards origin
                 direction = ab.cross(ao).cross(ab);
             } else {
-                simplex = {a};
+                simplex.replace_values({a});
                 direction = ao;
             }
         }
         case 3: {
             // Triangle case
-            Vec3f a = simplex[2];
-            Vec3f b = simplex[1];
-            Vec3f c = simplex[0];
-            Vec3f ab = b - a;
-            Vec3f ac = c - a;
-            Vec3f ao = -a;
+            SupportPoint a = simplex.get(2);
+            SupportPoint b = simplex.get(1);
+            SupportPoint c = simplex.get(0);
+            Vec3f ab = b.point - a.point;
+            Vec3f ac = c.point- a.point;
+            Vec3f ao = -a.point;
             Vec3f abc = ab.cross(ac);
-            
+
             // Edge AB
             if (ab.cross(abc).dot(ao) > 0) {
-                simplex = {a, b};
+                simplex.replace_values({a, b});
                 direction = ab.cross(ao).cross(ab);
                 return false;
             }
             
             // Edge AC
             if (abc.cross(ac).dot(ao) > 0) {
-                simplex = {a, c};
+                simplex.replace_values({a, c});
                 direction = ac.cross(ao).cross(ac);
                 return false;
             }
@@ -261,37 +278,37 @@ fn bool contains_origin(Vec3f[] simplex, Vec3f direction) {
         }
         case 4: {
             // Tetrahedron case
-            Vec3f a = simplex[3];
-            Vec3f b = simplex[2];
-            Vec3f c = simplex[1];
-            Vec3f d = simplex[0];
-            Vec3f ao = -a;
+            SupportPoint a = simplex.get(3);
+            SupportPoint b = simplex.get(2);
+            SupportPoint c = simplex.get(1);
+            SupportPoint d = simplex.get(0);
+            Vec3f ao = -a.point;
             
-            Vec3f ab = b-a;
-            Vec3f ac = c-a;
-            Vec3f ad = d-a;
+            Vec3f ab = b.point-a.point;
+            Vec3f ac = c.point-a.point;
+            Vec3f ad = d.point-a.point;
             
             Vec3f abc = ab.cross(ac);
             Vec3f acd = ac.cross(ad);
             Vec3f adb = ad.cross(ab);
-            
+
             // ABC face
             if (abc.dot(ao) > 0) {
-                simplex = {a, b, c};
+                simplex.replace_values({a, b, c});
                 direction = abc;
                 return false;
             }
             
             // ACD face
             if (acd.dot(ao) > 0) {
-                simplex = {a, c, d};
+                simplex.replace_values({a, c, d});
                 direction = acd;
                 return false;
             }
             
             // ADB face
             if (adb.dot(ao) > 0) {
-                simplex = {a, d, b};
+                simplex.replace_values({a, d, b});
                 direction = adb;
                 return false;
             }
@@ -303,9 +320,60 @@ fn bool contains_origin(Vec3f[] simplex, Vec3f direction) {
     return false;
 }
 
-alias Simplex = ElasticArray{Vec3f, 65};
+fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
+    // Initial direction (arbitrary)
+    Vec3f direction = {1, 0, 0};
+    
+    SimplexArray simplex;
+    
+    {
+        Vec3f a_support = shape_1.support(direction);
+        Vec3f b_support = shape_2.support(direction);
 
-struct Triangle {
+        // Initial simplex point
+        simplex.push({
+            a_support - b_support,
+            a_support,
+            b_support
+        });
+    }
+
+    // New search direction is towards origin
+    direction = -simplex.get(0).point;
+    // Main GJK loop
+    uint max_iterations = 50;
+
+    for (uint i = 0; i < max_iterations; ++i) {
+
+        // Get new support point
+        Vec3f a_support = shape_1.support(direction);
+        Vec3f b_support = shape_2.support(direction);
+        Vec3f new_point = a_support - b_support;
+        
+        // If we didn't reach the origin, no collision
+        if (new_point.dot(direction) < 0) {
+            return false;
+        }
+        
+        // Add new point to simplex
+        simplex.push({
+            new_point,
+            a_support,
+            b_support
+        });
+
+        // Check if simplex contains origin
+        if (contains_origin(&simplex, direction)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+
+struct Face {
     uint a, b, c;
     Vec3f normal;
     float distance;
@@ -316,6 +384,11 @@ struct CollisionInfo {
     Vec3f normal;
     float depth;
 }
+
+
+// fn Face new_face(Vec3f a,b,c) {
+
+// };
 
 fn Vec3f triple_product(Vec3f a, Vec3f b, Vec3f c) => b * a.dot(c) - c * a.dot(b);
 
@@ -329,13 +402,23 @@ fn Vec3f calculate_face_normal(Vec3f a, Vec3f b, Vec3f c) {
 }
 
 const uint EPA_MAX_FACES = 65;
+const uint EPA_MAX_LOOSE_EDGES = EPA_MAX_FACES / 2;
 const uint EPA_MAX_ITER = 64;
 const float EPA_TOLERANCE = 0.0001;
 
-fn void epa(Simplex simplex, ConvexShape shape_1, ConvexShape shape_2) {
+fn void epa(SimplexArray simplex, ConvexShape shape_1, ConvexShape shape_2) {
 
-    Simplex polytope = simplex;
-    ElasticArray{Vec3f, EPA_MAX_FACES} faces = {};
+    SimplexArray polytope;
+    ElasticArray{Face, EPA_MAX_FACES} faces;
+
+    // {
+    //     Vec3f a,b,c,d;
+    //     a = simplex.get(0);
+    //     b = simplex.get(1);
+    //     c = simplex.get(2);
+    //     d = simplex[3];
+
+    // }
 
     for (uint iteration = 0; iteration < EPA_MAX_ITER; iteration++) {
         int closestFace = -1;
@@ -351,41 +434,7 @@ fn void epa(Simplex simplex, ConvexShape shape_1, ConvexShape shape_2) {
     }
 }
 
-fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
-    // Initial direction (arbitrary)
-    Vec3f direction = {1, 0, 0};
-    
-    Simplex simplex;
-    
-    // Initial simplex point
-    simplex.push(shape_1.support(direction) - shape_2.support(direction));
 
-    // New search direction is towards origin
-    direction = -simplex[0];
-    // Main GJK loop
-    uint max_iterations = 50;
-
-    for (uint i = 0; i < max_iterations; ++i) {
-
-        // Get new support point
-        Vec3f new_point = shape_1.support(direction) - shape_2.support(direction);
-        
-        // If we didn't reach the origin, no collision
-        if (new_point.dot(direction) < 0) {
-            return false;
-        }
-        
-        // Add new point to simplex
-        simplex.push(new_point);
-
-        // Check if simplex contains origin
-        if (contains_origin(simplex.array_view(), direction)) {
-            return true;
-        }
-    }
-
-    return false;
-}
 
 struct GridAabb3 {
     Vec3f min;
