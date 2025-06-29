@@ -175,7 +175,7 @@ struct TransformedConvex (ConvexShape) {
 }
 
 struct ConvexPolyhedron (ConvexShape) {
-    CollisionVertex[] vertices;
+    Vec3f[] vertices;
 }
 
 // fn Vec3f TransformedConvex.to_point(&self, Vec3f local_point) => self.rotation * local_point + self.position;
@@ -196,11 +196,11 @@ fn Vec3f Aabb3.support(&self, Vec3f direction) @dynamic {
 }
 
 fn Vec3f ConvexPolyhedron.support(&self, Vec3f direction) @dynamic {
-    Vec3f point_a = self.vertices[0].position;
+    Vec3f point_a = self.vertices[0];
     float max_dot_a = point_a.dot(direction);
 
     foreach (v : self.vertices) {
-        Vec3f pos = v.position;
+        Vec3f pos = v;
 
         float d = pos.dot(direction);
         if (d > max_dot_a) {
@@ -328,13 +328,16 @@ fn Vec3f calculate_face_normal(Vec3f a, Vec3f b, Vec3f c) {
     return distance < 0 ? -normal : normal;
 }
 
-fn void epa(Simplex simplex, ConvexShape shape_1, ConvexShape shape_2) {
-    float epsilon = 0.0001f;
-    uint max_iterations = 64;
-    Simplex polytope = simplex;
-    ElasticArray{uint, 65} faces = {};
+const uint EPA_MAX_FACES = 65;
+const uint EPA_MAX_ITER = 64;
+const float EPA_TOLERANCE = 0.0001;
 
-    for (uint iteration = 0; iteration < max_iterations; iteration++) {
+fn void epa(Simplex simplex, ConvexShape shape_1, ConvexShape shape_2) {
+
+    Simplex polytope = simplex;
+    ElasticArray{Vec3f, EPA_MAX_FACES} faces = {};
+
+    for (uint iteration = 0; iteration < EPA_MAX_ITER; iteration++) {
         int closestFace = -1;
         float minDistance = float.max;
 

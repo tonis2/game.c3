@@ -652,17 +652,13 @@ struct MeshInfo {
     usz count;
 }
 
-struct CollisionVertex {
-    Vec3f position;
-    Vec3f normal;
-}
 
 struct MeshContainer {
     Component* index_buffer;
     Component* vertex_buffer;
     HashMap{String, MeshInfo} mesh_map;
     List{MeshData} meshes;
-    List{CollisionVertex} vertices;
+    List{Vec3f} vertices;
 }
 
 fn void MeshContainer.free(&self) {
@@ -674,7 +670,7 @@ fn void MeshContainer.free(&self) {
 fn MeshInfo? MeshContainer.get_name(&self, String name) => self.mesh_map.get(name);
 fn MeshData? MeshContainer.get(&self, uint index) => self.meshes[index];
 
-fn CollisionVertex[] MeshContainer.get_vertices(&self, uint index) {
+fn Vec3f[] MeshContainer.get_vertices(&self, uint index) {
     MeshData data = self.meshes[index];
     return self.vertices.entries[data.vertex_offset .. data.vertex_offset + data.vertex_len];
 }
@@ -782,10 +778,7 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
             bounding_box.expand_by_point(position);
 
-            self.vertices.push({
-                .position = position,
-                .normal = normal,
-            });
+            self.vertices.push(position);
 
             vertex_data.push({
                 .pos = position,
