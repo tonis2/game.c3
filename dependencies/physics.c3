@@ -371,33 +371,65 @@ fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
     return false;
 }
 
-
 struct Face {
-    uint a, b, c;
+    Vec3f[3] points;
+    Vec3f normal;
+}
+
+struct CollisionInfo {
+    Vec3f normal;
+    Vec3f[2] contact_points;
+    float depth;
+}
+
+struct Plane {
     Vec3f normal;
     float distance;
 }
 
-struct CollisionInfo {
-    bool colliding;
-    Vec3f normal;
-    float depth;
+fn Face new_face(Vec3f a, Vec3f b, Vec3f c) {
+    Vec3f normal = (b - a).cross(c - a).normalize();
+    return {
+        .points = {a, b, c},
+        .normal = normal
+    };
 }
 
+fn Plane plane_from_tri(Vec3f a, Vec3f b, Vec3f c) {
+    Vec3f ab = b - c;
+    Vec3f ac = c - a;
+    Vec3f normal = ab.cross(ac).normalize();
 
-// fn Face new_face(Vec3f a,b,c) {
+    return {
+        .distance = -ab.dot(normal),
+        .normal = normal 
+    };
+}
 
-// };
+fn Vec3f plane_project(Plane plane, Vec3f point) {
+    Vec3f distance = point.dot(plane.normal) + plane.distance;
+    return point - (plane.normal * distance);
+}
 
 fn Vec3f triple_product(Vec3f a, Vec3f b, Vec3f c) => b * a.dot(c) - c * a.dot(b);
 
-fn Vec3f calculate_face_normal(Vec3f a, Vec3f b, Vec3f c) {
-    Vec3f ab = a-b;
-    Vec3f ac = a-c;
-    Vec3f normal = ab.cross(ac).normalize();
-    float distance = normal.dot(a);
+fn CollisionInfo collision_manifold(Face face) {
+    Vec3f a = face.points[0];
+    Vec3f b = face.points[1];
+    Vec3f c = face.points[2];
 
-    return distance < 0 ? -normal : normal;
+    Vec3f projection_point = plane_project(plane_from_tri(a,b,c), {0,0,0});
+    Vec3f bary = projection_point.barycenter(a, b, c);
+
+    // Todo: Use SupportPoint points
+    Vec3f local_a = bary.x * face.points[0].x + bary.y * face.points[1].x + bary.z * face.points[2].x;
+    Vec3f local_b = bary.x * face.points[0].y + bary.y * face.points[1].y + bary.z * face.points[2].y;
+
+    return {
+        .depth = (local_a - local_b).length(),
+        .normal = (local_a - local_b).normalize(),
+        .contact_points = {local_a, local_b},
+    };
 }
 
 const uint EPA_MAX_FACES = 65;
@@ -405,35 +437,58 @@ const uint EPA_MAX_LOOSE_EDGES = EPA_MAX_FACES / 2;
 const uint EPA_MAX_ITER = 64;
 const float EPA_TOLERANCE = 0.0001;
 
-fn void epa(SimplexArray simplex, ConvexShape shape_1, ConvexShape shape_2) {
+fn CollisionInfo epa(SimplexArray simplex, ConvexShape shape_1, ConvexShape shape_2) {
 
-    SimplexArray polytope;
     ElasticArray{Face, EPA_MAX_FACES} faces;
+    ElasticArray{Vec3f, EPA_MAX_LOOSE_EDGES} loose_edges;
 
-    // {
-    //     Vec3f a,b,c,d;
-    //     a = simplex.get(0);
-    //     b = simplex.get(1);
-    //     c = simplex.get(2);
-    //     d = simplex[3];
+    {
+        // Create starting faces
+        Vec3f a = simplex[0].point;
+        Vec3f b = simplex[1].point;
+        Vec3f c = simplex[2].point;
+        Vec3f d = simplex[3].point;
 
-    // }
-
-    for (uint iteration = 0; iteration < EPA_MAX_ITER; iteration++) {
-        int closestFace = -1;
-        float minDistance = float.max;
-
-        // for (uint i = 0; i < faces.len(); ++i) {
-        //     float dist = faces[i].normal.dot(polytope[faces[i].a]);
-        //     if (dist < minDistance) {
-        //         minDistance = dist;
-        //         closestFace = i;
-        //     }
-        // }
+        faces.push(new_face(a, b, c));
+        faces.push(new_face(a, c, d));
+        faces.push(new_face(a, d, b));
+        faces.push(new_face(b, d, c));
     }
+
+    int closest_face = -1;
+    for (uint iteration = 0; iteration < EPA_MAX_ITER; iteration++) {
+
+        float min_distance = faces[0].points[0].dot(faces[0].normal);
+        foreach (uint i, face: faces) {
+            float dist = face.points[0].dot(face.normal);
+
+            if (dist < min_distance) {
+                min_distance = dist;
+                closest_face = i;
+            }
+        }
+
+        Vec3f direction = faces[closest_face].normal;
+        Vec3f support_point = shape_1.support(direction) - shape_2.support(direction);
+
+        if (support_point.dot(direction) - min_distance < EPA_TOLERANCE) {
+            //collision_manifold()
+            return (CollisionInfo){.normal = direction, .depth = min_distance };
+        }
+
+        loose_edges.clear();
+
+        foreach (uint i, face: faces) {
+            if (face.normal.dot(support_point - face.points[0]) > 0)  {
+
+            }
+        }
+    }
+
+
+
+    return (CollisionInfo){.depth = -1 };
 }
-
-
 
 struct GridAabb3 {
     Vec3f min;
