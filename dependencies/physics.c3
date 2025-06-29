@@ -219,13 +219,10 @@ fn Vec3f ConvexPolyhedron.support(&self, Vec3f direction) @dynamic {
     return point_a;
 }
 
-fn void SimplexArray.replace_values(&self, SupportPoint[] array)
+fn void SimplexArray.replace_array(&self, SupportPoint[] array, usz start_index = 0)
 {
 	if (!array.len) return;
-	foreach (index, &value : array)
-	{
-		self.entries[index] = *value;
-	}
+	foreach (index, &value : array) {self.entries[start_index + index] = *value;}
 }
 
 fn bool contains_origin(SimplexArray* simplex, Vec3f* direction) {
@@ -241,7 +238,7 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f* direction) {
                 // New direction is perpendicular to AB towards origin
                 direction = &&ab.cross(ao).cross(ab);
             } else {
-                simplex.replace_values({a});
+                simplex.replace_array({a});
                 direction = &ao;
             }
         }
@@ -257,14 +254,14 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f* direction) {
 
             // Edge AB
             if (ab.cross(abc).dot(ao) > 0) {
-                simplex.replace_values({a, b});
+                simplex.replace_array({a, b});
                 direction = &&ab.cross(ao).cross(ab);
                 return false;
             }
             
             // Edge AC
             if (abc.cross(ac).dot(ao) > 0) {
-                simplex.replace_values({a, c});
+                simplex.replace_array({a, c});
                 direction = &&ac.cross(ao).cross(ac);
                 return false;
             }
@@ -294,21 +291,21 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f* direction) {
 
             // ABC face
             if (abc.dot(ao) > 0) {
-                simplex.replace_values({a, b, c});
+                simplex.replace_array({a, b, c});
                 direction = &abc;
                 return false;
             }
             
             // ACD face
             if (acd.dot(ao) > 0) {
-                simplex.replace_values({a, c, d});
+                simplex.replace_array({a, c, d});
                 direction = &acd;
                 return false;
             }
             
             // ADB face
             if (adb.dot(ao) > 0) {
-                simplex.replace_values({a, d, b});
+                simplex.replace_array({a, d, b});
                 direction = &adb;
                 return false;
             }
@@ -320,7 +317,10 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f* direction) {
     return false;
 }
 
-fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
+
+const usz GJK_MAX_ITERATION = 42;
+// GJK algorithm to find, if shapes collide
+fn CollisionInfo check_collision(ConvexShape shape_1, ConvexShape shape_2) {
     // Initial direction (arbitrary)
     Vec3f direction = {1, 0, 0};
     
@@ -340,10 +340,9 @@ fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
 
     // New search direction is towards origin
     direction = -simplex.get(0).point;
-    // Main GJK loop
-    uint max_iterations = 50;
 
-    for (uint i = 0; i < max_iterations; ++i) {
+    // Main GJK loop
+    for (usz i = 0; i < GJK_MAX_ITERATION; ++i) {
 
         // Get new support point
         Vec3f a_support = shape_1.support(direction);
@@ -352,7 +351,7 @@ fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
         
         // If we didn't reach the origin, no collision
         if (new_point.dot(direction) < 0) {
-            return false;
+            return { .collided = false };
         }
         
         // Add new point to simplex
@@ -364,35 +363,31 @@ fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
 
         // Check if simplex contains origin
         if (contains_origin(&simplex, &direction)) {
-            return true;
+            return { .collided = true, .simplex = simplex };
         }
     }
 
-    return false;
+    return { .collided = false };
 }
 
 struct Face {
-    Vec3f[3] points;
+    Vec3f a,b,c;
     Vec3f normal;
+    usz[3] indices;
+    float distance;
 }
 
 struct CollisionInfo {
+    SimplexArray simplex;
     Vec3f normal;
     Vec3f[2] contact_points;
     float depth;
+    bool collided;
 }
 
 struct Plane {
     Vec3f normal;
     float distance;
-}
-
-fn Face new_face(Vec3f a, Vec3f b, Vec3f c) {
-    Vec3f normal = (b - a).cross(c - a).normalize();
-    return {
-        .points = {a, b, c},
-        .normal = normal
-    };
 }
 
 fn Plane plane_from_tri(Vec3f a, Vec3f b, Vec3f c) {
@@ -411,95 +406,144 @@ fn Vec3f plane_project(Plane plane, Vec3f point) {
     return point - (plane.normal * distance);
 }
 
-fn Vec3f triple_product(Vec3f a, Vec3f b, Vec3f c) => b * a.dot(c) - c * a.dot(b);
 
-fn CollisionInfo collision_manifold(Face face) {
-    Vec3f a = face.points[0];
-    Vec3f b = face.points[1];
-    Vec3f c = face.points[2];
 
-    Vec3f projection_point = plane_project(plane_from_tri(a,b,c), {0,0,0});
-    Vec3f bary = projection_point.barycenter(a, b, c);
+// fn CollisionInfo collision_manifold(Face face) {
+//     Vec3f a = face.points[0];
+//     Vec3f b = face.points[1];
+//     Vec3f c = face.points[2];
 
-    // Todo: Use SupportPoint points
-    Vec3f local_a = bary.x * face.points[0].x + bary.y * face.points[1].x + bary.z * face.points[2].x;
-    Vec3f local_b = bary.x * face.points[0].y + bary.y * face.points[1].y + bary.z * face.points[2].y;
+//     Vec3f projection_point = plane_project(plane_from_tri(a,b,c), {0,0,0});
+//     Vec3f bary = projection_point.barycenter(a, b, c);
 
-    return {
-        .depth = (local_a - local_b).length(),
-        .normal = (local_a - local_b).normalize(),
-        .contact_points = {local_a, local_b},
-    };
-}
+//     // Todo: Use SupportPoint points
+//     Vec3f local_a = bary.x * face.points[0].x + bary.y * face.points[1].x + bary.z * face.points[2].x;
+//     Vec3f local_b = bary.x * face.points[0].y + bary.y * face.points[1].y + bary.z * face.points[2].y;
+
+//     return {
+//         .depth = (local_a - local_b).length(),
+//         .normal = (local_a - local_b).normalize(),
+//         .contact_points = {local_a, local_b},
+//     };
+// }
 
 const uint EPA_MAX_FACES = 65;
 const uint EPA_MAX_LOOSE_EDGES = EPA_MAX_FACES / 2;
-const uint EPA_MAX_ITER = 64;
+const uint EPA_MAX_ITER = 32;
 const float EPA_TOLERANCE = 0.0001;
 
+alias PolytopeArray = ElasticArray{Vec3f, EPA_MAX_LOOSE_EDGES};
+alias FaceArray = ElasticArray{usz, EPA_MAX_FACES};
+alias PairArray = ElasticArray{Pair, EPA_MAX_LOOSE_EDGES};
+
+fn void FaceArray.replace_array(&self, usz[] array, usz start_index = 0)
+{
+	if (!array.len) return;
+	foreach (index, &value : array) {self.entries[start_index + index] = *value;}
+}
+
+fn void PairArray.add_edge_if_unique(&self, Pair pair) {
+    if (!self.contains(pair)) {self.push(pair);}
+    else { self.remove_item(pair); }
+}
+
+fn Face find_closest_face(PolytopeArray polytope, FaceArray faces) {
+    Face closest_face = { .distance = float.max };
+
+    for (usz i = 0; i < faces.len(); i += 3) {
+        Vec3f a = polytope[faces[i]];
+        Vec3f b = polytope[faces[i + 1]];
+        Vec3f c = polytope[faces[i + 2]];
+
+        Vec3f normal = (b - a).cross(c - a).normalize();
+        float dist = normal.dot(a);
+
+        // io::printfn("%s %s %s", a, b, c);
+
+        if (dist < 0) {
+            dist *= -1;
+            normal = -normal;
+        }
+
+        if (dist < closest_face.distance) {
+            closest_face.distance = dist;
+            closest_face.normal = normal;
+            closest_face.a = a;
+            closest_face.b = b;
+            closest_face.c = c;
+            closest_face.indices[0] = faces[i];
+            closest_face.indices[1] = faces[i+1];
+            closest_face.indices[2] = faces[i+2];
+        }
+    }
+
+    return closest_face;
+}
+
 fn CollisionInfo epa(SimplexArray simplex, ConvexShape shape_1, ConvexShape shape_2) {
+    FaceArray faces;
+    PolytopeArray polytope;
 
-    ElasticArray{Face, EPA_MAX_FACES} faces;
-    ElasticArray{Vec3f[2], EPA_MAX_LOOSE_EDGES} loose_edges;
+    foreach (item: simplex) polytope.push(item.point);
+   
+    faces.add_array({
+        0, 1, 2,
+        0, 3, 1,
+        0, 2, 3,
+        1, 3, 2
+    });
 
-    {
-        // Create starting faces
-        Vec3f a = simplex[0].point;
-        Vec3f b = simplex[1].point;
-        Vec3f c = simplex[2].point;
-        Vec3f d = simplex[3].point;
+    for (int i = 0; i < EPA_MAX_ITER; ++i) {
+        Face closest_face = find_closest_face(polytope, faces);
 
-        faces.push(new_face(a, b, c));
-        faces.push(new_face(a, c, d));
-        faces.push(new_face(a, d, b));
-        faces.push(new_face(b, d, c));
-    }
+        Vec3f new_point = shape_1.support(closest_face.normal) - shape_2.support(closest_face.normal);
+        float new_dist = closest_face.normal.dot(new_point);
 
-    int closest_face = -1;
-    for (uint iteration = 0; iteration < EPA_MAX_ITER; iteration++) {
+        if (math::abs(new_dist - closest_face.distance) < EPA_TOLERANCE) {
+            return {
+                .normal = closest_face.normal,
+                .depth = closest_face.distance
+            };
+        }
 
-        float min_distance = faces[0].points[0].dot(faces[0].normal);
-        foreach (uint i, face: faces) {
-            float dist = face.points[0].dot(face.normal);
+        polytope.push(new_point);
 
-            if (dist < min_distance) {
-                min_distance = dist;
-                closest_face = i;
+        PairArray edges;
+        FaceArray new_faces;
+
+        for (usz j = 0; j < faces.len(); j += 3) {
+            Vec3f a = polytope[faces[j]];
+            Vec3f b = polytope[faces[j+1]];
+            Vec3f c = polytope[faces[j+2]];
+            Vec3f face_normal = (b-a).cross(c-a);
+
+            // Can see the new point
+            if (face_normal.dot(new_point - a) > 0) {
+                edges.add_edge_if_unique({faces[j], faces[j+1]});
+                edges.add_edge_if_unique({faces[j+1], faces[j+2]});
+                edges.add_edge_if_unique({faces[j+2], faces[j]});
+            } else {
+                new_faces.push(faces[j]);
+                new_faces.push(faces[j+1]);
+                new_faces.push(faces[j+2]);
             }
         }
 
-        Vec3f direction = faces[closest_face].normal;
-        Vec3f support_point = shape_1.support(direction) - shape_2.support(direction);
-
-        if (support_point.dot(direction) - min_distance < EPA_TOLERANCE) {
-            //collision_manifold()
-            return (CollisionInfo){.normal = direction, .depth = min_distance };
+        foreach (edge : edges) {
+            new_faces.push(edge.first);
+            new_faces.push(edge.second);
+            new_faces.push(polytope.len() - 1);
         }
 
-        loose_edges.clear();
-
-        foreach (usz i, face: faces) {
-            if (face.normal.dot(support_point - face.points[0]) > 0)  {
-                 foreach (usz j, pa: face.points) {
-                    Vec3f pb = face.points[(j + 1) % face.points.len];
-                    Vec3f[2] new_edge = {pa, pb};
-                    bool found_edge = false;
-
-                    foreach (usz edge_i, edge: loose_edges) {
-                        if ((Vec3f[2]){edge[1], edge[0]} == new_edge) {
-                            loose_edges.remove_at(edge_i);
-                            found_edge = true;
-                            break;
-                        }
-                    }
-                 }
-            }
-        }
+        faces.replace_array(new_faces.array_view());
     }
 
+    Face final_face = find_closest_face(polytope, faces);
 
-
-    return (CollisionInfo){.depth = -1 };
+    return {
+        .normal = final_face.normal,
+        .depth = final_face.distance
+    };
 }
 
 struct GridAabb3 {
@@ -530,6 +574,7 @@ struct Pair (Printable) {
 }
 
 fn usz? Pair.to_format(&self, Formatter* formatter) @dynamic => formatter.printf("%s, %s", self.first, self.second)!;
+macro bool Pair.equals(self, Pair b) @operator(==) => self.first == b.first && self.second == b.second;
 macro uint Pair.hash(Pair self) => builtin::@generic_hash(self.first) | builtin::@generic_hash(self.second);
 
 struct SpatialHash3D {
@@ -652,11 +697,22 @@ fn void test_physics() @test {
     };
 
     Matrix4f matrix = MATRIX4F_IDENTITY.translate({1, 5, 1}).scale({3.0, 1.0, 1.0});
-    //rotate_y(radians(45));
 
     aabb = aabb.transform(matrix);
     assert(aabb.min == {-2, 4, 0});
     assert(aabb.max == {4, 6, 2});
+
+    SpatialHash3D spatial_map = { .cell_size = 1.0 };
+    defer spatial_map.free();
+
+    Aabb3[] boxes = {
+        {{0,0,0}, {1,1,1}},
+        {{1,1,1}, {2.5,2.5,2.5}},
+        {{5,5,5}, {6,6,6}},
+    };
+
+    foreach (usz i, item: boxes) spatial_map.insert({.min = item.min, .max = item.max, .id = i })!!;
+    spatial_map.@get_pairs(;Pair pair) { assert(pair.first == 0 && pair.second == 1); };
 
     ///
     Vec3f[] cube = {
@@ -667,35 +723,27 @@ fn void test_physics() @test {
     Vec3f[] cube2 = cube;
     Vec3f[] cube3 = cube;
 
-    foreach (pos : &cube2) {
+    foreach (pos : cube2) {
         pos[0] += 0.5;
         pos[1] += 0.5;
         pos[2] += 0.5;
     }
 
-    foreach (pos : &cube3) {
+    foreach (pos : cube3) {
         pos[0] += 5.0;
         pos[1] += 5.0;
         pos[2] += 5.0;
     }
 
-    assert(check_collision(&&(ConvexPolyhedron){cube}, &&(ConvexPolyhedron){cube2}));
-    assert(check_collision(&&(ConvexPolyhedron){cube}, &&(ConvexPolyhedron){cube3}));
+    ConvexPolyhedron shape_1 = (ConvexPolyhedron){cube};
+    ConvexPolyhedron shape_2 = (ConvexPolyhedron){cube2};
+
+    CollisionInfo collision_result = check_collision(&shape_1, &shape_2);
+
+    assert(collision_result.collided);
+    assert(collision_result.simplex.len() == 4);
     
-    Aabb3[] boxes = {
-        {{0,0,0}, {1,1,1}},
-        {{1,1,1}, {2.5,2.5,2.5}},
-        {{5,5,5}, {6,6,6}},
-    };
-
-    SpatialHash3D spatial_map = { .cell_size = 1.0 };
-    defer spatial_map.free();
-
-    // foreach (usz i, item: boxes) spatial_map.insert({.min = item.min, .max = item.max, .id = i })!!;
-
-    // spatial_map.@get_pairs(;usz first, usz second) {
-    //     io::printfn("first %s second %s", first, second);
-    // };
+    CollisionInfo epa_result = epa(collision_result.simplex, &shape_1, &shape_2);
 
     // {
     //     Aabb3 aabb = {
@@ -704,3 +752,4 @@ fn void test_physics() @test {
     //     };
     // }
 }
+

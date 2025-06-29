@@ -350,9 +350,9 @@ fn void Node.from_json(&self, Object* json) {
     Object*? extras = json.get("extras");
 
     if (try extras) {
-        foreach (key : extras.map.keys(mem)) {
-            self.extras.set(key, extras.map[key]!!.s.copy(mem));
-        }
+        extras.map.@each(;String key, Object* value) {
+            self.extras.set(key, value.s.copy(mem));
+        };
     }
 
     int? mesh = json.get_int("mesh");
@@ -366,9 +366,9 @@ fn void Node.from_json(&self, Object* json) {
     @when_extended(json, MESH_GPU_INSTANCING_EXTENSION; Object* extension) {
         Object*? attributes = extension.get("attributes");
         if (try attributes) {
-            foreach (key : attributes.map.keys(mem)) {
-                self.attributes.set(key, (usz)attributes.map[key]!!.f);
-            }
+            attributes.map.@each(;String key, Object* value) {
+                self.attributes.set(key, (uint)value.f);
+            };
         }
     };
 

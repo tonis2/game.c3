@@ -164,7 +164,12 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
             Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
 
-            if (ecs::check_collision(&&(ConvexPolyhedron){pos1}, &&(ConvexPolyhedron){pos2})) {
+            ConvexPolyhedron shape_1 = (ConvexPolyhedron){pos1};
+            ConvexPolyhedron shape_2 = (ConvexPolyhedron){pos2};
+
+            CollisionInfo collision_info = ecs::check_collision(&shape_1, &shape_2);
+
+            if (collision_info.collided) {
                 first.collides = true;
                 second.collides = true;
             }
@@ -418,6 +423,20 @@ fn void main()
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
         meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
+    }
+
+
+    Vec3f[] pos1 = meshes.get_vertices(0);
+    Vec3f[] pos2 = meshes.get_vertices(1);
+
+    ConvexPolyhedron shape_1 = (ConvexPolyhedron){pos1};
+    ConvexPolyhedron shape_2 = (ConvexPolyhedron){pos2};
+
+    CollisionInfo collision_info = ecs::check_collision(&shape_1, &shape_2);
+
+    if (collision_info.collided) {
+        CollisionInfo epa_result = ecs::epa(collision_info.simplex, &shape_1, &shape_2);
+        io::printfn("%s", epa_result.normal);
     }
 
     // Build draw commands for Vulkan
