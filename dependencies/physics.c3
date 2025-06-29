@@ -228,7 +228,7 @@ fn void SimplexArray.replace_values(&self, SupportPoint[] array)
 	}
 }
 
-fn bool contains_origin(SimplexArray* simplex, Vec3f direction) {
+fn bool contains_origin(SimplexArray* simplex, Vec3f* direction) {
     switch (simplex.len()) {
         case 2: {
             // Line segment case
@@ -239,10 +239,10 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f direction) {
 
             if (ab.dot(ao) > 0) {
                 // New direction is perpendicular to AB towards origin
-                direction = ab.cross(ao).cross(ab);
+                direction = &&ab.cross(ao).cross(ab);
             } else {
                 simplex.replace_values({a});
-                direction = ao;
+                direction = &ao;
             }
         }
         case 3: {
@@ -258,22 +258,22 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f direction) {
             // Edge AB
             if (ab.cross(abc).dot(ao) > 0) {
                 simplex.replace_values({a, b});
-                direction = ab.cross(ao).cross(ab);
+                direction = &&ab.cross(ao).cross(ab);
                 return false;
             }
             
             // Edge AC
             if (abc.cross(ac).dot(ao) > 0) {
                 simplex.replace_values({a, c});
-                direction = ac.cross(ao).cross(ac);
+                direction = &&ac.cross(ao).cross(ac);
                 return false;
             }
             
             // Above/below triangle
             if (abc.dot(ao) > 0) {
-                direction = abc;
+                direction = &&abc;
             } else {
-                direction = -abc;
+                direction = &&-abc;
             }
         }
         case 4: {
@@ -295,21 +295,21 @@ fn bool contains_origin(SimplexArray* simplex, Vec3f direction) {
             // ABC face
             if (abc.dot(ao) > 0) {
                 simplex.replace_values({a, b, c});
-                direction = abc;
+                direction = &abc;
                 return false;
             }
             
             // ACD face
             if (acd.dot(ao) > 0) {
                 simplex.replace_values({a, c, d});
-                direction = acd;
+                direction = &acd;
                 return false;
             }
             
             // ADB face
             if (adb.dot(ao) > 0) {
                 simplex.replace_values({a, d, b});
-                direction = adb;
+                direction = &adb;
                 return false;
             }
             
@@ -363,14 +363,13 @@ fn bool check_collision(ConvexShape shape_1, ConvexShape shape_2) {
         });
 
         // Check if simplex contains origin
-        if (contains_origin(&simplex, direction)) {
+        if (contains_origin(&simplex, &direction)) {
             return true;
         }
     }
 
     return false;
 }
-
 
 
 struct Face {
