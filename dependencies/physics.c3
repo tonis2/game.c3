@@ -440,7 +440,7 @@ const float EPA_TOLERANCE = 0.0001;
 fn CollisionInfo epa(SimplexArray simplex, ConvexShape shape_1, ConvexShape shape_2) {
 
     ElasticArray{Face, EPA_MAX_FACES} faces;
-    ElasticArray{Vec3f, EPA_MAX_LOOSE_EDGES} loose_edges;
+    ElasticArray{Vec3f[2], EPA_MAX_LOOSE_EDGES} loose_edges;
 
     {
         // Create starting faces
@@ -478,9 +478,21 @@ fn CollisionInfo epa(SimplexArray simplex, ConvexShape shape_1, ConvexShape shap
 
         loose_edges.clear();
 
-        foreach (uint i, face: faces) {
+        foreach (usz i, face: faces) {
             if (face.normal.dot(support_point - face.points[0]) > 0)  {
+                 foreach (usz j, pa: face.points) {
+                    Vec3f pb = face.points[(j + 1) % face.points.len];
+                    Vec3f[2] new_edge = {pa, pb};
+                    bool found_edge = false;
 
+                    foreach (usz edge_i, edge: loose_edges) {
+                        if ((Vec3f[2]){edge[1], edge[0]} == new_edge) {
+                            loose_edges.remove_at(edge_i);
+                            found_edge = true;
+                            break;
+                        }
+                    }
+                 }
             }
         }
     }
