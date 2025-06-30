@@ -160,32 +160,30 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         ecs::Node* first_node = nodes[first.node_index];
         ecs::Node* second_node = nodes[second.node_index];
 
-        Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
-        Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
+        // Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
+        // Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
 
-        ConvexPolyhedron shape_1 = {pos1};
-        ConvexPolyhedron shape_2 = {pos2};
+        // ConvexPolyhedron shape_1 = {pos1};
+        // ConvexPolyhedron shape_2 = {pos2};
 
-        TransformedConvex transformed_shape_1 = {
-            .position = first_node.translation,
-            .shape = &shape_1, 
-            .scale = first_node.scale, 
-            .rotation = first_node.rotation
-        };
+        // TransformedConvex transformed_shape_1 = {
+        //     .position = first_node.translation,
+        //     .shape = &shape_1, 
+        //     .scale = first_node.scale, 
+        // };
         
-        TransformedConvex transformed_shape_2 = {
-            .position = second_node.translation,
-            .shape = &shape_2, 
-            .scale = second_node.scale, 
-            .rotation = second_node.rotation
-        };
+        // TransformedConvex transformed_shape_2 = {
+        //     .position = second_node.translation,
+        //     .shape = &shape_2, 
+        //     .scale = second_node.scale, 
+        // };
 
-        CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
+        // CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
 
-        if (collision_info.collided) {
-            first.collides = true;
-            second.collides = true;
-        }
+        // if (collision_info.collided) {
+        //     first.collides = true;
+        //     second.collides = true;
+        // }
 
         // if (first.aabb.collides(second.aabb)) {
         //     first.collides = true;
@@ -386,6 +384,29 @@ fn void main()
 
     defer meshes.free();
 
+        // Load meshes from gltf
+    foreach (mesh: gltf.meshes) {
+        meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
+    }
+
+    ConvexPolyhedron shape_1 = {meshes.get_vertices(0)};
+
+    TransformedConvex transformed_shape_1 = {
+        .shape = &shape_1,
+        .position = {0.684182, 1.790054, 2.681717},
+        .scale = {1, 1, 1}, 
+    };
+    
+    TransformedConvex transformed_shape_2 = {
+        .shape = &shape_1, 
+        .scale = {1, 1, 1}, 
+    };
+
+    CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
+    io::printfn("collided %s", collision_info.collided);
+
+    return;
+
     foreach (index, node: gltf.nodes) {
         nodes.@push((ecs::Node) {
             .matrix = node.global_matrix(),
@@ -437,31 +458,6 @@ fn void main()
 
     defer animation_list.free();
 
-    // Load meshes from gltf
-    foreach (mesh: gltf.meshes) {
-        meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
-    }
-
-    // Vec3f[] pos1 = meshes.get_vertices(0);
-
-    // ConvexPolyhedron shape_1 = {pos1};
-
-    // TransformedConvex transformed_shape_1 = {
-    //     .shape = &shape_1,
-    //     .position = {0.1, -2.1, 0.2},
-    //     .scale = {1, 1, 1}, 
-    //     .rotation = {0, 0, 0, 1}
-    // };
-    
-    // TransformedConvex transformed_shape_2 = {
-    //     .shape = &shape_1, 
-    //     .position = {0, 0, 0},
-    //     .scale = {1, 1, 1}, 
-    //     .rotation = {0, 0, 0, 1}
-    // };
-
-    // CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
-
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
@@ -494,6 +490,8 @@ fn void main()
             }
 
             meshes.@iter(mesh.name; uint mesh_index, MeshData mesh_data) {
+
+                io::printfn("%s %s", node_index, node.translation);
                 // if (node.name == "Player") player = node_entity;
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,

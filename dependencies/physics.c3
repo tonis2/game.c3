@@ -218,7 +218,7 @@ fn Vec3f TransformedConvex.inverse_transform_point(&self, Vec3f point) => self.r
 fn Vec3f TransformedConvex.support(&self, Vec3f direction) @dynamic {
     // Vec3f point = self.shape.support(self.inverse_transform_point(direction));
     // return self.transform_point(point);
-    return self.shape.support(direction + self.position);
+    return self.shape.support(direction * self.scale + self.position);
 }
 
 fn Vec3f Aabb3.support(&self, Vec3f direction) @dynamic {
@@ -804,8 +804,8 @@ fn void test_physics() @test {
 
     assert(!check_collision(&transformed_shape_1, &transformed_shape_2).collided);
     assert(check_collision(&transformed_shape_3, &transformed_shape_4).collided);
-    // assert(check_collision(&transformed_shape_5, &transformed_shape_6).collided);
-    // assert(!check_collision(&transformed_shape_7, &transformed_shape_8).collided);
+    assert(check_collision(&transformed_shape_5, &transformed_shape_6).collided);
+    assert(!check_collision(&transformed_shape_7, &transformed_shape_8).collided);
     
     // CollisionInfo epa_result = epa(collision_result.simplex, &shape_1, &shape_2);
 
