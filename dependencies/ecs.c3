@@ -776,8 +776,6 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             }
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
-            bounding_box.expand_by_point(position);
-
             self.vertices.push(position);
 
             vertex_data.push({
@@ -788,6 +786,8 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
                 .skin_pos = skin_pos,
                 .skin_weight = skin_weight
             });
+
+            bounding_box.expand_by_point(position);
         }
 
         if (vertex_data.byte_size() + self.vertex_buffer.used_size > self.vertex_buffer.size || index_data.byte_size() + self.index_buffer.used_size > self.index_buffer.size) {

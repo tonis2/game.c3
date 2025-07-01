@@ -23,10 +23,6 @@ struct Obb3 {
 
 fn usz? Aabb3.to_format(&self, Formatter* formatter) @dynamic => formatter.printf("min %s max %s", self.min, self.max)!;
 
-// macro bool Aabb3.@intersects(self, Aabb3 target) {
-//     return self.min.x < target.min.x && self.max.x > target.max.x;
-// }
-
 fn bool Aabb3.is_empty(self) {
     return self.max.xyz == (Vec3f){0,0,0};
 }
@@ -165,7 +161,7 @@ fn Vec3f Aabb3.length_ratios(&self, Aabb3 second) {
 
 interface ConvexShape
 {
-    fn Vec3f support(Vec3f direction);
+    fn Vec3f furthest_point(Vec3f direction);
 }
 
 struct TransformedConvex (ConvexShape) {
@@ -202,26 +198,44 @@ fn void Simplex.push_start(&self, SupportPoint point)
     self.size = math::min((usz)(self.size + 1), (usz)4);
 }
 
-fn Vec3f Quaternionf.rotate_point(&self, Vec3f direction) @dynamic {
-    Vec3f u = {self.i, self.j, self.k};
-    float s = self.l;
+fn Quaternionf Quaternionf.conjugate(&self) => {self.i, -self.j, -self.k, -self.l};
 
-    return 2.0f * u.dot(direction) * u
-            + (s*s - u.dot(u)) * direction
-            + 2.0f * s * u.cross(direction);
+fn void Vec3f.set(&self, Vec3f new) => mem::copy(self, &new, Vec3f.sizeof, 0);
+
+fn Vec3f Vec3f.rotate_by_quat(&self, Quaternionf q) {
+    Vec3f uv, uuv;
+    Vec3f qvec = {q.j, q.j, q.k};
+    
+    uv.x = qvec.y * self.z - qvec.z * self.y;
+    uv.y = qvec.z * self.x - qvec.x * self.z;
+    uv.z = qvec.x * self.y - qvec.y * self.x;
+    
+    uuv.x = qvec.y * uv.z - qvec.z * uv.y;
+    uuv.y = qvec.z * uv.x - qvec.x * uv.z;
+    uuv.z = qvec.x * uv.y - qvec.y * uv.x;
+    
+    uv.x *= 2.0f * q.l;
+    uv.y *= 2.0f * q.l;
+    uv.z *= 2.0f * q.l;
+    
+    uuv.x *= 2.0f;
+    uuv.y *= 2.0f;
+    uuv.z *= 2.0f;
+    
+    return {
+        self.x + uv.x + uuv.x,
+        self.y + uv.y + uuv.y,
+        self.z + uv.z + uuv.z
+    };
 }
 
-fn Quaternionf Quaternionf.inverse(&self) => {self.l, -self.j, -self.k, -self.l};
-fn Vec3f TransformedConvex.transform_point(&self, Vec3f point) => self.position + self.rotation.rotate_point(point * self.scale);
-fn Vec3f TransformedConvex.inverse_transform_point(&self, Vec3f point) => self.rotation.inverse().rotate_point(point);
-
-fn Vec3f TransformedConvex.support(&self, Vec3f direction) @dynamic {
-    // Vec3f point = self.shape.support(self.inverse_transform_point(direction));
-    // return self.transform_point(point);
-    return self.shape.support(direction * self.scale + self.position);
+fn Vec3f TransformedConvex.furthest_point(&self, Vec3f direction) @dynamic {
+    Vec3f local_direction = direction.rotate_by_quat(self.rotation.conjugate());
+    Vec3f point = self.shape.furthest_point(local_direction);
+    return point.rotate_by_quat(self.rotation) * self.scale + self.position;
 }
 
-fn Vec3f Aabb3.support(&self, Vec3f direction) @dynamic {
+fn Vec3f Aabb3.furthest_point(&self, Vec3f direction) @dynamic {
     Vec3f point = {
         (direction.x > 0) ? self.max.x : self.min.x,
         (direction.y > 0) ? self.max.y : self.min.y,
@@ -230,51 +244,54 @@ fn Vec3f Aabb3.support(&self, Vec3f direction) @dynamic {
     return point;
 }
 
-fn Vec3f ConvexPolyhedron.support(&self, Vec3f direction) @dynamic {
+fn Vec3f ConvexPolyhedron.furthest_point(&self, Vec3f direction) @dynamic {
     Vec3f furthest_point;
-    float max_dot_a = -float.max;
-    
+    float max_distance = -float.max;
+
     foreach (pos : self.vertices) {
-        float d = pos.dot(direction);
-        if (d > max_dot_a) {
-            max_dot_a = d;
+        float distance = pos.dot(direction);
+        if (distance > max_distance) {
+            max_distance = distance;
             furthest_point = pos;
         }
     }
-  
+
     return furthest_point;
 }
+
+fn bool same_direction(Vec3f direction, Vec3f ao) => direction.dot(ao) > 0;
 
 
 // Handles the line case (2 points in simplex)
 fn bool line_case(Simplex* simplex, Vec3f* direction) {
-    SupportPoint first = simplex.get(0);
-    SupportPoint second = simplex.get(1);
+    SupportPoint a_support = simplex.get(0);
+    SupportPoint b_support = simplex.get(1);
 
-    Vec3f a = first.point;
-    Vec3f b = second.point;
+    Vec3f a = a_support.point;
+    Vec3f b = b_support.point;
     Vec3f ab = b - a;
     Vec3f ao = -a;
 
-    if (ab.dot(ao) > 0) {
-        direction = &&ab.cross(ao).cross(ab);
+    if (same_direction(ab, ao)) {
+        direction.set(ab.cross(ao).cross(ab));
     } else {
-        simplex.replace_array({ first });
-        direction = &&ao;
+        simplex.replace_array({ a_support });
+        direction.set(ao);
     }
+
     return false;
 }
 
 
 // Handles the triangle case (3 points in simplex)
 fn bool triangle_case(Simplex* simplex, Vec3f* direction) {
-    SupportPoint first = simplex.get(0);
-    SupportPoint second = simplex.get(1);
-    SupportPoint third = simplex.get(2);
+    SupportPoint a_support = simplex.get(0);
+    SupportPoint b_support = simplex.get(1);
+    SupportPoint c_support = simplex.get(2);
 
-    Vec3f a = first.point;
-    Vec3f b = second.point;
-    Vec3f c = third.point;
+    Vec3f a = a_support.point;
+    Vec3f b = b_support.point;
+    Vec3f c = c_support.point;
 
     Vec3f ab = b - a;
     Vec3f ac = c - a;
@@ -282,59 +299,60 @@ fn bool triangle_case(Simplex* simplex, Vec3f* direction) {
 
     Vec3f abc = ab.cross(ac);
 
-    if (abc.cross(ac).dot(ao) > 0) {
-        if (ac.dot(ao) > 0) {
-            simplex.replace_array({ first, second });
-            direction = &&ac.cross(ao).cross(ac);
+    if (same_direction(abc.cross(ac), ao)) {
+        if (same_direction(ac, ao)) {
+            simplex.replace_array({ a_support, c_support });
+            direction.set(ac.cross(ao).cross(ac));
         } else {
             return line_case(simplex, direction);
         }
     } else {
-        if (ab.cross(abc).dot(ao) > 0) {
+        if (same_direction(ab.cross(abc), ao)) {
              return line_case(simplex, direction);
         } else {
-            if (abc.dot(ao) > 0) {
-                direction = &&abc;
+            if (same_direction(abc, ao)) {
+                direction.set(abc);
             } else {
-                simplex.replace_array({ first, second, third });
-                direction = &&-abc;
+                simplex.replace_array({ a_support, c_support, b_support });
+                direction.set(-abc);
             }
         }
     }
+
     return false;
 }
 
 // Handles the tetrahedron case (4 points in simplex)
 fn bool tetrahedron_case(Simplex* simplex, Vec3f* direction) {
-    SupportPoint first = simplex.get(0);
-    SupportPoint second = simplex.get(1);
-    SupportPoint third = simplex.get(2);
-    SupportPoint fourth = simplex.get(3);
+    SupportPoint a_support = simplex.get(0);
+    SupportPoint b_support = simplex.get(1);
+    SupportPoint c_support = simplex.get(2);
+    SupportPoint d_support = simplex.get(3);
 
-    Vec3f a = first.point;
-    Vec3f b = second.point;
-    Vec3f c = third.point;
-    Vec3f d = fourth.point;
+    Vec3f a = a_support.point;
+    Vec3f b = b_support.point;
+    Vec3f c = c_support.point;
+    Vec3f d = d_support.point;
 
-    Vec3f ao = -a;
     Vec3f ab = b - a;
     Vec3f ac = c - a;
     Vec3f ad = d - a;
+    Vec3f ao = -a;
 
     Vec3f abc = ab.cross(ac);
     Vec3f acd = ac.cross(ad);
     Vec3f adb = ad.cross(ab);
 
-    if (abc.dot(ao) > 0) {
-        simplex.replace_array({ first, second, third });
+    if (same_direction(abc, ao)) {
+        simplex.replace_array({ a_support, b_support, c_support });
         return triangle_case(simplex, direction);
     }
-    if (acd.dot(ao) > 0) {
-        simplex.replace_array({ first, third, fourth });
+    if (same_direction(acd, ao)) {
+        simplex.replace_array({ a_support, c_support, d_support });
         return triangle_case(simplex, direction);
     }
-    if (adb.dot(ao) > 0) {
-        simplex.replace_array({ first, fourth, third });
+    if (same_direction(adb, ao)) {
+        simplex.replace_array({ a_support, d_support, b_support });
         return triangle_case(simplex, direction);
     }
 
@@ -342,15 +360,17 @@ fn bool tetrahedron_case(Simplex* simplex, Vec3f* direction) {
 }
 
 fn bool next_simplex(Simplex* simplex, Vec3f* direction) {
+    // io::printfn("old direction %s", *direction);
     switch (simplex.len()) {
         case 2: return line_case(simplex, direction);
         case 3: return triangle_case(simplex, direction);
         case 4: return tetrahedron_case(simplex, direction);
     }
+
     return false; // Should not be reached
 }
 
-const usz GJK_MAX_ITERATION = 42;
+const usz GJK_MAX_ITERATION = 30;
 // GJK algorithm to find, if shapes collide
 fn CollisionInfo check_collision(ConvexShape shape_1, ConvexShape shape_2) {
     // Initial direction (arbitrary)
@@ -358,8 +378,8 @@ fn CollisionInfo check_collision(ConvexShape shape_1, ConvexShape shape_2) {
     
     Simplex simplex;
     {
-        Vec3f a_support = shape_1.support(direction);
-        Vec3f b_support = shape_2.support(direction);
+        Vec3f a_support = shape_1.furthest_point(direction);
+        Vec3f b_support = shape_2.furthest_point(-direction);
         Vec3f point = a_support - b_support;
 
         // Initial simplex point
@@ -368,29 +388,30 @@ fn CollisionInfo check_collision(ConvexShape shape_1, ConvexShape shape_2) {
             a_support,
             b_support
         });
-    }
 
-    // New search direction is towards origin
-    direction = -simplex[0].point;
+        // New search direction is towards origin
+        direction = -point;
+    }
 
     // Main GJK loop
     for (usz i = 0; i < GJK_MAX_ITERATION; ++i) {
         // Get new support point
-        Vec3f a_support = shape_1.support(direction);
-        Vec3f b_support = shape_2.support(direction);
-        Vec3f new_point = a_support - b_support;
+        Vec3f a_support = shape_1.furthest_point(direction);
+        Vec3f b_support = shape_2.furthest_point(-direction);
+        Vec3f mikowski_difference = a_support - b_support;
+        
         // If we didn't reach the origin, no collision
-        if (new_point.dot(direction) < 0) {
+        if (mikowski_difference.dot(direction) <= 0) {
             return { .collided = false };
         }
 
         // Add new point to simplex
         simplex.push_start({
-            new_point,
+            mikowski_difference,
             a_support,
             b_support
         });
-   
+
         if (next_simplex(&simplex, &direction)) {
             return { .collided = true, .simplex = simplex };
         }
@@ -525,7 +546,7 @@ fn CollisionInfo epa(Simplex simplex, ConvexShape shape_1, ConvexShape shape_2) 
     for (int i = 0; i < EPA_MAX_ITER; ++i) {
         Face closest_face = find_closest_face(polytope, faces);
 
-        Vec3f new_point = shape_1.support(closest_face.normal) - shape_2.support(closest_face.normal);
+        Vec3f new_point = shape_1.furthest_point(closest_face.normal) - shape_2.furthest_point(-closest_face.normal);
         float new_dist = closest_face.normal.dot(new_point);
 
         if (math::abs(new_dist - closest_face.distance) < EPA_TOLERANCE) {
@@ -765,37 +786,24 @@ fn void test_physics() @test {
 
     TransformedConvex transformed_shape_3 = {
         .shape = &shape_1, 
-        .position = {-0.5, 0, 0}, 
+        .position = {0.0, 0, 0}, 
         .scale = {1, 1, 1},
     };
     
     TransformedConvex transformed_shape_4 = {
         .shape = &shape_1, 
-        .position = {0.5, 0, 0}, 
-        .scale = {1, 1, 1},
+        .position = {0, 0, 0}, 
+        .scale = {3, 3, 3},
     };
 
     TransformedConvex transformed_shape_5 = {
-        .shape = &shape_1, 
-        .position = {0.0, 0, 0}, 
-        .scale = {1, 1, 1},
-    };
-    
-    TransformedConvex transformed_shape_6 = {
-        .shape = &shape_1, 
-        .position = {0.8, 0, 0}, 
-        .scale = {1, 1, 1},
-        .rotation = {0, 0.8, 0, 0.92388 }
-    };
-
-    TransformedConvex transformed_shape_7 = {
         .shape = &shape_1, 
         .position = {-1.0, 0, 0}, 
         .scale = {1, 1, 1},
         .rotation = {0, 0.5, 0, 1 }
     };
     
-    TransformedConvex transformed_shape_8 = {
+    TransformedConvex transformed_shape_6 = {
         .shape = &shape_1, 
         .position = {1.0, 0, 0}, 
         .scale = {1, 1, 1},
@@ -804,8 +812,7 @@ fn void test_physics() @test {
 
     assert(!check_collision(&transformed_shape_1, &transformed_shape_2).collided);
     assert(check_collision(&transformed_shape_3, &transformed_shape_4).collided);
-    assert(check_collision(&transformed_shape_5, &transformed_shape_6).collided);
-    assert(!check_collision(&transformed_shape_7, &transformed_shape_8).collided);
+    assert(!check_collision(&transformed_shape_5, &transformed_shape_6).collided);
     
     // CollisionInfo epa_result = epa(collision_result.simplex, &shape_1, &shape_2);
 

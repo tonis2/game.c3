@@ -157,38 +157,34 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData);
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
 
-        ecs::Node* first_node = nodes[first.node_index];
-        ecs::Node* second_node = nodes[second.node_index];
+        // Firstly do cheap AABB collision detection
+        if (first.aabb.collides(second.aabb)) {
+            ecs::Node* first_node = nodes[first.node_index];
+            ecs::Node* second_node = nodes[second.node_index];
 
-        // Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
-        // Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
+            Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
+            Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
 
-        // ConvexPolyhedron shape_1 = {pos1};
-        // ConvexPolyhedron shape_2 = {pos2};
+            TransformedConvex transformed_shape_1 = {
+                .position = first_node.translation,
+                .shape = &&(ConvexPolyhedron){pos1}, 
+                .scale = first_node.scale, 
+            };
+            
+            TransformedConvex transformed_shape_2 = {
+                .position = second_node.translation,
+                .shape = &&(ConvexPolyhedron){pos2},
+                .scale = second_node.scale, 
+            };
+            
+            // GJK collision detection for complex meshes
+            CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
 
-        // TransformedConvex transformed_shape_1 = {
-        //     .position = first_node.translation,
-        //     .shape = &shape_1, 
-        //     .scale = first_node.scale, 
-        // };
-        
-        // TransformedConvex transformed_shape_2 = {
-        //     .position = second_node.translation,
-        //     .shape = &shape_2, 
-        //     .scale = second_node.scale, 
-        // };
-
-        // CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
-
-        // if (collision_info.collided) {
-        //     first.collides = true;
-        //     second.collides = true;
-        // }
-
-        // if (first.aabb.collides(second.aabb)) {
-        //     first.collides = true;
-        //     second.collides = true;
-        // }   
+            if (collision_info.collided) {
+                first.collides = true;
+                second.collides = true;
+            }
+        }   
     };
 }
 
@@ -384,28 +380,10 @@ fn void main()
 
     defer meshes.free();
 
-        // Load meshes from gltf
+    // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
         meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
     }
-
-    ConvexPolyhedron shape_1 = {meshes.get_vertices(0)};
-
-    TransformedConvex transformed_shape_1 = {
-        .shape = &shape_1,
-        .position = {0.684182, 1.790054, 2.681717},
-        .scale = {1, 1, 1}, 
-    };
-    
-    TransformedConvex transformed_shape_2 = {
-        .shape = &shape_1, 
-        .scale = {1, 1, 1}, 
-    };
-
-    CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
-    io::printfn("collided %s", collision_info.collided);
-
-    return;
 
     foreach (index, node: gltf.nodes) {
         nodes.@push((ecs::Node) {
@@ -490,8 +468,6 @@ fn void main()
             }
 
             meshes.@iter(mesh.name; uint mesh_index, MeshData mesh_data) {
-
-                io::printfn("%s %s", node_index, node.translation);
                 // if (node.name == "Player") player = node_entity;
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,
@@ -526,23 +502,6 @@ fn void main()
                 if (!mesh_data.aabb.is_empty()) {
                     Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
 
-                    MeshData collider_mesh = ecs::load_mesh(
-                        manager: manager,
-                        vertices: &vertices,
-                        indices: &indices,
-                        mesh: ecs::create_bounding_box({.min = mesh_data.aabb.min, .max = mesh_data.aabb.max})
-                    )!!;
-
-                    Collider collider = {
-                        .indexCount = collider_mesh.indexCount,
-                        .firstIndex = collider_mesh.firstIndex,
-                        .vertexOffset = collider_mesh.vertexOffset,
-                        .instanceCount = 1,
-                        .node_index = node_index,
-                        .skin_offset = -1
-                    };
-
-                    node_entity.@add(collider, &manager)!!;
                     node_entity.@add((CollisionData) {
                         .collides = false,
                         .node_index = node_index,
@@ -845,18 +804,6 @@ fn void main()
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
 
             state.collides = false;
-        };
-
-        manager.@query("Collider"; Entity entity) {
-            uint offset = ecs::@get_offset(manager, entity, "Collider")!!;
-            
-            PushConstantData constant_data = {
-                .draw_index = offset / Collider.sizeof,
-            };
-
-            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Collider.sizeof);
         };
 
         vk::cmdEndRendering(command_buffer);
