@@ -537,6 +537,7 @@ import std::io;
 import std::collections::list;
 import std::collections::map;
 import std::time;
+import collision;
 import c3w;
 
 struct Node {
@@ -877,6 +878,50 @@ fn MeshData? load_mesh(EntityManager manager, Component* vertices, Component* in
     vertices.used_size += vertex_data.byte_size();
    
     return data;
+}
+
+struct Mesh {
+    Vec3f[8] vertices;
+    ushort[24] indices;
+}
+
+ ecs::Mesh cube = {
+    .vertices = {
+        {-1.0, -1.0, 1.0},
+        {1.0, -1.0, 1.0},
+        {1.0, 1.0, 1.0},
+        {-1.0, 1.0, 1.0},
+        {-1.0, -1.0, -1.0},
+        {-1.0, 1.0, -1.0},
+        {1.0, 1.0, -1.0},
+        {1.0, -1.0, -1.0},
+    },
+    .indices = {
+        0, 1, 1, 3, 3, 2, 2, 0, 
+        4, 5, 5, 7, 7, 6, 6, 4,
+        0, 4, 1, 5, 2, 6, 3, 7 
+    }
+};
+
+fn Mesh create_bounding_box(Aabb3 box)
+{
+    return {
+        .vertices = {
+            { box.min.x, box.min.y, box.min.z},
+            { box.max.x, box.min.y, box.min.z},
+            { box.min.x, box.max.y, box.min.z},
+            { box.max.x, box.max.y, box.min.z},
+            { box.min.x, box.min.y, box.max.z},
+            { box.max.x, box.min.y, box.max.z},
+            { box.min.x, box.max.y, box.max.z},
+            { box.max.x, box.max.y, box.max.z}
+        },
+        .indices = {
+            0, 1, 1, 3, 3, 2, 2, 0, 
+            4, 5, 5, 7, 7, 6, 6, 4,
+            0, 4, 1, 5, 2, 6, 3, 7 
+        }
+    };
 }
 
 struct Position @private {

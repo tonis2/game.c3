@@ -11,6 +11,7 @@ import gltf;
 import c3w;
 import helpers;
 import ecs;
+import collision;
 
 const ANIMATION_FPS = 40;
 const MAX_FPS = 60;
@@ -178,7 +179,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             };
             
             // GJK collision detection for complex meshes
-            CollisionInfo collision_info = ecs::check_collision(&transformed_shape_1, &transformed_shape_2);
+            CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
 
             if (collision_info.collided) {
                 first.collides = true;
