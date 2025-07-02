@@ -21,6 +21,14 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
+enum ColliderType {
+    SPHERE,
+    AABB,
+    CAPSULE,
+    CONVEX_POLYHEDRON,
+    GROUND
+}
+
 struct MoveEvent {
     EventKey key;
     Vec3f move;
@@ -77,6 +85,7 @@ struct CollisionData @tag("BUFFER", 0) {
     uint mesh_index;
     bool collides;
     bool check_collision;
+    ColliderType type;
 }
 
 struct AnimationData {
@@ -159,33 +168,33 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
 
         // Firstly do cheap AABB collision detection
-        if (first.aabb.collides(second.aabb)) {
-            ecs::Node* first_node = nodes[first.node_index];
-            ecs::Node* second_node = nodes[second.node_index];
+        // if (first.aabb.collides(second.aabb)) {
+        //     ecs::Node* first_node = nodes[first.node_index];
+        //     ecs::Node* second_node = nodes[second.node_index];
 
-            Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
-            Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
+        //     Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
+        //     Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
 
-            TransformedConvex transformed_shape_1 = {
-                .position = first_node.translation,
-                .shape = &&(ConvexPolyhedron){pos1}, 
-                .scale = first_node.scale, 
-            };
+        //     TransformedConvex transformed_shape_1 = {
+        //         .position = first_node.translation,
+        //         .shape = &&(ConvexPolyhedron){pos1}, 
+        //         .scale = first_node.scale, 
+        //     };
             
-            TransformedConvex transformed_shape_2 = {
-                .position = second_node.translation,
-                .shape = &&(ConvexPolyhedron){pos2},
-                .scale = second_node.scale, 
-            };
+        //     TransformedConvex transformed_shape_2 = {
+        //         .position = second_node.translation,
+        //         .shape = &&(ConvexPolyhedron){pos2},
+        //         .scale = second_node.scale, 
+        //     };
             
-            // GJK collision detection for complex meshes
-            CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
+        //     // GJK collision detection for complex meshes
+        //     CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
 
-            if (collision_info.collided) {
-                first.collides = true;
-                second.collides = true;
-            }
-        }   
+        //     if (collision_info.collided) {
+        //         first.collides = true;
+        //         second.collides = true;
+        //     }
+        // }   
     };
 }
 
@@ -305,7 +314,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/animation_2.glb")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
     spatial_map = { .cell_size = 2.0 };
@@ -460,9 +469,9 @@ fn void main()
                 }, &manager)!!;
             }
 
-            if (node.has_skin()) {
+            if (node.extras.has_key("skin_animation")) {
                 node_entity.@add((SkinAnimation) {
-                    .animation_index = 2,
+                    .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
                     .active_time = 0.0,
                     .repeat = true
                 }, &manager)!!;
@@ -503,12 +512,22 @@ fn void main()
                 if (!mesh_data.aabb.is_empty()) {
                     Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
 
+                    ColliderType type = AABB;
+
+                    switch (node.extras.get("collider") ?? "box")
+                    {
+                        case "box": type = AABB;
+                        case "convex": type = CONVEX_POLYHEDRON;
+                        case "ground": type = GROUND;
+                    }
+
                     node_entity.@add((CollisionData) {
                         .collides = false,
                         .node_index = node_index,
                         .mesh_index = mesh_index,
                         .check_collision = node.name != "Player" ? true : false,
                         .aabb = mesh_aabb,
+                        .type = type
                     }, &manager)!!;
 
                     spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;

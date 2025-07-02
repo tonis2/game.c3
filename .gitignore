@@ -3,7 +3,6 @@
 
 notes.md
 build/*
-game.glb
 # Object files
 *.o
 *.ko
