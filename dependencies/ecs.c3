@@ -240,7 +240,7 @@ macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index =
     }
 
     Entity* target = manager.entities.get_ref(self.id);
-    uint type_id = manager.keys[type_name]!!.id;
+    uint type_id = manager.keys[type_name]!.id;
     target.bitmask |= 1 << type_id;
 
     manager.create_view(
@@ -427,13 +427,13 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
     $endif;
    
     $if $typeof(#target).nameof == "Entity":
-        Component component = manager.keys[#type.nameof]!!;
+        Component component = manager.keys[#type.nameof]!;
         BufferID index = {
             .component = component.id,
             .entity = #target.id,
         };
 
-        uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!.component].offset;
         return (void*)manager.buffers[component.buffer].data() + type_offset;
     $endif;
 }

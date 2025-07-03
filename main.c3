@@ -26,7 +26,8 @@ enum ColliderType {
     AABB,
     CAPSULE,
     CONVEX_POLYHEDRON,
-    GROUND
+    GROUND,
+    NONE
 }
 
 struct MoveEvent {
@@ -131,6 +132,8 @@ MeshContainer meshes;
 
 SpatialHash3D spatial_map;
 
+CollisionData ground;
+
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
     Memory stage_buffer = vk::new_buffer(
@@ -164,8 +167,17 @@ const MoveEvent[] MOVE_EVENTS = {
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     spatial_map.@get_pairs(;Pair pair) {
-        CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData);
-        CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData);
+        CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
+        CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
+
+        // Check all collisions with ground
+
+        if (first.type == GROUND && second.type == AABB) {
+           if (first.aabb.collides(second.aabb)) {
+                // first.collides = true;
+                second.collides = true;
+           }
+        }
 
         // Firstly do cheap AABB collision detection
         // if (first.aabb.collides(second.aabb)) {
@@ -199,8 +211,8 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render* entity_render = ecs::@get_ref(manager, entity, Render);
-    SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation);
+    Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
+    SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
 
     AnimationData data = animation_list[animation.animation_index];
     assert(data.data.size != 0, "Please initialize animation component");
@@ -213,7 +225,7 @@ fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key
 }
 
 fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation);
+    WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
     gltf::Animation data = gltf.animations[animation.animation_index];
 
     double new_time = animation.active_time + (time);
@@ -508,24 +520,34 @@ fn void main()
                     }
                 }
 
+                ColliderType type = AABB;
+                Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
+
+                switch (node.extras.get("collider") ?? "none")
+                {
+                    case "box": type = AABB;
+                    case "convex": type = CONVEX_POLYHEDRON;
+                    case "ground": type = GROUND;
+                    case "none": type = NONE;
+                    default: type = NONE;
+                }
+
+                if (type == GROUND) {
+                    ground = {
+                        .collides = false,
+                        .node_index = node_index,
+                        .mesh_index = mesh_index,
+                        .aabb = mesh_aabb,
+                        .type = type
+                    };
+                }
+
                 // Add physics box           
-                if (!mesh_data.aabb.is_empty()) {
-                    Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
-
-                    ColliderType type = AABB;
-
-                    switch (node.extras.get("collider") ?? "box")
-                    {
-                        case "box": type = AABB;
-                        case "convex": type = CONVEX_POLYHEDRON;
-                        case "ground": type = GROUND;
-                    }
-
+                if (type == AABB || type == CONVEX_POLYHEDRON) {
                     node_entity.@add((CollisionData) {
                         .collides = false,
                         .node_index = node_index,
                         .mesh_index = mesh_index,
-                        .check_collision = node.name != "Player" ? true : false,
                         .aabb = mesh_aabb,
                         .type = type
                     }, &manager)!!;
@@ -811,19 +833,21 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        manager.@query("Render", "CollisionData"; Entity entity) {
+        manager.@query("Render"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;
-            CollisionData* state = ecs::@get_ref(manager, entity, CollisionData);
+            CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
-                .collides = state.collides
             };
+
+            if (try state) {
+                constant_data.collides = state.collides;
+                state.collides = false;
+            }
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
-
-            state.collides = false;
         };
 
         vk::cmdEndRendering(command_buffer);
