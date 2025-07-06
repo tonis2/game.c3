@@ -549,6 +549,13 @@ struct Node {
     uint dirty;
 }
 
+fn usz Vec3f.hash(&self) {
+    usz h1 = (usz)self.x;
+    usz h2 = (usz)self.y;
+    usz h3 = (usz)self.z;
+    return (usz)h1.hash() ^ ((usz)h2.hash() << 1) ^ ((usz)h3.hash() << 2);
+}
+
 alias NodeComponent = Component;
 
 <*
@@ -689,6 +696,8 @@ macro void? MeshContainer.@iter(&self, String name; @callback(uint index, MeshDa
 
 fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
     if (self.mesh_map.has_key(mesh.name)) return;
+    HashMap{usz, bool} unique_map;
+    defer unique_map.free();
     
     foreach (uint prim_index, primitive: mesh.primitives) {
         List{Vertex} vertex_data;
@@ -706,7 +715,7 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             .materialIndex = (int)primitive.attributes["material"] ?? -1,
             .meshCount = prim_index,
             .vertex_offset = (uint)self.vertices.len(),
-            .vertex_len = pos_accessor.count,
+
         };
 
         if (pos_accessor.max != (Vec4f){0,0,0,0}) {
@@ -777,7 +786,11 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
             }
 
             Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
-            self.vertices.push(position);
+
+            if (!unique_map.has_key(position.hash())) {
+                self.vertices.push(position);
+                unique_map.set(position.hash(), true);
+            }
 
             vertex_data.push({
                 .pos = position,
@@ -799,6 +812,7 @@ fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
         self.vertex_buffer.@push(vertex_data.entries, size: vertex_data.byte_size());
         self.index_buffer.@push(index_data.entries, size: index_data.byte_size());
 
+        data.vertex_len = (uint)unique_map.len();
         // data.aabb = bounding_box;
 
         vertex_data.free();

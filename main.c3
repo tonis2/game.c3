@@ -13,6 +13,7 @@ import helpers;
 import ecs;
 import collision;
 
+
 const ANIMATION_FPS = 40;
 const MAX_FPS = 60;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
@@ -27,6 +28,7 @@ enum ColliderType {
     CAPSULE,
     CONVEX_POLYHEDRON,
     GROUND,
+    ACTIVE,
     NONE
 }
 
@@ -117,8 +119,6 @@ DescriptorImages descriptor_images;
 
 Vec2f window_size = {1280, 620};
 
-Vec3f gravity = {0, -9.81, 0};
-
 char[*] shader = $embed("./shaders/shader.spv");
 
 DeviceContext context;
@@ -131,8 +131,7 @@ NodeComponent nodes;
 MeshContainer meshes;
 
 SpatialHash3D spatial_map;
-
-CollisionData ground;
+BVHNode terrain_map;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -166,17 +165,24 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
+    
+    manager.@query("CollisionData"; Entity entity) {
+        CollisionData* collider = ecs::@get_ref(manager, entity, CollisionData)!!;
+        if (collider.type == ACTIVE) {
+   
+        };
+    };
+
     spatial_map.@get_pairs(;Pair pair) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
 
         // Check all collisions with ground
-
-        if (first.type == GROUND && second.type == AABB) {
-           if (first.aabb.collides(second.aabb)) {
-                // first.collides = true;
-                second.collides = true;
-           }
+        if (second.type != GROUND) {
+            // if (first.aabb.collides(second.aabb)) {
+            //     first.collides = true;
+            //     second.collides = true;
+            // }
         }
 
         // Firstly do cheap AABB collision detection
@@ -329,7 +335,7 @@ fn void main()
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
-    spatial_map = { .cell_size = 2.0 };
+    spatial_map = { .cell_size = 3.0 };
     defer spatial_map.free();
     // defer gjk.free();
 
@@ -490,7 +496,6 @@ fn void main()
             }
 
             meshes.@iter(mesh.name; uint mesh_index, MeshData mesh_data) {
-                // if (node.name == "Player") player = node_entity;
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,
                     .firstIndex = mesh_data.firstIndex,
@@ -520,7 +525,7 @@ fn void main()
                     }
                 }
 
-                ColliderType type = AABB;
+                ColliderType type;
                 Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
 
                 switch (node.extras.get("collider") ?? "none")
@@ -529,21 +534,25 @@ fn void main()
                     case "convex": type = CONVEX_POLYHEDRON;
                     case "ground": type = GROUND;
                     case "none": type = NONE;
+                    case "active": type = ACTIVE;
                     default: type = NONE;
                 }
 
                 if (type == GROUND) {
-                    ground = {
-                        .collides = false,
-                        .node_index = node_index,
-                        .mesh_index = mesh_index,
-                        .aabb = mesh_aabb,
-                        .type = type
-                    };
+                    Vec3f[] ground_data = meshes.get_vertices(mesh_index);
+                    List{Triangle} triangles;
+
+                    for (uint i; i < ground_data.len - 1; i += 3) {
+                        Triangle triangle = {ground_data[i], ground_data[i + 1], ground_data[i + 2]};
+                        triangles.push(triangle);
+                    }
+                  
+                    terrain_map.build_recursive(triangles.array_view());
+                    triangles.free();
                 }
 
                 // Add physics box           
-                if (type == AABB || type == CONVEX_POLYHEDRON) {
+                if (type != GROUND) {
                     node_entity.@add((CollisionData) {
                         .collides = false,
                         .node_index = node_index,
@@ -551,8 +560,11 @@ fn void main()
                         .aabb = mesh_aabb,
                         .type = type
                     }, &manager)!!;
-
+       
                     spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
+
+                    // HitInfo hit;
+                    // bool result_2 = terrain_map.box_intersects(mesh_aabb, &hit);
                 }
 
                 node_entity.@add(render_data, &manager)!!;
