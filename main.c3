@@ -87,7 +87,6 @@ struct CollisionData @tag("BUFFER", 0) {
     uint node_index;
     uint mesh_index;
     bool collides;
-    bool check_collision;
     ColliderType type;
 }
 
@@ -164,15 +163,28 @@ const MoveEvent[] MOVE_EVENTS = {
     {DOWN_ARROW, {0, -SPEED, 0}},
 };
 
+const float GRAVITY = -9.8;
+
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     
+    // Handle gravity
     manager.@query("CollisionData"; Entity entity) {
-        CollisionData* collider = ecs::@get_ref(manager, entity, CollisionData)!!;
-        if (collider.type == ACTIVE) {
-   
+        CollisionData collider = ecs::@get(manager, entity, CollisionData);
+        ecs::Node* node = nodes[collider.node_index];
+        
+        if (collider.type != GROUND) {
+            HitInfo hit;
+            bool ground_collision = terrain_map.ray_intersects({node.translation, {0, -1, 0}}, &hit);
+  
+            if (hit.depth > 0) {
+                // mesh is in air
+                node.translation.y += (float)(time * GRAVITY);
+                node.dirty = (uint)true;
+            }
         };
     };
 
+    nodes.recalculate();
     spatial_map.@get_pairs(;Pair pair) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
@@ -526,7 +538,6 @@ fn void main()
                 }
 
                 ColliderType type;
-                Aabb3 mesh_aabb = mesh_data.aabb.transform(node.global_matrix());
 
                 switch (node.extras.get("collider") ?? "none")
                 {
@@ -542,7 +553,7 @@ fn void main()
                     Vec3f[] ground_data = meshes.get_vertices(mesh_index);
                     List{Triangle} triangles;
 
-                    for (uint i; i < ground_data.len - 1; i += 3) {
+                    for (uint i; i < ground_data.len - 3; i += 3) {
                         Triangle triangle = {ground_data[i], ground_data[i + 1], ground_data[i + 2]};
                         triangles.push(triangle);
                     }
@@ -557,14 +568,10 @@ fn void main()
                         .collides = false,
                         .node_index = node_index,
                         .mesh_index = mesh_index,
-                        .aabb = mesh_aabb,
+                        .aabb = mesh_data.aabb,
                         .type = type
                     }, &manager)!!;
-       
-                    spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
-
-                    // HitInfo hit;
-                    // bool result_2 = terrain_map.box_intersects(mesh_aabb, &hit);
+                    // spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
                 }
 
                 node_entity.@add(render_data, &manager)!!;
