@@ -1460,7 +1460,7 @@ fn usz Vec3f.hash(&self) {
     return (usz)h1.hash() ^ ((usz)h2.hash() << 1) ^ ((usz)h3.hash() << 2);
 }
 
-macro void? Gltf.@get_triangles(Gltf* self, String name; @callback(Vec3f[3] position)) {
+macro void? Gltf.@get_positions(Gltf* self, String name, #type; @callback(position)) {
     HashMap{usz, bool} unique_map;
     List{Vec3f} positions;
 
@@ -1477,15 +1477,20 @@ macro void? Gltf.@get_triangles(Gltf* self, String name; @callback(Vec3f[3] posi
         for (usz i = 0; i < pos_accessor.count; i++) {
             Vec3f position = self.@cast_buffer(pos_accessor, i, Vec3f);
             if (unique_map.has_key(position.hash()) == false) {
-           
                 positions.push(position);
                 unique_map.set(position.hash(), true);
             }
         }
 
-        for (usz i = 0; i < positions.len(); i += 3) {
-            @callback({positions[i], positions[i+1], positions[i+2]});
-        };
+        $if #type.kindof == ARRAY:
+            for (usz i = 0; i < positions.len(); i += #type.len) {
+                $typefrom(#type.typeid) value;
+                for (usz j = 0; j < #type.len; j++) value[j] = positions[i + j];
+                @callback(value);
+            };
+        $else
+            for (usz i = 0; i < positions.len(); i += 1) @callback(positions[i]);
+        $endif
     }
 }
 

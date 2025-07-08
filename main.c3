@@ -28,7 +28,7 @@ enum ColliderType {
     CAPSULE,
     CONVEX_POLYHEDRON,
     GROUND,
-    ACTIVE,
+    PLAYER,
     NONE
 }
 
@@ -172,24 +172,27 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         ecs::Node* node = nodes[collider.node_index];
 
         if (collider.type != GROUND) {
-            foreach (event: MOVE_EVENTS) {
-                if (key_map.is_pressed(event.key)) {
-                    node.translation += event.move;
-                };
+            if (collider.type == PLAYER) {
+                foreach (event: MOVE_EVENTS) {
+                    if (key_map.is_pressed(event.key)) {
+                        node.translation += event.move;
+                    };
+                }
             }
-                   
-            Vec3f ray_direction = (Vec3f){0, -1, 0}.normalize();
 
             HitInfo hit;
-            bool ground_collision = terrain_map.ray_intersects({node.translation + (Vec3f){0, 1, 0}, ray_direction}, &hit);
-
-            if (hit.depth > 1.5 || ground_collision == false) {
+            bool ground_collision = terrain_map.ray_intersects({node.translation, (Vec3f){0, -1, 0}.normalize()}, &hit);
+           
+            float offset = hit.normal.y / 2;
+            if (hit.depth > offset || ground_collision == false) {
                 node.translation.y += (float)(time * GRAVITY);
-            } else if (hit.depth < 1.5 && ground_collision) {
-                node.translation.y += (1.45 - hit.depth);
-                // Vec3f axis = (Vec3f){node.rotation.v.xyz}.cross(hit.normal.normalize());
-                // float angle = (Vec3f){node.rotation.v.xyz}.angle(hit.normal);
-                // node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
+            } else if (hit.depth < offset && ground_collision) {
+                node.translation.y += (offset - hit.depth) - (float)0.02;
+
+                Vec3f axis = (Vec3f){0, 1, 0}.cross(hit.normal);
+                float angle = (Vec3f){0, 1, 0}.angle(hit.normal);
+
+                node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
             }
             node.dirty = (uint)true;
         };
@@ -200,42 +203,37 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
 
-        // Check all collisions with ground
-        if (second.type != GROUND) {
-            // if (first.aabb.collides(second.aabb)) {
-            //     first.collides = true;
-            //     second.collides = true;
-            // }
-        }
+        ecs::Node* first_node = nodes[first.node_index];
+        ecs::Node* second_node = nodes[second.node_index];
+
+        Aabb3 first_collider = first.aabb.transform(first_node.matrix);
+        Aabb3 second_collider = second.aabb.transform(second_node.matrix);
 
         // Firstly do cheap AABB collision detection
-        // if (first.aabb.collides(second.aabb)) {
-        //     ecs::Node* first_node = nodes[first.node_index];
-        //     ecs::Node* second_node = nodes[second.node_index];
+        if (first_collider.collides(second_collider)) {
+            Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
+            Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
 
-        //     Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
-        //     Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
-
-        //     TransformedConvex transformed_shape_1 = {
-        //         .position = first_node.translation,
-        //         .shape = &&(ConvexPolyhedron){pos1}, 
-        //         .scale = first_node.scale, 
-        //     };
+            TransformedConvex transformed_shape_1 = {
+                .position = first_node.translation,
+                .shape = &&(ConvexPolyhedron){pos1}, 
+                .scale = first_node.scale, 
+            };
             
-        //     TransformedConvex transformed_shape_2 = {
-        //         .position = second_node.translation,
-        //         .shape = &&(ConvexPolyhedron){pos2},
-        //         .scale = second_node.scale, 
-        //     };
+            TransformedConvex transformed_shape_2 = {
+                .position = second_node.translation,
+                .shape = &&(ConvexPolyhedron){pos2},
+                .scale = second_node.scale, 
+            };
             
-        //     // GJK collision detection for complex meshes
-        //     CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
+            // GJK collision detection for complex meshes
+            CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
 
-        //     if (collision_info.collided) {
-        //         first.collides = true;
-        //         second.collides = true;
-        //     }
-        // }   
+            if (collision_info.collided) {
+                first.collides = true;
+                second.collides = true;
+            }
+        }   
     };
 }
 
@@ -555,13 +553,13 @@ fn void main()
                     case "convex": type = CONVEX_POLYHEDRON;
                     case "ground": type = GROUND;
                     case "none": type = NONE;
-                    case "active": type = ACTIVE;
+                    case "player": type = PLAYER;
                     default: type = NONE;
                 }
 
                 if (type == GROUND) {
                     List{Triangle} ground_triangles;
-                    gltf.@get_triangles(mesh.name; Vec3f[3] triangle) {
+                    gltf.@get_positions(mesh.name, Vec3f[3]; Vec3f[3] triangle) {
                         Triangle triangle_global = {
                             (triangle[0] + node.translation).rotate_by_quat(node.rotation),
                             (triangle[1] + node.translation).rotate_by_quat(node.rotation),
@@ -583,7 +581,7 @@ fn void main()
                         .aabb = mesh_data.aabb,
                         .type = type
                     }, &manager)!!;
-                    // spatial_map.insert({.min = mesh_aabb.min, .max = mesh_aabb.max, .id = (usz)node_entity })!!;
+                    spatial_map.insert({.min = mesh_data.aabb.min, .max = mesh_data.aabb.max, .id = (usz)node_entity })!!;
                 }
 
                 node_entity.@add(render_data, &manager)!!;
