@@ -131,6 +131,7 @@ MeshContainer meshes;
 
 SpatialHash3D spatial_map;
 BVHNode terrain_map;
+List{Vec3f} mesh_positions;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -211,18 +212,18 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
         // Firstly do cheap AABB collision detection
         if (first_collider.collides(second_collider)) {
-            Vec3f[] pos1 = meshes.get_vertices(first.mesh_index);
-            Vec3f[] pos2 = meshes.get_vertices(second.mesh_index);
+            MeshData first_mesh = meshes.get(first.mesh_index)!!;
+            MeshData second_mesh = meshes.get(second.mesh_index)!!;
 
             TransformedConvex transformed_shape_1 = {
                 .position = first_node.translation,
-                .shape = &&(ConvexPolyhedron){pos1}, 
+                .shape = &&(ConvexPolyhedron){mesh_positions.entries[first_mesh.vertex_offset..first_mesh.vertex_offset + first_mesh.vertex_len]}, 
                 .scale = first_node.scale, 
             };
             
             TransformedConvex transformed_shape_2 = {
                 .position = second_node.translation,
-                .shape = &&(ConvexPolyhedron){pos2},
+                .shape = &&(ConvexPolyhedron){mesh_positions.entries[second_mesh.vertex_offset..second_mesh.vertex_offset + second_mesh.vertex_len]},
                 .scale = second_node.scale, 
             };
             
@@ -358,7 +359,9 @@ fn void main()
 
     spatial_map = { .cell_size = 3.0 };
     defer spatial_map.free();
-    // defer gjk.free();
+
+    defer mesh_positions.free();
+
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -515,7 +518,7 @@ fn void main()
                 }, &manager)!!;
             }
 
-            meshes.@iter(mesh.name; uint mesh_index, MeshData mesh_data) {
+            meshes.@iter(mesh.name; uint mesh_index, MeshData* mesh_data) {
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,
                     .firstIndex = mesh_data.firstIndex,
@@ -567,6 +570,7 @@ fn void main()
                         };
                         ground_triangles.push(triangle_global);
                     }!!;
+
                   
                     terrain_map.build_recursive(ground_triangles.array_view());
                     ground_triangles.free();
@@ -574,13 +578,25 @@ fn void main()
 
                 // Add physics box           
                 if (type != GROUND) {
-                    node_entity.@add((CollisionData) {
+                    CollisionData data = {
                         .collides = false,
                         .node_index = node_index,
-                        .mesh_index = mesh_index,
                         .aabb = mesh_data.aabb,
-                        .type = type
-                    }, &manager)!!;
+                        .mesh_index = mesh_index,
+                        .type = type,
+                    };
+
+                    if (mesh_data.vertex_len == 0) {
+                        mesh_data.vertex_offset = mesh_positions.len();
+
+                        gltf.@get_positions(mesh.name, Vec3f; Vec3f position) {
+                            mesh_positions.push(position);
+                        }!!;
+
+                        mesh_data.vertex_len = mesh_positions.len() - mesh_data.vertex_offset;
+                    }
+
+                    node_entity.@add(data, &manager)!!;
                     spatial_map.insert({.min = mesh_data.aabb.min, .max = mesh_data.aabb.max, .id = (usz)node_entity })!!;
                 }
 
