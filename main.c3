@@ -165,22 +165,33 @@ const MoveEvent[] MOVE_EVENTS = {
 
 const float GRAVITY = -9.8;
 
-fn void physics_system(EntityManager manager, EventMap key_map, double time) {
-    
+fn void physics_system(EntityManager manager, EventMap key_map, double time) {    
     // Handle gravity
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
-        
+
         if (collider.type != GROUND) {
-            HitInfo hit;
-            bool ground_collision = terrain_map.ray_intersects({node.translation, {0, -1, 0}}, &hit);
-  
-            if (hit.depth > 0) {
-                // mesh is in air
-                node.translation.y += (float)(time * GRAVITY);
-                node.dirty = (uint)true;
+            foreach (event: MOVE_EVENTS) {
+                if (key_map.is_pressed(event.key)) {
+                    node.translation += event.move;
+                };
             }
+                   
+            Vec3f ray_direction = (Vec3f){0, -1, 0}.normalize();
+
+            HitInfo hit;
+            bool ground_collision = terrain_map.ray_intersects({node.translation + (Vec3f){0, 1, 0}, ray_direction}, &hit);
+
+            if (hit.depth > 1.5 || ground_collision == false) {
+                node.translation.y += (float)(time * GRAVITY);
+            } else if (hit.depth < 1.5 && ground_collision) {
+                node.translation.y += (1.45 - hit.depth);
+                // Vec3f axis = (Vec3f){node.rotation.v.xyz}.cross(hit.normal.normalize());
+                // float angle = (Vec3f){node.rotation.v.xyz}.angle(hit.normal);
+                // node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
+            }
+            node.dirty = (uint)true;
         };
     };
 
@@ -480,7 +491,6 @@ fn void main()
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-
             Entity node_entity = manager.@create_entity()!!;
 
             if (node.extras.has_key("animation")) {
@@ -550,16 +560,18 @@ fn void main()
                 }
 
                 if (type == GROUND) {
-                    Vec3f[] ground_data = meshes.get_vertices(mesh_index);
-                    List{Triangle} triangles;
-
-                    for (uint i; i < ground_data.len - 3; i += 3) {
-                        Triangle triangle = {ground_data[i], ground_data[i + 1], ground_data[i + 2]};
-                        triangles.push(triangle);
-                    }
+                    List{Triangle} ground_triangles;
+                    gltf.@get_triangles(mesh.name; Vec3f[3] triangle) {
+                        Triangle triangle_global = {
+                            (triangle[0] + node.translation).rotate_by_quat(node.rotation),
+                            (triangle[1] + node.translation).rotate_by_quat(node.rotation),
+                            (triangle[2] + node.translation).rotate_by_quat(node.rotation)
+                        };
+                        ground_triangles.push(triangle_global);
+                    }!!;
                   
-                    terrain_map.build_recursive(triangles.array_view());
-                    triangles.free();
+                    terrain_map.build_recursive(ground_triangles.array_view());
+                    ground_triangles.free();
                 }
 
                 // Add physics box           

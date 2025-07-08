@@ -549,13 +549,6 @@ struct Node {
     uint dirty;
 }
 
-fn usz Vec3f.hash(&self) {
-    usz h1 = (usz)self.x;
-    usz h2 = (usz)self.y;
-    usz h3 = (usz)self.z;
-    return (usz)h1.hash() ^ ((usz)h2.hash() << 1) ^ ((usz)h3.hash() << 2);
-}
-
 alias NodeComponent = Component;
 
 <*

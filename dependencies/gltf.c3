@@ -1453,6 +1453,42 @@ fn char* Gltf.get_data(&self, BufferView view) {
     return buffer.data[view.offset..];
 }
 
+fn usz Vec3f.hash(&self) {
+    usz h1 = (usz)self.x;
+    usz h2 = (usz)self.y;
+    usz h3 = (usz)self.z;
+    return (usz)h1.hash() ^ ((usz)h2.hash() << 1) ^ ((usz)h3.hash() << 2);
+}
+
+macro void? Gltf.@get_triangles(Gltf* self, String name; @callback(Vec3f[3] position)) {
+    HashMap{usz, bool} unique_map;
+    List{Vec3f} positions;
+
+    defer {
+        positions.free();
+        unique_map.free();
+    }
+
+    Mesh mesh = self.find_mesh(name)!;
+    foreach (uint prim_index, primitive: mesh.primitives) {
+        Accessor index_accessor = self.accessors[primitive.attributes["indices"]!!];
+        Accessor pos_accessor = self.accessors[primitive.attributes["POSITION"]!!];
+  
+        for (usz i = 0; i < pos_accessor.count; i++) {
+            Vec3f position = self.@cast_buffer(pos_accessor, i, Vec3f);
+            if (unique_map.has_key(position.hash()) == false) {
+           
+                positions.push(position);
+                unique_map.set(position.hash(), true);
+            }
+        }
+
+        for (usz i = 0; i < positions.len(); i += 3) {
+            @callback({positions[i], positions[i+1], positions[i+2]});
+        };
+    }
+}
+
 fn void Gltf.debug_buffer(Gltf* self, Accessor accessor) {
     BufferView bufferView = self.bufferViews[accessor.view];
     Buffer buffer = self.buffers[bufferView.buffer];
