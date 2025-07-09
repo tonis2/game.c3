@@ -133,6 +133,8 @@ SpatialHash3D spatial_map;
 BVHNode terrain_map;
 List{Vec3f} mesh_positions;
 
+fn Vec3f[] List{Vec3f}.get_positions(self, MeshData info) => self.entries[info.vertex_offset..info.vertex_offset + info.vertex_len];
+
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
     Memory stage_buffer = vk::new_buffer(
@@ -212,25 +214,23 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
         // Firstly do cheap AABB collision detection
         if (first_collider.collides(second_collider)) {
-            MeshData first_mesh = meshes.get(first.mesh_index)!!;
-            MeshData second_mesh = meshes.get(second.mesh_index)!!;
-
             TransformedConvex transformed_shape_1 = {
                 .position = first_node.translation,
-                .shape = &&(ConvexPolyhedron){mesh_positions.entries[first_mesh.vertex_offset..first_mesh.vertex_offset + first_mesh.vertex_len]}, 
+                .shape = &&(ConvexPolyhedron){mesh_positions.get_positions(meshes.get(first.mesh_index)!!)}, 
                 .scale = first_node.scale, 
             };
             
             TransformedConvex transformed_shape_2 = {
                 .position = second_node.translation,
-                .shape = &&(ConvexPolyhedron){mesh_positions.entries[second_mesh.vertex_offset..second_mesh.vertex_offset + second_mesh.vertex_len]},
+                .shape = &&(ConvexPolyhedron){mesh_positions.get_positions(meshes.get(second.mesh_index)!!)},
                 .scale = second_node.scale, 
             };
             
             // GJK collision detection for complex meshes
             CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
+            CollisionInfo epa_info = collision::epa(collision_info.simplex, &transformed_shape_1, &transformed_shape_2);
 
-            if (collision_info.collided) {
+            if (collision_info.collided && epa_info.collided) {
                 first.collides = true;
                 second.collides = true;
             }
