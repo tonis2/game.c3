@@ -8,7 +8,7 @@ build/*
 *.ko
 *.obj
 *.elf
-
+game.gltf
 # Linker output
 *.ilk
 *.map
