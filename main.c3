@@ -228,7 +228,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             
             // GJK collision detection for complex meshes
             CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
-            collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
+            // collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
 
             if (collision_info.collided) {
                 first.collides = true;
