@@ -573,11 +573,11 @@ fn void NodeComponent.set(&self, usz index, Matrix4f matrix) @inline
 fn Matrix4f NodeComponent.global_matrix(&self, uint index) @inline
 {
     Node* current_node = self.get(index);
-    Matrix4f global_matrix = current_node.matrix;
+    Matrix4f global_matrix = gltf::to_matrix(current_node.translation, current_node.scale, current_node.rotation);
 
     while (current_node.parent != - 1) {
         Node* parent_node = self.get(current_node.parent);
-        global_matrix = parent_node.matrix.mul(global_matrix);
+        global_matrix = gltf::to_matrix(parent_node.translation, parent_node.scale, parent_node.rotation) * global_matrix;
         current_node = parent_node;
     }
     
