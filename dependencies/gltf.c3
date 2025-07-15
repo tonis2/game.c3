@@ -25,6 +25,7 @@ const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
 const ANIMATION_POINTER_EXTENSION = "KHR_animation_pointer";
 const MESH_GPU_INSTANCING_EXTENSION = "EXT_mesh_gpu_instancing";
+const IMPLICIT_SHAPES = "KHR_implicit_shapes";
 
 enum Targets {
     ARRAY_BUFFER,
@@ -115,6 +116,13 @@ enum MinFilter {
     LINEAR_MIPMAP_LINEAR,
 }
 
+enum ShapeType {
+    BOX,
+    CAPSULE,
+    CYLINDER,
+    SPHERE,
+}
+
 enum MagFilter {
     NEAREST,
     LINEAR,
@@ -144,13 +152,9 @@ struct Gltf {
     List{Animation} animations;
     List{Light} lights;
     List{String} extensions;
+    List{Shape} shapes;
     Materials materials;
     SkinList skins;
-}
-
-struct SceneBufferInfo {
-    usz size;
-    usz count;
 }
 
 struct Scene {
@@ -315,6 +319,69 @@ struct Light {
 struct AnimationValue {
     float time;
     Vec4f value;
+}
+
+struct Shape {
+    Vec4f size;
+    float height;
+    float radius_bottom;
+    float radius_top;
+    float radius;
+    ShapeType type;
+}
+
+fn Shape parse_shape(Object* json) {
+    String? type = json.get_string("type");
+
+    if (try type) {
+        switch (type) {
+            case "box": {
+                Object*? box = json.get("box");
+                Object*? size = box.get("size");
+                Vec4f size_value = @ok(size) ? { (float)size.get_at(0).f!!, (float)size.get_at(0).f!!, (float)size.get_at(0).f!!, 0} : {0,0,0,0};
+                return {
+                    .type = BOX,
+                    .size = size_value
+                };
+            }
+            case "sphere": {
+                Object*? body = json.get("sphere");
+                float radius = (float)body.get_float("radius") ?? 0;
+                return {
+                    .type = SPHERE,
+                    .radius = radius
+                };
+            }
+            case "cylinder": {
+                Object*? body = json.get("cylinder");
+                float height = (float)body.get_float("height") ?? 0;
+                float radius_bottom = (float)body.get_float("radiusBottom") ?? 0;
+                float radius_top = (float)body.get_float("radiusTop") ?? 0;
+
+                return {
+                    .type = CYLINDER,
+                    .height = height,
+                    .radius_bottom  = radius_bottom,
+                    .radius_top = radius_top
+                };
+            }
+            case "capsule": {
+                Object*? body = json.get("capsule");
+                float height = (float)body.get_float("height") ?? 0;
+                float radius_bottom = (float)body.get_float("radiusBottom") ?? 0;
+                float radius_top = (float)body.get_float("radiusTop") ?? 0;
+
+                return {
+                    .type = CAPSULE,
+                    .height = height,
+                    .radius_bottom  = radius_bottom,
+                    .radius_top = radius_top
+                };
+            }
+        }
+    }
+
+    return (Shape){.type = SPHERE };
 }
 
 // Parsing JSON to structs
@@ -1076,6 +1143,13 @@ fn Gltf? parse(InStream stream) {
     Object*? textures = gltfJson.get("textures");
     Object*? animations = gltfJson.get("animations");
     Object*? skins = gltfJson.get("skins");
+
+    @when_extended(gltfJson, IMPLICIT_SHAPES; Object* extension) {
+        Object*? shapes = extension.get("shapes");
+        if (try shapes) {
+            foreach (shape: shapes.array) content.shapes.push(parse_shape(shape));
+        }
+    };
 
     @when_extended(gltfJson, PUNCTUAL_LIGHT_EXTENSION; Object* extension) {
         Object*? lights = extension.get("lights");
