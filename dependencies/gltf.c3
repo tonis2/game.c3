@@ -25,7 +25,8 @@ const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
 const ANIMATION_POINTER_EXTENSION = "KHR_animation_pointer";
 const MESH_GPU_INSTANCING_EXTENSION = "EXT_mesh_gpu_instancing";
-const IMPLICIT_SHAPES = "KHR_implicit_shapes";
+const IMPLICIT_SHAPES_EXTENSION = "KHR_implicit_shapes";
+const RIGID_BODIES_EXTENSION = "KHR_physics_rigid_bodies";
 
 enum Targets {
     ARRAY_BUFFER,
@@ -128,6 +129,23 @@ enum MagFilter {
     LINEAR,
 }
 
+enum DriveType {
+    ANGULAR,
+    LINEAR
+}
+
+enum DriveMode {
+    FORCE,
+    ACCELERATION
+}
+
+enum PhysicsCombine {
+    AVERAGE,
+    MINIMUM,
+    MAXIMUM,
+    MULTIPLY
+}
+
 faultdef FILE_NOT_FOUND,
     FILE_NOT_READABLE,
     JSON_PARSE_FAILED,
@@ -153,6 +171,9 @@ struct Gltf {
     List{Light} lights;
     List{String} extensions;
     List{Shape} shapes;
+    List{PhysicsJoint} physics_joints;
+    List{PhysicsMaterial} physics_materials;
+    List{CollisionFilter} collision_filters;
     Materials materials;
     SkinList skins;
 }
@@ -330,7 +351,72 @@ struct Shape {
     ShapeType type;
 }
 
-fn Shape parse_shape(Object* json) {
+struct Limit {
+    Vec3f linear_axes;
+    Vec3f angular_axes;
+    float min;
+    float max;
+    float stiffness;
+    float damping;
+}
+
+struct Drive {
+    DriveType type;
+    DriveMode drive;
+    uint axis;
+    float max_force;
+    float position_target;
+    float velocity_target;
+    float stiffness;
+    float damping;
+}
+
+struct PhysicsJoint {
+    List{Limit} limits;
+    List{Drive} drives;
+}
+
+struct PhysicsMaterial {
+    float static_friction;
+    float dynamic_friction;
+    float restitution;
+    PhysicsCombine friction_combine;
+    PhysicsCombine restitution_combine;
+}
+
+struct CollisionFilter {
+   List{String} systems;
+   List{String} not_colliding;
+   List{String} colliding_with;
+}
+
+fn CollisionFilter CollisionFilter.from_json(self, Object* json) {
+    Object*? systems = json.get("collisionSystems");
+    Object*? collide_with = json.get("collideWithSystems");
+    Object*? not_colliding = json.get("notCollideWithSystems");
+
+    if (try systems) {
+        foreach (system: systems.array) self.systems.push(system.s);
+    }
+
+    if (try collide_with) {
+        foreach (system: collide_with.array) self.colliding_with.push(system.s);
+    }
+
+    if (try not_colliding) {
+        foreach (system: not_colliding.array) self.not_colliding.push(system.s);
+    }
+
+    return self;
+}
+
+fn void CollisionFilter.free(&self) {
+    self.systems.free();
+    self.not_colliding.free();
+    self.colliding_with.free();
+}
+
+fn Shape Shape.from_json(self, Object* json) {
     String? type = json.get_string("type");
 
     if (try type) {
@@ -338,8 +424,8 @@ fn Shape parse_shape(Object* json) {
             case "box": {
                 Object*? box = json.get("box");
                 Object*? size = box.get("size");
-                Vec4f size_value = @ok(size) ? { (float)size.get_at(0).f!!, (float)size.get_at(0).f!!, (float)size.get_at(0).f!!, 0} : {0,0,0,0};
-                return {
+                Vec4f size_value = @ok(size) ? { (float)size.get_at(0).f!!, (float)size.get_at(1).f!!, (float)size.get_at(2).f!!, 0} : {0,0,0,0};
+                self = {
                     .type = BOX,
                     .size = size_value
                 };
@@ -347,7 +433,7 @@ fn Shape parse_shape(Object* json) {
             case "sphere": {
                 Object*? body = json.get("sphere");
                 float radius = (float)body.get_float("radius") ?? 0;
-                return {
+                self = {
                     .type = SPHERE,
                     .radius = radius
                 };
@@ -358,7 +444,7 @@ fn Shape parse_shape(Object* json) {
                 float radius_bottom = (float)body.get_float("radiusBottom") ?? 0;
                 float radius_top = (float)body.get_float("radiusTop") ?? 0;
 
-                return {
+                self = {
                     .type = CYLINDER,
                     .height = height,
                     .radius_bottom  = radius_bottom,
@@ -371,7 +457,7 @@ fn Shape parse_shape(Object* json) {
                 float radius_bottom = (float)body.get_float("radiusBottom") ?? 0;
                 float radius_top = (float)body.get_float("radiusTop") ?? 0;
 
-                return {
+                self = {
                     .type = CAPSULE,
                     .height = height,
                     .radius_bottom  = radius_bottom,
@@ -381,7 +467,90 @@ fn Shape parse_shape(Object* json) {
         }
     }
 
-    return (Shape){.type = SPHERE };
+    return self;
+}
+
+fn PhysicsJoint PhysicsJoint.from_json(self, Object* json) {
+    Object*? limits = json.get("limits");
+    Object*? drives = json.get("drives");
+
+    if (try limits) {
+        foreach (limit: limits.array) {
+            Limit joint_limit;
+
+            joint_limit.min = (float)limit.get_float("min") ?? 0;
+            joint_limit.max = (float)limit.get_float("max") ?? 0;
+
+            Object*? linear_axes = limit.get("linearAxes");
+            Object*? angular_axes = limit.get("angularAxes");
+
+            if (try linear_axes) {
+                foreach (usz i, axis: linear_axes.array) {
+                    joint_limit.linear_axes[i] = (float)axis.f;
+                }
+            }
+
+            if (try angular_axes) {
+                foreach (usz i, axis: angular_axes.array) {
+                    joint_limit.angular_axes[i] = (float)axis.f;
+                }
+            }
+
+            self.limits.push(joint_limit);
+        }
+    }
+
+    if (try drives) {
+        foreach (drive: drives.array) {
+            Drive joint_drive;
+
+            joint_drive.axis = (uint)drive.get_int("axis") ?? 0;
+            joint_drive.position_target = (float)drive.get_float("positionTarget") ?? 0;
+            joint_drive.velocity_target = (float)drive.get_float("velocityTarget") ?? 0;
+            joint_drive.stiffness = (float)drive.get_float("stiffness") ?? 0;
+            joint_drive.damping = (float)drive.get_float("damping") ?? 0;
+
+            String? type = drive.get_string("type");
+            String? mode = drive.get_string("mode");
+
+            self.drives.push(joint_drive);
+        }
+    }
+    return self;
+}
+
+fn void PhysicsJoint.free(&self) {
+    self.limits.free();
+    self.drives.free();
+}
+
+fn PhysicsMaterial PhysicsMaterial.from_json(self, Object* json) {
+    self.static_friction = (float)json.get_float("staticFriction") ?? 0;
+    self.dynamic_friction = (float)json.get_float("dynamicFriction") ?? 0;
+    self.restitution = (float)json.get_float("restitution") ?? 0;
+    
+    String? friction_combine = json.get_string("frictionCombine");
+    String? restitution_combine = json.get_string("restitutionCombine");
+
+    if (try friction_combine) {
+        switch (friction_combine) {
+            case "average": self.friction_combine = AVERAGE;
+            case "minimum": self.friction_combine = MINIMUM;
+            case "maximum": self.friction_combine = MAXIMUM;
+            case "multiply": self.friction_combine = MULTIPLY;
+        }
+    }
+
+    if (try restitution_combine) {
+        switch (restitution_combine) {
+            case "average": self.restitution_combine = AVERAGE;
+            case "minimum": self.restitution_combine = MINIMUM;
+            case "maximum": self.restitution_combine = MAXIMUM;
+            case "multiply": self.restitution_combine = MULTIPLY;
+        }
+    }
+
+    return self;
 }
 
 // Parsing JSON to structs
@@ -467,21 +636,10 @@ fn void Node.from_json(&self, Object* json) {
     }
 }
 
-fn bool Node.has_mesh(self) {
-    return self.mesh != -1;
-}
-
-fn bool Node.has_skin(self) {
-    return self.skin != -1;
-}
-
-fn bool Node.has_camera(self) {
-    return self.camera != -1;
-}
-
-fn bool Node.has_light(self) {
-    return self.light != -1;
-}
+fn bool Node.has_mesh(self) => self.mesh != -1;
+fn bool Node.has_skin(self) => self.skin != -1;
+fn bool Node.has_camera(self) => self.camera != -1;
+fn bool Node.has_light(self) => self.light != -1;
 
 fn void Node.free(&self) {
     self.children.free();
@@ -995,7 +1153,6 @@ fn void Animation.free(&self) {
     self.name.free(mem);
 }
 
-
 fn void Skin.from_json(&self, Object* json) {
     String? name = json.get_string("name");
     Object*? joints = json.get("joints");
@@ -1144,16 +1301,41 @@ fn Gltf? parse(InStream stream) {
     Object*? animations = gltfJson.get("animations");
     Object*? skins = gltfJson.get("skins");
 
-    @when_extended(gltfJson, IMPLICIT_SHAPES; Object* extension) {
+    @when_extended(gltfJson, IMPLICIT_SHAPES_EXTENSION; Object* extension) {
         Object*? shapes = extension.get("shapes");
         if (try shapes) {
-            foreach (shape: shapes.array) content.shapes.push(parse_shape(shape));
+            foreach (shape: shapes.array) content.shapes.push((Shape){}.from_json(shape));
+        }
+    };
+
+    @when_extended(gltfJson, RIGID_BODIES_EXTENSION; Object* extension) {
+        Object*? physics_materials = extension.get("physicsMaterials");
+        Object*? physics_joints = extension.get("physicsJoints");
+        Object*? collision_filters = extension.get("collisionFilters");
+
+        if (try physics_joints) {
+            foreach (joint: physics_joints.array) {
+                content.physics_joints.push((PhysicsJoint){}.from_json(joint));
+            }
+        }
+
+        if (try physics_materials) {
+            foreach (material: physics_materials.array) {
+                content.physics_materials.push((PhysicsMaterial){}.from_json(material));
+            }
+        }
+
+        if (try collision_filters) {
+            foreach (filter: collision_filters.array) {
+                content.collision_filters.push((CollisionFilter){}.from_json(filter));
+            }
         }
     };
 
     @when_extended(gltfJson, PUNCTUAL_LIGHT_EXTENSION; Object* extension) {
         Object*? lights = extension.get("lights");
-            // Parse light extension
+
+        // Parse light extension
         if (try lights) {
             foreach (light: lights.array) {
                 Light data;
@@ -1323,8 +1505,14 @@ fn void Gltf.free(Gltf* self) {
     foreach (buffer : self.buffers) buffer.free();
     foreach (scene : self.scenes) scene.free();
     foreach (animation : self.animations) animation.free();
+    foreach (joint : self.physics_joints) joint.free();
+    foreach (filter: self.collision_filters) filter.free();
     // foreach (accessor : self.accessors) accessor.free();
 
+    self.collision_filters.free();
+    self.physics_materials.free();
+    self.physics_joints.free();
+    self.shapes.free();
     self.cameras.free();
     self.accessors.free();
     self.bufferViews.free();
