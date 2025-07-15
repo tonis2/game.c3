@@ -175,6 +175,9 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         ecs::Node* node = nodes[collider.node_index];
 
         if (collider.type != GROUND) {
+            Aabb3 old_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
+            Vec3f old_translation = node.translation;
+
             if (collider.type == PLAYER) {
                 foreach (event: MOVE_EVENTS) {
                     if (key_map.is_pressed(event.key)) {
@@ -194,25 +197,29 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
                 Vec3f axis = (Vec3f){0, 1, 0}.cross(hit.normal);
                 float angle = (Vec3f){0, 1, 0}.angle(hit.normal);
-
                 node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
             }
-            node.dirty = (uint)true;
+
+            if (old_translation != node.translation) node.dirty = (uint)true;
+            if (collider.type == PLAYER && node.dirty) {
+                Aabb3 new_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
+                spatial_map.update(old_aabb, new_aabb, entity.id)!!;
+            }
         };
     };
 
     nodes.recalculate();
     spatial_map.@get_pairs(;Pair pair) {
+ 
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
-
+        
         ecs::Node* first_node = nodes[first.node_index];
         ecs::Node* second_node = nodes[second.node_index];
 
         Aabb3 first_collider = first.aabb.transform(first_node.matrix);
         Aabb3 second_collider = second.aabb.transform(second_node.matrix);
 
-        // Firstly do cheap AABB collision detection
         if (first_collider.collides(second_collider)) {
             TransformedConvex transformed_shape_1 = {
                 .position = first_node.translation,
@@ -357,11 +364,10 @@ fn void main()
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
-    spatial_map = { .cell_size = 3.0 };
+    spatial_map = { .cell_size = 0.8 };
     defer spatial_map.free();
 
     defer mesh_positions.free();
-
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -571,7 +577,6 @@ fn void main()
                         ground_triangles.push(triangle_global);
                     }!!;
 
-                  
                     terrain_map.build_recursive(ground_triangles.array_view());
                     ground_triangles.free();
                 }
@@ -597,7 +602,8 @@ fn void main()
                     }
 
                     node_entity.@add(data, &manager)!!;
-                    spatial_map.insert({.min = mesh_data.aabb.min, .max = mesh_data.aabb.max, .id = (usz)node_entity })!!;
+
+                    spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
                 }
 
                 node_entity.@add(render_data, &manager)!!;
