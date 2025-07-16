@@ -364,7 +364,7 @@ fn void main()
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
-    spatial_map = { .cell_size = 0.8 };
+    spatial_map = { .cell_size = 1.0 };
     defer spatial_map.free();
 
     defer mesh_positions.free();

@@ -4,10 +4,10 @@
 	"authors": [],
 	"version": "0.1.0",
 	"dependency-search-paths": [ "./dependencies"],
-	"dependencies": ["c3w", "vk", "stb", "collision"],
+	"dependencies": ["c3w", "vk", "stb", "collision", "gltf"],
 	"features": ["WAYLAND", "ECS_EXTRA"],
 	"linked-libraries": ["vulkan"],
-	"sources": ["./dependencies/gltf.c3", "./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
+	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
 	"script-dir": "./",
 	"targets": {
 		"shaders": {
