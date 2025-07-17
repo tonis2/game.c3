@@ -13,7 +13,6 @@ import helpers;
 import ecs;
 import collision;
 
-
 const ANIMATION_FPS = 40;
 const MAX_FPS = 60;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
@@ -21,16 +20,6 @@ NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
-
-enum ColliderType {
-    SPHERE,
-    AABB,
-    CAPSULE,
-    CONVEX_POLYHEDRON,
-    GROUND,
-    PLAYER,
-    NONE
-}
 
 struct MoveEvent {
     EventKey key;
@@ -85,9 +74,8 @@ struct CollisionData @tag("BUFFER", 0) {
     Vec3f mass;
     Aabb3 aabb;
     uint node_index;
-    uint mesh_index;
     bool collides;
-    ColliderType type;
+    ConvexShape collider;
 }
 
 struct AnimationData {
@@ -174,38 +162,38 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
 
-        if (collider.type != GROUND) {
-            Aabb3 old_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
-            Vec3f old_translation = node.translation;
+        // if (collider.type != GROUND) {
+        //     Aabb3 old_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
+        //     Vec3f old_translation = node.translation;
 
-            if (collider.type == PLAYER) {
-                foreach (event: MOVE_EVENTS) {
-                    if (key_map.is_pressed(event.key)) {
-                        node.translation += event.move;
-                    };
-                }
-            }
+        //     if (collider.type == PLAYER) {
+        //         foreach (event: MOVE_EVENTS) {
+        //             if (key_map.is_pressed(event.key)) {
+        //                 node.translation += event.move;
+        //             };
+        //         }
+        //     }
 
-            HitInfo hit;
-            bool ground_collision = terrain_map.ray_intersects({node.translation, (Vec3f){0, -1, 0}.normalize()}, &hit);
+        //     HitInfo hit;
+        //     bool ground_collision = terrain_map.ray_intersects({node.translation, (Vec3f){0, -1, 0}.normalize()}, &hit);
            
-            float offset = hit.normal.y / 2;
-            if (hit.depth > offset || ground_collision == false) {
-                node.translation.y += (float)(time * GRAVITY);
-            } else if (hit.depth < offset && ground_collision) {
-                node.translation.y += (offset - hit.depth) - (float)0.02;
+        //     float offset = hit.normal.y / 2;
+        //     if (hit.depth > offset || ground_collision == false) {
+        //         node.translation.y += (float)(time * GRAVITY);
+        //     } else if (hit.depth < offset && ground_collision) {
+        //         node.translation.y += (offset - hit.depth) - (float)0.02;
 
-                Vec3f axis = (Vec3f){0, 1, 0}.cross(hit.normal);
-                float angle = (Vec3f){0, 1, 0}.angle(hit.normal);
-                node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
-            }
+        //         Vec3f axis = (Vec3f){0, 1, 0}.cross(hit.normal);
+        //         float angle = (Vec3f){0, 1, 0}.angle(hit.normal);
+        //         node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
+        //     }
 
-            if (old_translation != node.translation) node.dirty = (uint)true;
-            if (collider.type == PLAYER && node.dirty) {
-                Aabb3 new_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
-                spatial_map.update(old_aabb, new_aabb, entity.id)!!;
-            }
-        };
+        //     if (old_translation != node.translation) node.dirty = (uint)true;
+        //     if (collider.type == PLAYER && node.dirty) {
+        //         Aabb3 new_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
+        //         spatial_map.update(old_aabb, new_aabb, entity.id)!!;
+        //     }
+        // };
     };
 
     nodes.recalculate();
@@ -223,13 +211,13 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         if (first_collider.collides(second_collider)) {
             TransformedConvex transformed_shape_1 = {
                 .position = first_node.translation,
-                .shape = &&(ConvexPolyhedron){mesh_positions.get_positions(meshes.get(first.mesh_index)!!)}, 
+                .shape = first.collider, 
                 .scale = first_node.scale, 
             };
             
             TransformedConvex transformed_shape_2 = {
                 .position = second_node.translation,
-                .shape = &&(ConvexPolyhedron){mesh_positions.get_positions(meshes.get(second.mesh_index)!!)},
+                .shape = second.collider,
                 .scale = second_node.scale, 
             };
             
@@ -361,7 +349,7 @@ fn void main()
     // Create camera
     helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/shapes.gltf")!!;
     defer gltf.free();
 
     spatial_map = { .cell_size = 1.0 };
@@ -496,7 +484,7 @@ fn void main()
 
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
-        if (node.has_mesh()) {
+        if (node.has_mesh() && node.name != "physicsMeshDataNode") {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             Entity node_entity = manager.@create_entity()!!;
 
@@ -554,57 +542,68 @@ fn void main()
                     }
                 }
 
-                ColliderType type;
 
-                switch (node.extras.get("collider") ?? "none")
-                {
-                    case "box": type = AABB;
-                    case "convex": type = CONVEX_POLYHEDRON;
-                    case "ground": type = GROUND;
-                    case "none": type = NONE;
-                    case "player": type = PLAYER;
-                    default: type = NONE;
-                }
-
-                if (type == GROUND) {
-                    List{Triangle} ground_triangles;
-                    gltf.@get_positions(mesh.name, Vec3f[3]; Vec3f[3] triangle) {
-                        Triangle triangle_global = {
-                            (triangle[0] + node.translation).rotate_by_quat(node.rotation),
-                            (triangle[1] + node.translation).rotate_by_quat(node.rotation),
-                            (triangle[2] + node.translation).rotate_by_quat(node.rotation)
-                        };
-                        ground_triangles.push(triangle_global);
-                    }!!;
-
-                    terrain_map.build_recursive(ground_triangles.array_view());
-                    ground_triangles.free();
-                }
-
-                // Add physics box           
-                if (type != GROUND) {
+                if (node.collider != null) {
                     CollisionData data = {
                         .collides = false,
                         .node_index = node_index,
                         .aabb = mesh_data.aabb,
-                        .mesh_index = mesh_index,
-                        .type = type,
                     };
 
-                    if (mesh_data.vertex_len == 0) {
-                        mesh_data.vertex_offset = mesh_positions.len();
-
-                        gltf.@get_positions(mesh.name, Vec3f; Vec3f position) {
-                            mesh_positions.push(position);
-                        }!!;
-
-                        mesh_data.vertex_len = mesh_positions.len() - mesh_data.vertex_offset;
+                    if (node.collider.shape > 0) {
+                        Shape shape = gltf.shapes[node.collider.shape];
+                        switch (shape.type) {
+                            case BOX: data.collider = &&mesh_data.aabb;
+                            case SPHERE: data.collider = &&(Sphere){node.translation, shape.radius};
+                            case CYLINDER: data.collider = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
+                            case CAPSULE: data.collider = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                        }
                     }
 
-                    node_entity.@add(data, &manager)!!;
+                    if (node.collider.convex_hull == false) {
+                        // List{Triangle} ground_triangles;
 
-                    spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
+                        // gltf.@get_positions(mesh.name, Vec3f[3]; Vec3f[3] triangle) {
+                        //     Triangle triangle_global = {
+                        //         (triangle[0] + node.translation).rotate_by_quat(node.rotation),
+                        //         (triangle[1] + node.translation).rotate_by_quat(node.rotation),
+                        //         (triangle[2] + node.translation).rotate_by_quat(node.rotation)
+                        //     };
+                        //     ground_triangles.push(triangle_global);
+                        // }!!;
+                        // terrain_map.build_recursive(ground_triangles.array_view());
+                    }
+
+                    if (node.collider.convex_hull) {
+                        // node.collider = &&(ConvexPolyhedron){mesh_positions.get_positions(meshes.get(first.mesh_index)!!)};
+                    }
                 }
+
+                // if (type == GROUND) {
+       
+
+                //     
+                //     ground_triangles.free();
+                // }
+
+                // Add physics box           
+                // if (type != GROUND) {
+
+
+                //     if (mesh_data.vertex_len == 0) {
+                //         mesh_data.vertex_offset = mesh_positions.len();
+
+                //         gltf.@get_positions(mesh.name, Vec3f; Vec3f position) {
+                //             mesh_positions.push(position);
+                //         }!!;
+
+                //         mesh_data.vertex_len = mesh_positions.len() - mesh_data.vertex_offset;
+                //     }
+
+                //     node_entity.@add(data, &manager)!!;
+
+                //     spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
+                // }
 
                 node_entity.@add(render_data, &manager)!!;
             }!!;
