@@ -75,6 +75,7 @@ struct CollisionData @tag("BUFFER", 0) {
     Aabb3 aabb;
     uint node_index;
     bool collides;
+    bool is_player;
     ConvexShape collider;
 }
 
@@ -119,7 +120,7 @@ MeshContainer meshes;
 
 SpatialHash3D spatial_map;
 BVHNode terrain_map;
-List{Vec3f} mesh_positions;
+
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -164,22 +165,24 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             Aabb3 old_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
             Vec3f old_translation = node.translation;
 
-            // if (collider.type == PLAYER) {
-            //     foreach (event: MOVE_EVENTS) {
-            //         if (key_map.is_pressed(event.key)) {
-            //             node.translation += event.move;
-            //         };
-            //     }
-            // }
+            if (collider.is_player) {
+                foreach (event: MOVE_EVENTS) {
+                    if (key_map.is_pressed(event.key)) {
+                        node.translation += event.move;
+                    };
+                }
+            }
 
             HitInfo hit;
             bool ground_collision = terrain_map.ray_intersects({node.translation, (Vec3f){0, -1, 0}.normalize()}, &hit);
             
-            float offset = hit.normal.y / 2;
+            float offset = 0.3;
+
+            // io::printfn("collision %s", ground_collision);
             if (hit.depth > offset || ground_collision == false) {
                 node.translation.y += (float)(time * GRAVITY);
             } else if (hit.depth < offset && ground_collision) {
-                node.translation.y += (offset - hit.depth) - (float)0.02;
+                node.translation.y += (offset - hit.depth) - offset / 2;
 
                 Vec3f axis = (Vec3f){0, 1, 0}.cross(hit.normal);
                 float angle = (Vec3f){0, 1, 0}.angle(hit.normal);
@@ -343,16 +346,14 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    // Create camera
-    helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
-
-    gltf = gltf::loadFile("assets/game.gltf")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
     spatial_map = { .cell_size = 1.0 };
     defer spatial_map.free();
 
-    defer mesh_positions.free();
+    // Create camera
+    helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -454,24 +455,6 @@ fn void main()
             .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
         });
     };
-  
-    Entity scene = manager.@create_entity(
-        camera.data(),
-        (SceneLight) {
-            .position = {2, 12.0, 5},
-            .color = {1, 1, 1},
-            .intensity = 54351,
-            .type = DIRECTIONAL
-        },
-        (SceneData) {
-            .draw_cmds = draw_memory.address,
-            .vertices = ecs::@get_address(manager, vertices),
-            .materials = ecs::@get_address(manager, materials),
-            .animations = ecs::@get_address(manager, skin_animations),
-            .instances = ecs::@get_address(manager, instances),
-            .nodes = ecs::@get_address(manager, nodes)
-        },
-    )!!;
 
     manager.add_system({.query = {"Render", "SkinAnimation"}, .type = QUERY, .callback = &skin_animation_player});
     manager.add_system({.query = {"WorldAnimation"}, .type = QUERY, .callback = &world_animation_player});
@@ -479,8 +462,15 @@ fn void main()
 
     defer animation_list.free();
 
+    List{Triangle} ground_triangles;
+    List{Vec3f} mesh_positions;
+    defer mesh_positions.free();
+
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
+        if (node.has_camera()) {
+            camera = helpers::new_camera(eye: node.translation, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
+        }
         if (node.has_mesh() && node.name != "physicsMeshDataNode") {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             Entity node_entity = manager.@create_entity()!!;
@@ -544,6 +534,7 @@ fn void main()
                         .collides = false,
                         .node_index = node_index,
                         .aabb = mesh_data.aabb,
+                        .is_player = node.name == "player"
                     };
 
                     // Node is active compound shape, make collider from child meshes
@@ -568,18 +559,14 @@ fn void main()
 
                     // Motion is null, collider is static
                     if (node.motion == null && node.collider != null && !node.collider.has_shape()) {
-                        List{Triangle} ground_triangles;
-                        defer ground_triangles.free();
-
                         gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
                             Triangle triangle_global = {
-                                (triangle[0] * node.scale + node.translation).rotate_by_quat(node.rotation),
-                                (triangle[1] * node.scale + node.translation).rotate_by_quat(node.rotation),
-                                (triangle[2] * node.scale + node.translation).rotate_by_quat(node.rotation)
+                                (triangle[0] + node.translation).rotate_by_quat(node.rotation),
+                                (triangle[1] + node.translation).rotate_by_quat(node.rotation),
+                                (triangle[2] + node.translation).rotate_by_quat(node.rotation)
                             };
                             ground_triangles.push(triangle_global);
                         }!!;
-                        terrain_map.build_recursive(ground_triangles.array_view());
                     }
 
                     node_entity.@add(collision_data, &manager)!!;
@@ -589,6 +576,9 @@ fn void main()
             }!!;
         };
     }
+
+    terrain_map.build_recursive(ground_triangles.array_view());
+    ground_triangles.free();
 
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -621,6 +611,24 @@ fn void main()
         foreach (texture: descriptor_images) texture.free(context.device);
         descriptor_images.free();
     }
+
+    Entity scene = manager.@create_entity(
+        camera.data(),
+        (SceneLight) {
+            .position = {2, 12.0, 5},
+            .color = {1, 1, 1},
+            .intensity = 54351,
+            .type = DIRECTIONAL
+        },
+        (SceneData) {
+            .draw_cmds = draw_memory.address,
+            .vertices = ecs::@get_address(manager, vertices),
+            .materials = ecs::@get_address(manager, materials),
+            .animations = ecs::@get_address(manager, skin_animations),
+            .instances = ecs::@get_address(manager, instances),
+            .nodes = ecs::@get_address(manager, nodes)
+        },
+    )!!;
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
