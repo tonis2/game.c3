@@ -3,59 +3,69 @@ import std::math;
 import std::math::matrix;
 import std::io;
 
-fn float radians(float value) {
-    return value * (float)math::PI / 180;
+fn float radians(float value) => value * (float)math::PI / 180;
+
+fn Quaternionf quaternion_from_matrix(Matrix3f matrix) {
+    Quaternionf q;
+    float trace = matrix.m00 + matrix.m11 + matrix.m22;
+    if (trace > 0) {
+        float t = math::sqrt(trace + (float)1.0) * 2.0;
+        q.l = 0.25 * t;
+        q.i = (matrix.m21 - matrix.m12) / t;
+        q.j = (matrix.m02 - matrix.m20) / t;
+        q.k = (matrix.m10 - matrix.m01) / t;
+    } else if (matrix.m00 > matrix.m11 && matrix.m00 > matrix.m22) {
+        float t = math::sqrt((float)1.0 + matrix.m00 - matrix.m11 - matrix.m22) * 2.0;
+        q.l = (matrix.m21 - matrix.m12) / t;
+        q.i = 0.25 * t;
+        q.j = (matrix.m01 + matrix.m10) / t;
+        q.k = (matrix.m02 + matrix.m20) / t;
+    } else if (matrix.m11 > matrix.m22) {
+        float t = math::sqrt((float)1.0 + matrix.m11 - matrix.m00 - matrix.m22) * 2.0;
+        q.l = (matrix.m02 - matrix.m20) / t;
+        q.i = (matrix.m01 + matrix.m10) / t;
+        q.j = 0.25 * t;
+        q.k = (matrix.m12 + matrix.m21) / t;
+    } else {
+        float t = math::sqrt((float)1.0 + matrix.m22 - matrix.m00 - matrix.m11) * 2.0;
+        q.l = (matrix.m10 - matrix.m01) / t;
+        q.i = (matrix.m02 + matrix.m20) / t;
+        q.j = (matrix.m12 + matrix.m21) / t;
+        q.k = 0.25 * t;
+    }
+    return q;
+}
+
+fn Quaternionf quaternion_look_at(Vec3f forward, Vec3f upwards) {
+    Vec3f forward_norm = forward.normalize();
+    Vec3f right = upwards.cross(forward_norm).normalize();
+
+    if (right.sq_magnitude() < 1e-6f) {
+        return {0.0, 0.0, 0.0, 1.0};
+    }
+
+    Vec3f up = forward_norm.cross(right);
+
+    return quaternion_from_matrix({
+        right.x, right.y, right.z,
+        up.x, up.y, up.z,
+        forward_norm.x, forward_norm.y, forward_norm.z
+    });
 }
 
 struct Camera {
+    Vec3f position;
+    Vec3f up;
     Vec3f target;
-    Vec3f eye;
-    Matrix4f perspective;
-    Matrix4f view;
-    float pitch;
+    Quaternionf rotation;
+    float distance;
     float yaw;
-    float zoom_value;
-}
+    float pitch;
 
-fn Camera new_camera(Vec3f target = {0.0, 0.0, 0.0}, Vec3f eye = {0.0, 0.0, 0.0}, float aspect = 0.8, float view = 45, float min_zoom = 0.1, float max_zoom = 500) {
-    return {
-        target,
-        eye,
-        matrix::perspective{float}(radians(view), aspect, min_zoom, max_zoom),
-        matrix::look_at{float}(eye, target, {0.0, 1.0, 0.0}),
-        0,
-        0,
-        -eye.z
-    };
-}
-
-fn void Camera.rotate (Camera* self, float x_offset, float y_offset) {
-    self.yaw += x_offset;
-    self.pitch += y_offset;
-
-    if (self.pitch > 89.0) self.pitch = 89.0;
-    if (self.pitch < -89.0) self.pitch = -89.0;
-
-    self.eye = { math::cos(radians(self.yaw)) * math::cos(radians(self.pitch)),
-                 math::sin(radians(self.pitch)),
-                 math::sin(radians(self.yaw)) * math::cos(radians(self.pitch))};
-
-    self.view = matrix::look_at{float}(self.eye, self.target, {0.0, 1.0, 0.0});
-    self.view.m23 = self.zoom_value;
-}
-
-fn void Camera.zoom(Camera* self, float value) {
-    if (self.zoom_value + value > 0) return;
-    self.zoom_value += value;
-    self.view.m23 += value;
-}
-
-fn CameraData Camera.data(Camera* self) {
-    return {
-        self.perspective,
-        self.view,
-        (Vec4f){self.eye, 1.0}
-    };
+    float aspect_ratio;
+    float y_fov;
+    float z_far;
+    float z_near;
 }
 
 struct CameraData @tag("BUFFER", 2) {
@@ -63,3 +73,39 @@ struct CameraData @tag("BUFFER", 2) {
     Matrix4f view;
     Vec4f eye;
 }
+
+fn void Camera.rotate(&self, float x_offset, float y_offset) {
+    self.yaw += x_offset;
+    self.pitch += y_offset;
+
+    self.pitch = math::clamp(self.pitch, -89, 89);
+
+    Quaternionf y_axis = QUATERNIONF_IDENTITY.rotate_by_axis_angle({0, 1, 0}, radians(self.yaw)).normalize();
+    Quaternionf x_axis = QUATERNIONF_IDENTITY.rotate_by_axis_angle({1, 0, 0}, radians(self.pitch)).normalize();
+
+    self.rotation = x_axis * y_axis;
+
+    Vec3f forward = (Vec3f){0, 0, -1}.rotate_by_quat(self.rotation);
+    self.position = self.target - forward * self.distance;
+}
+
+fn void Camera.zoom(&self, float value) {
+    self.distance += value;
+    self.distance = math::clamp(self.distance, (float)5.0, (float)90.0);
+    Vec3f forward = (Vec3f){0, 0, -1}.rotate_by_quat(self.rotation);
+    self.position = self.target - forward * self.distance;
+}
+
+<*
+ @require self.y_fov > 0 `Field of view is 0`
+ @require self.up != (Vec3f){0, 0, 0} `Up field is empty`
+ @require self.z_far > 0 && self.z_near > 0 `Z-far and Z-near neef to be over 0`
+*>
+fn CameraData Camera.data(&self) {
+    return {
+        matrix::perspective{float}(radians(self.y_fov), self.aspect_ratio, self.z_near, self.z_far),
+        matrix::look_at{float}(self.position, self.target, self.up),
+        (Vec4f){self.position, 1.0}
+    };
+}
+

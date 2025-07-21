@@ -353,7 +353,7 @@ fn void main()
     defer spatial_map.free();
 
     // Create camera
-    helpers::Camera camera = helpers::new_camera(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
+    helpers::Camera camera;
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -469,7 +469,21 @@ fn void main()
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
         if (node.has_camera()) {
-            camera = helpers::new_camera(eye: node.translation, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
+            gltf::Camera camera_data = gltf.cameras[node.camera];
+
+            Vec3f position = node.translation * node.scale;
+            
+            camera = {
+                .target = {0, 0, 0},
+                .up = {0.0, 1.0, 0.0},
+                .position = position,
+                .distance = 10,
+                .aspect_ratio = camera_data.perspective.aspectRatio,
+                .rotation = node.rotation,
+                .z_near = 0.1,
+                .z_far = 500,
+                .y_fov = 40
+            };
         }
         if (node.has_mesh() && node.name != "physicsMeshDataNode") {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
@@ -565,6 +579,7 @@ fn void main()
                                 (triangle[1] + node.translation).rotate_by_quat(node.rotation),
                                 (triangle[2] + node.translation).rotate_by_quat(node.rotation)
                             };
+
                             ground_triangles.push(triangle_global);
                         }!!;
                     }
@@ -576,6 +591,8 @@ fn void main()
             }!!;
         };
     }
+
+    
 
     terrain_map.build_recursive(ground_triangles.array_view());
     ground_triangles.free();
@@ -762,7 +779,7 @@ fn void main()
     });
 
     bool running = true;
-    Vec2f prev_mouse;
+    Vec2f prev_mouse = {window_size.x / 2, window_size.y / 2};
     
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
@@ -775,7 +792,7 @@ fn void main()
        
         if (event.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
-            camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
+            camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
             ecs::@upload(manager, scene, &&camera.data());
             prev_mouse = mouse_pos;
         }
