@@ -2,6 +2,7 @@ module helpers;
 import std::math;
 import std::math::matrix;
 import std::io;
+import gltf;
 
 fn float radians(float value) => value * (float)math::PI / 180;
 
@@ -55,13 +56,13 @@ fn Quaternionf quaternion_look_at(Vec3f forward, Vec3f upwards) {
 
 struct Camera {
     Vec3f position;
-    Vec3f up;
-    Vec3f target;
+    Matrix4f view;
+    Vec3f translation;
+    Vec3f scale;
     Quaternionf rotation;
-    float distance;
+    float zoom_value;
     float yaw;
     float pitch;
-
     float aspect_ratio;
     float y_fov;
     float z_far;
@@ -75,36 +76,30 @@ struct CameraData @tag("BUFFER", 2) {
 }
 
 fn void Camera.rotate(&self, float x_offset, float y_offset) {
-    self.yaw += x_offset;
-    self.pitch += y_offset;
+    self.yaw += x_offset / 100;
+    self.pitch += y_offset / 100;
 
     self.pitch = math::clamp(self.pitch, -89, 89);
 
-    Quaternionf y_axis = QUATERNIONF_IDENTITY.rotate_by_axis_angle({0, 1, 0}, radians(self.yaw)).normalize();
-    Quaternionf x_axis = QUATERNIONF_IDENTITY.rotate_by_axis_angle({1, 0, 0}, radians(self.pitch)).normalize();
+    Quaternionf y_axis = self.rotation.rotate_by_axis_angle({0, 1, 0}, radians(self.yaw)).normalize();
+    Quaternionf x_axis = self.rotation.rotate_by_axis_angle({1, 0, 0}, radians(self.pitch)).normalize();
 
-    self.rotation = x_axis * y_axis;
-
-    Vec3f forward = (Vec3f){0, 0, -1}.rotate_by_quat(self.rotation);
-    self.position = self.target - forward * self.distance;
+    self.view = gltf::to_matrix(
+        self.translation,
+        self.scale,
+        self.rotation * x_axis
+    ).inverse()!!;
 }
 
 fn void Camera.zoom(&self, float value) {
-    self.distance += value;
-    self.distance = math::clamp(self.distance, (float)5.0, (float)90.0);
-    Vec3f forward = (Vec3f){0, 0, -1}.rotate_by_quat(self.rotation);
-    self.position = self.target - forward * self.distance;
+    self.zoom_value += value;
+    self.view.m23 += value;
 }
 
-<*
- @require self.y_fov > 0 `Field of view is 0`
- @require self.up != (Vec3f){0, 0, 0} `Up field is empty`
- @require self.z_far > 0 && self.z_near > 0 `Z-far and Z-near neef to be over 0`
-*>
 fn CameraData Camera.data(&self) {
     return {
-        matrix::perspective{float}(radians(self.y_fov), self.aspect_ratio, self.z_near, self.z_far),
-        matrix::look_at{float}(self.position, self.target, self.up),
+        matrix::perspective{float}(self.y_fov, self.aspect_ratio, self.z_near, self.z_far),
+        self.view,
         (Vec4f){self.position, 1.0}
     };
 }

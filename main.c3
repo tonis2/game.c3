@@ -145,10 +145,10 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
 const float SPEED = 0.05;
 
 const MoveEvent[] MOVE_EVENTS = {
-    {W, {0, 0, -SPEED}},
-    {S, {0, 0, SPEED}},
-    {A, {-SPEED, 0, 0}},
-    {D, {SPEED, 0, 0}},
+    {W, {0, 0, SPEED}},
+    {S, {0, 0, -SPEED}},
+    {A, {SPEED, 0, 0}},
+    {D, {-SPEED, 0, 0}},
     {UP_ARROW, {0, SPEED, 0}},
     {DOWN_ARROW, {0, -SPEED, 0}},
 };
@@ -473,18 +473,15 @@ fn void main()
         if (node.has_camera()) {
             gltf::Camera camera_data = gltf.cameras[node.camera];
 
-            Vec3f position = node.translation * node.scale;
-            
             camera = {
-                .target = {0, 0, 0},
-                .up = {0.0, 1.0, 0.0},
-                .position = position,
-                .distance = 10,
-                .aspect_ratio = camera_data.perspective.aspectRatio,
+                .translation = node.translation,
+                .scale = node.scale,
                 .rotation = node.rotation,
-                .z_near = 0.1,
-                .z_far = 500,
-                .y_fov = 40
+                .aspect_ratio = camera_data.perspective.aspectRatio,
+                .view = node.global_matrix().inverse()!!,
+                .z_near = camera_data.perspective.znear,
+                .z_far = camera_data.perspective.zfar,
+                .y_fov = camera_data.perspective.yfov
             };
         }
         if (node.has_mesh() && node.name != "physicsMeshDataNode") {
@@ -553,17 +550,17 @@ fn void main()
                         .is_player = node.name == "player"
                     };
 
-                    // Node is active compound shape, make collider from child meshes
-                    // if (node.motion != null && node.collider != null && !node.collider.has_shape()) {
-                    //     io::printfn("insert spatial map");
+                    //Node is active compound shape, make collider from child meshes
+                    if (node.motion != null && node.collider == null) {
+                        io::printfn("insert spatial map");
 
-                    //     usz vertex_offset = mesh_positions.len();
-                    //     gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
-                    //     usz vertex_len = mesh_positions.len() - vertex_offset;
-                    //     collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
+                        usz vertex_offset = mesh_positions.len();
+                        gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
+                        usz vertex_len = mesh_positions.len() - vertex_offset;
+                        collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
 
-                    //     spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
-                    // }
+                        spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
+                    }
 
                     if (node.collider != null && node.collider.has_shape()) {
                         Shape shape = gltf.shapes[node.collider.shape];
@@ -791,7 +788,7 @@ fn void main()
     });
 
     bool running = true;
-    Vec2f prev_mouse = {window_size.x / 2, window_size.y / 2};
+    Vec2f prev_mouse = {window_size.x / 4, window_size.y / 4};
     
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
