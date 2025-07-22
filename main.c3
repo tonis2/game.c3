@@ -198,38 +198,40 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     };
 
     nodes.recalculate();
+
     spatial_map.@get_pairs(;Pair pair) {
         CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
         CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
         
-        // ecs::Node* first_node = nodes[first.node_index];
-        // ecs::Node* second_node = nodes[second.node_index];
+        ecs::Node* first_node = nodes[first.node_index];
+        ecs::Node* second_node = nodes[second.node_index];
 
-        // Aabb3 first_collider = first.aabb.transform(first_node.matrix);
-        // Aabb3 second_collider = second.aabb.transform(second_node.matrix);
+        Aabb3 first_collider = first.aabb.transform(first_node.matrix);
+        Aabb3 second_collider = second.aabb.transform(second_node.matrix);
 
-        // if (first_collider.collides(second_collider)) {
-        //     TransformedConvex transformed_shape_1 = {
-        //         .position = first_node.translation,
-        //         .shape = first.collider, 
-        //         .scale = first_node.scale, 
-        //     };
+        if (first_collider.collides(second_collider)) {
+
+            TransformedConvex transformed_shape_1 = collision::transformed_shape_from(
+                shape: first.collider, 
+                translation: first_node.translation,
+                scale: first_node.scale,
+            );
             
-        //     TransformedConvex transformed_shape_2 = {
-        //         .position = second_node.translation,
-        //         .shape = second.collider,
-        //         .scale = second_node.scale, 
-        //     };
+            TransformedConvex transformed_shape_2 = collision::transformed_shape_from(
+                shape: second.collider,
+                translation: second_node.translation,
+                scale: second_node.scale,
+            );
             
-        //     // GJK collision detection for complex meshes
-        //     CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
-        //     // collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
+            // GJK collision detection for complex meshes
+            CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
+            // collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
 
-        //     if (collision_info.collided) {
-        //         first.collides = true;
-        //         second.collides = true;
-        //     }
-        // }   
+            if (collision_info.collided) {
+                first.collides = true;
+                second.collides = true;
+            }
+        }   
     };
 }
 
@@ -552,13 +554,16 @@ fn void main()
                     };
 
                     // Node is active compound shape, make collider from child meshes
-                    if (node.motion != null && node.collider == null) {
-                        usz vertex_offset = mesh_positions.len();
-                        gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
-                        usz vertex_len = mesh_positions.len() - vertex_offset;
-                        collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
-                        spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
-                    }
+                    // if (node.motion != null && node.collider != null && !node.collider.has_shape()) {
+                    //     io::printfn("insert spatial map");
+
+                    //     usz vertex_offset = mesh_positions.len();
+                    //     gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
+                    //     usz vertex_len = mesh_positions.len() - vertex_offset;
+                    //     collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
+
+                    //     spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
+                    // }
 
                     if (node.collider != null && node.collider.has_shape()) {
                         Shape shape = gltf.shapes[node.collider.shape];
@@ -569,6 +574,8 @@ fn void main()
                             case CYLINDER: collision_data.collider = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
                             case CAPSULE: collision_data.collider = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
                         }
+
+                        spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
                     }
 
                     // Motion is null, collider is static
