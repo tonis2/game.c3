@@ -573,11 +573,16 @@ fn void main()
 
                     // Motion is null, collider is static
                     if (node.motion == null && node.collider != null && !node.collider.has_shape()) {
+                        Matrix4f global_matrix = node.global_matrix();
                         gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
+                            foreach (i, value: triangle) {
+                                Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
+                                triangle[i] = item.xyz;
+                            }
                             Triangle triangle_global = {
-                                (triangle[0] + node.translation).rotate_by_quat(node.rotation),
-                                (triangle[1] + node.translation).rotate_by_quat(node.rotation),
-                                (triangle[2] + node.translation).rotate_by_quat(node.rotation)
+                                triangle[0],
+                                triangle[1],
+                                triangle[2]
                             };
 
                             ground_triangles.push(triangle_global);
