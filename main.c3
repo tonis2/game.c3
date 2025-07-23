@@ -174,9 +174,9 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             }
 
             HitInfo hit;
-            bool ground_collision = terrain_map.ray_intersects({node.translation, (Vec3f){0, -1, 0}.normalize()}, &hit);
+            bool ground_collision = terrain_map.ray_intersects({node.translation + (Vec3f){0, 2, 0}, (Vec3f){0, -1, 0}.normalize()}, &hit);
             
-            float offset = 0.3;
+            float offset = 4.3;
 
             // io::printfn("collision %s", ground_collision);
             if (hit.depth > offset || ground_collision == false) {
@@ -525,6 +525,7 @@ fn void main()
                     .node_index = node_index,
                 };
 
+                // If node has instance data, build transform matrices for it
                 if (node.attributes.len() > 0) {
                     Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
                     Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
