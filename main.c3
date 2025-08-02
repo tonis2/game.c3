@@ -4,6 +4,7 @@ import std::collections::list;
 import std::time;
 import std::thread;
 import std::collections::map;
+import std::os;
 
 import vk;
 import stb;
@@ -28,7 +29,7 @@ struct MoveEvent {
 
 struct PushConstantData {
     uint draw_index;
-    bool collides;
+    bool collided;
 }
 
 struct Material @tag("BUFFER", 3) {
@@ -74,7 +75,7 @@ struct CollisionData @tag("BUFFER", 0) {
     Vec3f mass;
     Aabb3 aabb;
     uint node_index;
-    bool collides;
+    bool collided;
     bool is_player;
     ConvexShape collider;
 }
@@ -120,7 +121,6 @@ MeshContainer meshes;
 
 SpatialHash3D spatial_map;
 BVHNode terrain_map;
-
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -210,28 +210,34 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         Aabb3 second_collider = second.aabb.transform(second_node.matrix);
 
         if (first_collider.collides(second_collider)) {
-
             TransformedConvex transformed_shape_1 = collision::transformed_shape_from(
                 shape: first.collider, 
                 translation: first_node.translation,
                 scale: first_node.scale,
+                rotation: first_node.rotation
             );
             
             TransformedConvex transformed_shape_2 = collision::transformed_shape_from(
                 shape: second.collider,
                 translation: second_node.translation,
                 scale: second_node.scale,
+                rotation: second_node.rotation
             );
             
             // GJK collision detection for complex meshes
             CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
-            // collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
-
+    
             if (collision_info.collided) {
-                first.collides = true;
-                second.collides = true;
+                collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
+            
+                if (collision_info.collided) {
+                    io::printfn("%s %s", collision_info.normal, collision_info.depth);
+                    first.collided = true;
+                    second.collided = true;
+                }
+
             }
-        }   
+        }
     };
 }
 
@@ -432,6 +438,7 @@ fn void main()
     }
 
     foreach (index, node: gltf.nodes) {
+        io::printfn("%s %s", node.translation, node.name);
         nodes.@push((ecs::Node) {
             .matrix = node.global_matrix(),
             .translation = node.translation,
@@ -545,16 +552,14 @@ fn void main()
 
                 if (node.collider != null || node.motion != null) {
                     CollisionData collision_data = {
-                        .collides = false,
+                        .collided = false,
                         .node_index = node_index,
                         .aabb = mesh_data.aabb,
                         .is_player = node.name == "player"
                     };
 
-                    //Node is active compound shape, make collider from child meshes
+                    // Node is active compound shape, make collider from child meshes
                     if (node.motion != null && node.collider == null) {
-                        io::printfn("insert spatial map");
-
                         usz vertex_offset = mesh_positions.len();
                         gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
                         usz vertex_len = mesh_positions.len() - vertex_offset;
@@ -565,7 +570,7 @@ fn void main()
 
                     if (node.collider != null && node.collider.has_shape()) {
                         Shape shape = gltf.shapes[node.collider.shape];
-
+            
                         switch (shape.type) {
                             case BOX: collision_data.collider = &&mesh_data.aabb;
                             case SPHERE: collision_data.collider = &&(Sphere){node.translation, shape.radius};
@@ -601,8 +606,6 @@ fn void main()
             }!!;
         };
     }
-
-    
 
     terrain_map.build_recursive(ground_triangles.array_view());
     ground_triangles.free();
@@ -906,8 +909,8 @@ fn void main()
             };
 
             if (try state) {
-                constant_data.collides = state.collides;
-                state.collides = false;
+                constant_data.collided = state.collided;
+                state.collided = false;
             }
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
