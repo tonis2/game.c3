@@ -223,7 +223,7 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
 }
 
 <*
- @require (@typekind(#type) != OPTIONAL && @typekind(#type) != POINTER) "Added type should not be optional or pointer"
+ @require (@typekind(#type) != OPTIONAL && @typekind(#type) != POINTER) : "Added type should not be optional or pointer"
 *>
 macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
     String type_name = $typeof(#type).nameof;
@@ -294,7 +294,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
 
 
 <*
- @require self.size > (self.used_size + size) "Component total size is too small"
+ @require self.size > (self.used_size + size) : "Component total size is too small"
 *>
 macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
     usz data_size = size;
@@ -330,7 +330,7 @@ macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
 
 
 <*
- @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
+ @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") : "Target can only be compontent or entity"
 *>
 macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0, bool update_size = false) {
     usz data_size = size;
@@ -393,7 +393,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 
 
 <*
- @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
+ @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") : "Target can only be compontent or entity"
 *>
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     usz $type_size = #type.sizeof;
@@ -417,7 +417,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 }
 
 <*
- @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
+ @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") : "Target can only be compontent or entity"
 *>
 macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
