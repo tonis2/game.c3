@@ -231,7 +231,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
                 collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
             
                 if (collision_info.collided) {
-                    io::printfn("%s %s", collision_info.normal, collision_info.depth);
+                    io::printfn("%s %s %s", collision_info.normal, collision_info.depth, collision_info.contact_points[0]);
                     first.collided = true;
                     second.collided = true;
                 }
