@@ -15,7 +15,7 @@ import ecs;
 import collision;
 
 const ANIMATION_FPS = 40;
-const MAX_FPS = 60;
+const MAX_FPS = 40;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 alias Vec2f @private = float[<2>];
@@ -70,14 +70,9 @@ struct SceneData @tag("BUFFER", 2) {
 }
 
 struct CollisionData @tag("BUFFER", 0) {
-    Vec3f velocity;
-    Vec3f force;
-    Vec3f mass;
-    Aabb3 aabb;
     uint node_index;
     bool collided;
     bool is_player;
-    ConvexShape collider;
 }
 
 struct AnimationData {
@@ -119,8 +114,10 @@ List{AnimationData} animation_list;
 NodeComponent nodes;
 MeshContainer meshes;
 
-SpatialHash3D spatial_map;
-BVHNode terrain_map;
+// SpatialHash3D spatial_map;
+// BVHNode terrain_map;
+
+PhysicsWorld physics_world;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -155,90 +152,32 @@ const MoveEvent[] MOVE_EVENTS = {
 
 const float GRAVITY = -9.8;
 
-fn void physics_system(EntityManager manager, EventMap key_map, double time) {    
-    // Handle gravity
+fn void physics_system(EntityManager manager, EventMap key_map, double time) {
+    physics_world.run_step((float)time);
+
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
 
-        if (collider.collider != null) {
-            Aabb3 old_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
-            Vec3f old_translation = node.translation;
+        Rigidbody* rigid_body = physics_world.find_body(entity.id);
 
-            if (collider.is_player) {
-                foreach (event: MOVE_EVENTS) {
-                    if (key_map.is_pressed(event.key)) {
-                        node.translation += event.move;
-                    };
-                }
+        if (collider.is_player) {
+            foreach (event: MOVE_EVENTS) {
+                if (key_map.is_pressed(event.key)) {
+                    rigid_body.translation += event.move;
+                    node.dirty = (uint)true;
+                };
             }
+        }
 
-            HitInfo hit;
-            bool ground_collision = terrain_map.ray_intersects({node.translation + (Vec3f){0, 2, 0}, (Vec3f){0, -1, 0}.normalize()}, &hit);
-            
-            float offset = 4.3;
-
-            // io::printfn("collision %s", ground_collision);
-            if (hit.depth > offset || ground_collision == false) {
-                node.translation.y += (float)(time * GRAVITY);
-            } else if (hit.depth < offset && ground_collision) {
-                node.translation.y += (offset - hit.depth) - offset / 2;
-
-                Vec3f axis = (Vec3f){0, 1, 0}.cross(hit.normal);
-                float angle = (Vec3f){0, 1, 0}.angle(hit.normal);
-                node.rotation = node.rotation.rotate_by_axis_angle(axis, angle);
-            }
-
-            if (old_translation != node.translation) node.dirty = (uint)true;
-            if (node.dirty) {
-                Aabb3 new_aabb = collider.aabb.transform(nodes.global_matrix(collider.node_index));
-                spatial_map.update(old_aabb, new_aabb, entity.id)!!;
-            }
-        };
+        if (rigid_body != null) {
+            node.translation = rigid_body.translation;
+            node.dirty = (uint)true;
+        }
+        
     };
 
     nodes.recalculate();
-
-    spatial_map.@get_pairs(;Pair pair) {
-        CollisionData* first = ecs::@get_ref(manager, (Entity)pair.first, CollisionData)!!;
-        CollisionData* second = ecs::@get_ref(manager, (Entity)pair.second, CollisionData)!!;
-        
-        ecs::Node* first_node = nodes[first.node_index];
-        ecs::Node* second_node = nodes[second.node_index];
-
-        Aabb3 first_collider = first.aabb.transform(first_node.matrix);
-        Aabb3 second_collider = second.aabb.transform(second_node.matrix);
-
-        if (first_collider.collides(second_collider)) {
-            TransformedConvex transformed_shape_1 = collision::transformed_shape_from(
-                shape: first.collider, 
-                translation: first_node.translation,
-                scale: first_node.scale,
-                rotation: first_node.rotation
-            );
-            
-            TransformedConvex transformed_shape_2 = collision::transformed_shape_from(
-                shape: second.collider,
-                translation: second_node.translation,
-                scale: second_node.scale,
-                rotation: second_node.rotation
-            );
-            
-            // GJK collision detection for complex meshes
-            CollisionInfo collision_info = collision::check_collision(&transformed_shape_1, &transformed_shape_2);
-    
-            if (collision_info.collided) {
-                collision::epa(&collision_info, &transformed_shape_1, &transformed_shape_2);
-            
-                if (collision_info.collided) {
-                    io::printfn("%s %s %s", collision_info.normal, collision_info.depth, collision_info.contact_points[0]);
-                    first.collided = true;
-                    second.collided = true;
-                }
-
-            }
-        }
-    };
 }
 
 fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
@@ -357,8 +296,9 @@ fn void main()
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
-    spatial_map = { .cell_size = 1.0 };
-    defer spatial_map.free();
+    physics_world = collision::create_world({ .cell_size = 2.0 });
+
+    defer physics_world.free();
 
     // Create camera
     helpers::Camera camera;
@@ -550,55 +490,82 @@ fn void main()
                     }
                 }
 
-                if (node.collider != null || node.motion != null) {
+                if (node.collider != null) {
+                    PhysicsMaterial physics_material = gltf.physics_materials[node.collider.material];
+
                     CollisionData collision_data = {
                         .collided = false,
                         .node_index = node_index,
-                        .aabb = mesh_data.aabb,
                         .is_player = node.name == "player"
                     };
 
-                    // Node is active compound shape, make collider from child meshes
-                    if (node.motion != null && node.collider == null) {
-                        usz vertex_offset = mesh_positions.len();
-                        gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
-                        usz vertex_len = mesh_positions.len() - vertex_offset;
-                        collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
-
-                        spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
-                    }
-
-                    if (node.collider != null && node.collider.has_shape()) {
-                        Shape shape = gltf.shapes[node.collider.shape];
-            
-                        switch (shape.type) {
-                            case BOX: collision_data.collider = &&mesh_data.aabb;
-                            case SPHERE: collision_data.collider = &&(Sphere){node.translation, shape.radius};
-                            case CYLINDER: collision_data.collider = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
-                            case CAPSULE: collision_data.collider = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                    Rigidbody body = {
+                        .id = node_entity.id,
+                        .translation = node.translation,
+                        .scale = node.scale,
+                        .rotation = node.rotation,
+                        .material = {
+                            .dynamic_friction = physics_material.dynamic_friction,
+                            .static_friction = physics_material.static_friction,
+                            .restitution = physics_material.restitution,
+                        },
+                        .motion = {
+                            .is_kinematic = false,
                         }
+                    };
 
-                        spatial_map.insert(mesh_data.aabb.transform(node.global_matrix()), node_entity.id)!!;
-                    }
+                    Matrix4f global_matrix = node.global_matrix();
 
-                    // Motion is null, collider is static
-                    if (node.motion == null && node.collider != null && !node.collider.has_shape()) {
-                        Matrix4f global_matrix = node.global_matrix();
-                        gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
-                            foreach (i, value: triangle) {
-                                Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
-                                triangle[i] = item.xyz;
-                            }
-                            Triangle triangle_global = {
-                                triangle[0],
-                                triangle[1],
-                                triangle[2]
+                    if (node.collider.has_shape()) {
+                        // Collision is basic shape
+                        Shape shape = gltf.shapes[node.collider.shape];
+
+                        switch (shape.type) {
+                            case BOX: body.collider = &&mesh_data.aabb;
+                            case SPHERE: body.collider = &&(Sphere){node.translation, shape.radius};
+                            case CYLINDER: body.collider = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
+                            case CAPSULE: body.collider = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                        }
+                  
+                        if (node.motion != null) {
+                            body.motion = {
+                                .mass = node.motion.mass,
+                                .gravity_factor = node.motion.gravity_factor,
+                                .mass_center = node.motion.mass_center,
+                                .inertia_diagonal = node.motion.inertia_diagonal,
+                                .inertia_orientation = node.motion.inertia_orientation,
+                                .linear_velocity = node.motion.linear_velocity,
+                                .angular_velocity = node.motion.angular_velocity,
+                                .is_kinematic = true
                             };
+                        }
+                        physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
+                    } else {
+             
+                            // Create collision data from vertices
+                            // usz vertex_offset = mesh_positions.len();
+                            // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
+                            // usz vertex_len = mesh_positions.len() - vertex_offset;
+                            // collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
 
-                            ground_triangles.push(triangle_global);
-                        }!!;
+                            // physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
+                            // Collider has no shape, and is static, so probably ground object
+                            // collision_data.is_terrain = true;
+                            // gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
+                            //     foreach (i, value: triangle) {
+                            //         Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
+                            //         triangle[i] = item.xyz;
+                            //     }
+
+                            //     ground_triangles.push({
+                            //         triangle[0],
+                            //         triangle[1],
+                            //         triangle[2]
+                            //     });
+                            // }!!;
+     
                     }
-
+                   
                     node_entity.@add(collision_data, &manager)!!;
                 }
 
@@ -607,8 +574,8 @@ fn void main()
         };
     }
 
-    terrain_map.build_recursive(ground_triangles.array_view());
-    ground_triangles.free();
+    // terrain_map.build_recursive(ground_triangles.array_view());
+    // ground_triangles.free();
 
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -801,6 +768,8 @@ fn void main()
     while (running) {
         NanoDuration start_time = render_time.mark();
 
+        double frame_time = animation_time.mark().to_sec();
+
         EventMap event = win.getEvent();
        
         if (event.is_pressed(LEFT_MOUSE)) {
@@ -824,7 +793,8 @@ fn void main()
             running = false;
         }
 
-        manager.run_systems(event, animation_time.mark().to_sec());
+        manager.run_systems(event, frame_time);
+ 
 
         uint next_image = context.next_image()!!;
     
