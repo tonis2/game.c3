@@ -158,7 +158,6 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
-
         Rigidbody* rigid_body = physics_world.find_body(entity.id);
 
         if (collider.is_player) {
@@ -378,7 +377,7 @@ fn void main()
     }
 
     foreach (index, node: gltf.nodes) {
-        io::printfn("%s %s", node.translation, node.name);
+        io::printfn("%s %s %s", node.translation, node.scale, node.name);
         nodes.@push((ecs::Node) {
             .matrix = node.global_matrix(),
             .translation = node.translation,
@@ -491,6 +490,8 @@ fn void main()
                 }
 
                 if (node.collider != null) {
+                    Matrix4f global_matrix = node.global_matrix();
+
                     PhysicsMaterial physics_material = gltf.physics_materials[node.collider.material];
 
                     CollisionData collision_data = {
@@ -498,12 +499,14 @@ fn void main()
                         .node_index = node_index,
                         .is_player = node.name == "player"
                     };
-
+              
                     Rigidbody body = {
                         .id = node_entity.id,
                         .translation = node.translation,
                         .scale = node.scale,
                         .rotation = node.rotation,
+                        .aabb = mesh_data.aabb,
+                        
                         .material = {
                             .dynamic_friction = physics_material.dynamic_friction,
                             .static_friction = physics_material.static_friction,
@@ -513,8 +516,6 @@ fn void main()
                             .is_kinematic = false,
                         }
                     };
-
-                    Matrix4f global_matrix = node.global_matrix();
 
                     if (node.collider.has_shape()) {
                         // Collision is basic shape
@@ -539,7 +540,8 @@ fn void main()
                                 .is_kinematic = true
                             };
                         }
-                        physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
+
+                        physics_world.add_body(body: body)!!;
                     } else {
              
                             // Create collision data from vertices
@@ -795,7 +797,6 @@ fn void main()
 
         manager.run_systems(event, frame_time);
  
-
         uint next_image = context.next_image()!!;
     
         ImageMemoryBarrier2 begin_barrier = {
