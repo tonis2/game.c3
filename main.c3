@@ -171,6 +171,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
         if (rigid_body != null) {
             node.translation = rigid_body.translation;
+            node.rotation = rigid_body.rotation;
             node.dirty = (uint)true;
         }
         
