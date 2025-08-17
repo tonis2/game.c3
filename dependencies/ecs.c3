@@ -68,7 +68,6 @@ struct EntityManager {
     List{Component} components;
     List{Allocator} buffers;
     List{Entity} entities;
-    List{System} systems @if($feature(ECS_EXTRA));
     UploadFN uploadFN;
 }
 
@@ -92,10 +91,6 @@ fn void EntityManager.free(&self) {
     self.keys.free();
     self.views.free();
     self.entities.free();
-
-    $if $feature(ECS_EXTRA):
-        self.systems.free();
-    $endif
 }
 
 macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
@@ -607,52 +602,10 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
     }
 }
 
-alias EntityCallback = fn void (EntityManager manager, Entity entity, EventMap keys, double time);
-alias FrameCallback = fn void (EntityManager manager, EventMap keys, double time);
-
-enum SystemType : uint
-{
-    QUERY,
-    ON_FRAME,
-    ON_INIT,
-    ON_EXIT
-}
-
-struct System {
-    String[] query;
-    void* callback;
-    SystemType type;
-}
-
-fn void EntityManager.add_system(&self, System system) {
-    self.systems.push(system);
-}
-
-fn void EntityManager.run_systems(self, EventMap events, double time) {
-    foreach (system: self.systems) {
-        if (system.type == ON_FRAME) {
-            FrameCallback callback = (FrameCallback)system.callback;
-            callback(self, events, time);
-        }
-        if (system.type == QUERY) {
-            foreach ENTITY: (entity: self.entities) {
-                foreach (name: system.query) {
-                    if (!entity.has_name(name, self)) {
-                        continue ENTITY;
-                    };
-                };
-                EntityCallback callback = (EntityCallback)system.callback;
-                callback(self, entity, events, time);
-            }
-        }
-    }
-}
-
 struct MeshInfo {
     usz offset;
     usz count;
 }
-
 
 struct MeshContainer {
     Component* index_buffer;

@@ -387,15 +387,14 @@ fn void main()
     foreach (index, node: gltf.nodes) {
         io::printfn("%s %s %s", node.translation, node.rotation.v, node.name);
         nodes.@push((ecs::Node) {
+            .matrix = node.global_matrix(),
             .translation = node.translation,
             .scale = node.scale,
             .rotation = node.rotation,
-            .dirty = true,
+            .dirty = false,
             .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
         });
     }
-
-    nodes.recalculate();
         
     foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
     foreach (index, material: gltf.materials) {
@@ -412,10 +411,6 @@ fn void main()
             .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
         });
     };
-
-    manager.add_system({.query = {"Render", "SkinAnimation"}, .type = QUERY, .callback = &skin_animation_player});
-    manager.add_system({.query = {"WorldAnimation"}, .type = QUERY, .callback = &world_animation_player});
-    manager.add_system({.type = ON_FRAME, .callback = &physics_system});
 
     defer animation_list.free();
 
@@ -514,7 +509,6 @@ fn void main()
                         .scale = node.scale,
                         .rotation = node.rotation,
                         .aabb = mesh_data.aabb,
-                        
                         .material = {
                             .dynamic_friction = physics_material.dynamic_friction,
                             .static_friction = physics_material.static_friction,
@@ -528,7 +522,8 @@ fn void main()
                     if (node.collider.has_shape()) {
                         // Collision is basic shape
                         Shape shape = gltf.shapes[node.collider.shape];
-
+                        
+                        io::printfn("%s", mesh_data.aabb);
                         switch (shape.type) {
                             case BOX: body.collider = &&mesh_data.aabb;
                             case SPHERE: body.collider = &&(Sphere){node.translation, shape.radius};
@@ -551,7 +546,8 @@ fn void main()
 
                         physics_world.add_body(body: body)!!;
                     } else {
-             
+                            io::printfn("Only collision shapes are implemented");
+                            return;
                             // Create collision data from vertices
                             // usz vertex_offset = mesh_positions.len();
                             // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
@@ -803,7 +799,7 @@ fn void main()
             running = false;
         }
 
-        manager.run_systems(event, frame_time);
+        physics_system(manager, event, frame_time);
  
         uint next_image = context.next_image()!!;
     
