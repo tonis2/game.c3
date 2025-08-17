@@ -58,13 +58,13 @@ struct PushData
 };
 
 struct Node {
-    row_major float4x4 matrix;
+    bool dirty;
+    int parent;
+    float2 pad;
     float4 position;
     float4 scale;
     float4 rotation;
-    int parent;
-    uint dirty;
-    float2 pad;
+    row_major float4x4 matrix;
 }
 
 [vk_push_constant]

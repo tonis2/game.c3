@@ -541,12 +541,12 @@ import collision;
 import c3w;
 
 struct Node {
-    Matrix4f matrix;
+    bool dirty;
+    int parent;
     Vec3f translation;
     Vec3f scale;
     Quaternionf rotation;
-    int parent;
-    uint dirty;
+    Matrix4f matrix;
 }
 
 alias NodeComponent = Component;
@@ -592,7 +592,7 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
     for LOOP: (uint i = 0; i < self.size / Node.sizeof; i++) {
         Node* node = self.get(i);
 
-        if (node.dirty == 1) {
+        if (node.dirty == true) {
             Matrix4f global_matrix = gltf::to_matrix(node.translation, node.scale, node.rotation);
             Node* parent_node = node.parent > -1 ? self.get(node.parent) : null;
 
@@ -602,7 +602,7 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
             }
 
             node.matrix = global_matrix;
-            node.dirty = (uint)false;
+            node.dirty = false;
         }
     }
 }

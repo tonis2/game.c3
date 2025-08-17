@@ -164,7 +164,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             foreach (event: MOVE_EVENTS) {
                 if (key_map.is_pressed(event.key)) {
                     rigid_body.translation += event.move;
-                    node.dirty = (uint)true;
+                    node.dirty = true;
                 };
             }
         }
@@ -172,11 +172,11 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         if (rigid_body != null) {
             node.translation = rigid_body.translation;
             node.rotation = rigid_body.rotation;
-            node.dirty = (uint)true;
+            node.dirty = true;
         }
         
     };
-
+    
     nodes.recalculate();
 }
 
@@ -209,7 +209,7 @@ fn void world_animation_player(EntityManager manager, Entity entity, EventMap ke
         Vec4f value
     ) {
             ecs::Node* node = nodes[node_index];
-            node.dirty = (uint)true;
+            node.dirty = true;
 
             switch (property) {
                 case TRANSLATION: node.translation = value.xyz;
@@ -301,7 +301,14 @@ fn void main()
     defer physics_world.free();
 
     // Create camera
-    helpers::Camera camera;
+    helpers::Camera camera = {
+        .view =  matrix::look_at{float}({15, 0.0, 10}, {0, 0, 0}, {0.0, 1.0, 0.0}),
+        .aspect_ratio = 1.3,
+        .z_near = 0.1,
+        .z_far = 100,
+        .y_fov = 0.6
+
+    };
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -378,17 +385,18 @@ fn void main()
     }
 
     foreach (index, node: gltf.nodes) {
-        io::printfn("%s %s %s", node.translation, node.scale, node.name);
+        io::printfn("%s %s %s", node.translation, node.rotation.v, node.name);
         nodes.@push((ecs::Node) {
-            .matrix = node.global_matrix(),
             .translation = node.translation,
-            .rotation = node.rotation,
             .scale = node.scale,
-            .dirty = (uint)false,
+            .rotation = node.rotation,
+            .dirty = true,
             .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
         });
     }
 
+    nodes.recalculate();
+        
     foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
@@ -492,7 +500,6 @@ fn void main()
 
                 if (node.collider != null) {
                     Matrix4f global_matrix = node.global_matrix();
-
                     PhysicsMaterial physics_material = gltf.physics_materials[node.collider.material];
 
                     CollisionData collision_data = {
