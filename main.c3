@@ -296,7 +296,7 @@ fn void main()
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
-    physics_world = collision::create_world({ .cell_size = 2.0 });
+    physics_world = helpers::create_world({ .cell_size = 2.0 });
 
     defer physics_world.free();
 

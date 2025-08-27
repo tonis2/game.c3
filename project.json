@@ -7,7 +7,7 @@
 	"dependencies": ["c3w", "vk", "stb", "collision", "gltf"],
 	"features": ["WAYLAND", "ECS_EXTRA"],
 	"linked-libraries": ["vulkan"],
-	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
+	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3", "./helpers/physics_resolver.c3"],
 	"script-dir": "./",
 	"targets": {
 		"shaders": {
