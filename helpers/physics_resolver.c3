@@ -6,6 +6,7 @@ import std::math;
 import std::collections::list;
 import std::time;
 import collision;
+import ecs;
 
 
 Vec3f gravity = {0.0f, -9.81f, 0.0f};
@@ -16,6 +17,7 @@ struct PhysicsWorld {
 
     SpatialHash3D spatial_map;
     List{BVHNode} bvh_nodes;
+    Component debug_data;
 }
 
 struct Collision {
@@ -88,9 +90,10 @@ struct PhysicsWorldConfig {
     float cell_size;
 }
 
-fn PhysicsWorld create_world(PhysicsWorldConfig config) {
+fn PhysicsWorld create_world(PhysicsWorldConfig config, Component debug_data) {
     PhysicsWorld world;
     world.spatial_map.cell_size = config.cell_size;
+    world.debug_data = debug_data;
     return world;
 }
 
@@ -203,7 +206,7 @@ fn void PhysicsWorld.run_step(&self, float time) {
     };
 
     foreach (collision : self.collisions) {
-        resolve_collision(collision);
+        resolve_collision(collision, self.debug_data);
     }
 
     // Update spatial map AABB boxes 
@@ -224,7 +227,8 @@ fn void PhysicsWorld.run_step(&self, float time) {
         body.old_aabb = new_aabb;
         body.dirty = false;
     }
-            
+
+    self.debug_data.clear();
     self.collisions.clear();
 }
 
@@ -234,7 +238,7 @@ const float EPSILON = 1e-6f;
  @require collision.body_a != null && collision.body_b != null : `Must have both collision bodies attached`
  @require collision.body_a != collision.body_b : `Collision bodies must not reference same body`
 *>
-fn void resolve_collision(Collision collision) {
+fn void resolve_collision(Collision collision, Component debug_data) {
     Rigidbody* a = collision.body_a;
     Rigidbody* b = collision.body_b;
 
@@ -243,6 +247,10 @@ fn void resolve_collision(Collision collision) {
     // Collision resolve
     Vec3f ra = collision.contact[0] - a.translation;
     Vec3f rb = collision.contact[1] - b.translation;
+
+
+    debug_data.@push(ra);
+    debug_data.@push(rb);
 
     Vec3f velocity_a = a.motion.linear_velocity + a.motion.angular_velocity.cross(rb);
     Vec3f velocity_b = b.motion.linear_velocity + b.motion.angular_velocity.cross(rb);

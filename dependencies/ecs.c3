@@ -83,6 +83,12 @@ macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
 
 fn void Component.reset(&self) => self.used_size = 0;
 
+fn void Component.clear(&self) {
+    self.used_size = 0;
+    Allocator buffer = self.manager.buffers[self.buffer];
+    mem::set(buffer.data() + self.offset, 0, self.size);
+}
+
 fn void EntityManager.free(&self) {
     // foreach (buffer: self.buffers) {
     //     buffer.free();

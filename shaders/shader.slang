@@ -81,8 +81,14 @@ cbuffer Scene
     DrawCommand* draw_cmds;
     Material* materials;
     Node* nodes;
-    row_major float4x4* skin_data;
     row_major float4x4* instances;
+}
+
+
+[vk_binding(1)]
+cbuffer DebugData
+{
+    float3* debug_vertices;
 }
 
 [vk_binding(1)]
@@ -110,37 +116,8 @@ FragmentData vertexMain(VertexInput input)
     DrawCommand draw = draw_cmds[push_constant.draw_index];
     Vertex vertex = vertices[input.vertID];
 
-    float4x4 skin_matrix = {
-        1, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    };
-
-    if (draw.skin_offset > -1)
-    {
-        float4x4* skin_matrixes = skin_data + draw.skin_offset;
-
-        skin_matrix =
-        vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
-        vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
-        vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
-        vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
-    }
-
-
     row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
     node_matrix = mul(node_matrix, skin_matrix);
-
-    // if (draw.animation_offset > -1)
-    // {
-    //     float4x4* animation_data = skin_data + draw.skin_offset;
-    //     node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
-    // }
-
-    if (input.instanceID > 0) {
-        node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
-    }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
@@ -171,5 +148,24 @@ float4 fragmentMain(FragmentData input)
         }
     }
 
+    return float4(0.5, 0.5, 0.5, 1.0);
+}
+
+
+
+
+[shader("vertex")]
+float4 vertDebug(VertexInput input)
+{
+    float3 vertex = debug_vertices[input.vertID];
+    float4 frag_pos = mul(node_matrix, float4(vertex, 1.0));
+    return output;
+}
+
+// Fragment Shader
+[shader("fragment")]
+float4 fragDebug(float4 sv_position : SV_Position)
+    : SV_Target
+{
     return float4(0.5, 0.5, 0.5, 1.0);
 }

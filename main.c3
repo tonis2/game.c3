@@ -65,8 +65,6 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
     vk::DeviceAddress nodes;
-    vk::DeviceAddress animations;
-    vk::DeviceAddress instances;
 }
 
 struct CollisionData @tag("BUFFER", 0) {
@@ -75,27 +73,6 @@ struct CollisionData @tag("BUFFER", 0) {
     bool is_player;
 }
 
-struct AnimationData {
-    int skin_index;
-    uint animation_index;
-    usz buffer_offset;
-    uint joints_len;
-    uint frames;
-    double max_time;
-    double min_time;
-    Component data;
-}
-
-macro bool AnimationData.equals(self, AnimationData b) @operator(==) => self.animation_index == b.animation_index;
-
-struct Animation {
-   uint animation_index;
-   double active_time;
-   bool repeat;
-}
-
-typedef SkinAnimation = Animation;
-typedef WorldAnimation = Animation;
 typedef SceneLight @tag("BUFFER", 2) = Light;
 
 // Used to send buffer device addresses to GPU
@@ -107,10 +84,8 @@ char[*] shader = $embed("./shaders/shader.spv");
 
 DeviceContext context;
 
-Entity player;
 Gltf gltf;
 
-List{AnimationData} animation_list;
 NodeComponent nodes;
 MeshContainer meshes;
 
@@ -174,106 +149,11 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             node.rotation = rigid_body.rotation;
             node.dirty = true;
         }
-        
     };
     
     nodes.recalculate();
 }
 
-fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
-    SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
-
-    AnimationData data = animation_list[animation.animation_index];
-    assert(data.data.size != 0, "Please initialize animation component");
-
-    double new_time = animation.active_time + time;
-    animation.active_time = new_time < data.max_time ? new_time : 0;
-
-    double frame_index = animation.active_time * ANIMATION_FPS;
-    entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
-}
-
-fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
-    gltf::Animation data = gltf.animations[animation.animation_index];
-
-    double new_time = animation.active_time + (time);
-    animation.active_time = new_time < data.max_time ? new_time : 0;
-    
-    gltf.@run_animation_channels(
-        frame_time: animation.active_time,
-        animation: data;
-        uint node_index,
-        AnimationProperty property,
-        Vec4f value
-    ) {
-            ecs::Node* node = nodes[node_index];
-            node.dirty = true;
-
-            switch (property) {
-                case TRANSLATION: node.translation = value.xyz;
-                case ROTATION: node.rotation = (Quaternionf){.v = value };
-                case SCALE: node.scale = value.xyz;
-                default: {}
-            }
-    };
-
-    nodes.recalculate();
-}
-
-// Bake skin animations
-fn void bake_skin_animations(Component animations, uint skin_index) {
-    gltf::Skin skin = gltf.skins[skin_index];
-
-    List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-    defer animation_indexes.free();
-
-    foreach (index: animation_indexes) {
-        gltf::Animation animation = gltf.animations[index];
-        io::printfn("animation loaded: %s", animation.name);
-        
-        List{Matrix4f} skin_matrixes;
-        defer skin_matrixes.free();
-
-        uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-        AnimationData data = {
-            .joints_len = (uint)skin.joints.len(),
-            .buffer_offset = animations.used_size / Matrix4f.sizeof,
-            .data = animations,
-            .max_time = animation.max_time,
-            .min_time =  animation.min_time,
-            .frames = frame_count,
-            .skin_index = skin_index,
-        };
-
-        for (usz i = 0; i < frame_count; i++) {
-            double time = i / (double)ANIMATION_FPS;
-            gltf.@run_animation_channels(
-                frame_time: time,
-                animation: animation;
-                uint node_index,
-                AnimationProperty property,
-                Vec4f value
-            ) {
-                gltf::Node* node = gltf.nodes.get_ref(node_index);
-                switch (property) {
-                    case TRANSLATION: node.translation = value.xyz;
-                    case ROTATION: node.rotation = (Quaternionf){.v = value };
-                    case SCALE: node.scale = value.xyz;
-                    default: {}
-                }
-            };
-
-            gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
-                skin_matrixes.push(matrix);
-            };
-        }
-
-        animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
-        animation_list.push(data);
-    };
-}
 
 fn void main()
 {
@@ -295,10 +175,6 @@ fn void main()
 
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
-
-    physics_world = helpers::create_world({ .cell_size = 2.0 });
-
-    defer physics_world.free();
 
     // Create camera
     helpers::Camera camera = {
@@ -366,11 +242,16 @@ fn void main()
 
     nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * ecs::Node.sizeof), buffer_index: 2)!!;
 
-    Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component indices = manager.@create_component(size: 3_000_000, buffer_index: 3)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
+
+    Component physics_debug = manager.@create_component(size: 5_00_000, buffer_index: 1)!!;
+
+    physics_world = helpers::create_world({ .cell_size = 2.0 }, physics_debug);
+
+    defer physics_world.free();
     
     meshes = {
         .vertex_buffer = &vertices,
@@ -396,7 +277,6 @@ fn void main()
         });
     }
         
-    foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
             .emissiveStrength = material.emissiveStrength,
@@ -411,8 +291,6 @@ fn void main()
             .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
         });
     };
-
-    defer animation_list.free();
 
     List{Triangle} ground_triangles;
     List{Vec3f} mesh_positions;
@@ -437,30 +315,6 @@ fn void main()
         if (node.has_mesh() && node.name != "physicsMeshDataNode") {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
             Entity node_entity = manager.@create_entity()!!;
-
-            if (node.extras.has_key("animation")) {
-                node_entity.@add((WorldAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
-                    .active_time = 0,
-                    .repeat = true
-                }, &manager)!!;
-            }
-                
-            if (node.extras.has_key("skin_clone")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-                    .active_time = node_index * 0.05,
-                    .repeat = true
-                }, &manager)!!;
-            }
-
-            if (node.extras.has_key("skin_animation")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
-                    .active_time = 0.0,
-                    .repeat = true
-                }, &manager)!!;
-            }
 
             meshes.@iter(mesh.name; uint mesh_index, MeshData* mesh_data) {
                 Render render_data = {
@@ -522,8 +376,7 @@ fn void main()
                     if (node.collider.has_shape()) {
                         // Collision is basic shape
                         Shape shape = gltf.shapes[node.collider.shape];
-                        
-                        io::printfn("%s", mesh_data.aabb);
+                
                         switch (shape.type) {
                             case BOX: body.collider = &&mesh_data.aabb;
                             case SPHERE: body.collider = &&(Sphere){node.translation, shape.radius};
@@ -627,7 +480,6 @@ fn void main()
             .draw_cmds = draw_memory.address,
             .vertices = ecs::@get_address(manager, vertices),
             .materials = ecs::@get_address(manager, materials),
-            .animations = ecs::@get_address(manager, skin_animations),
             .instances = ecs::@get_address(manager, instances),
             .nodes = ecs::@get_address(manager, nodes)
         },
@@ -659,6 +511,30 @@ fn void main()
                 .offset = 0,
                 .size = PushConstantData.sizeof,
                 .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+            },
+        },
+        context.device
+    )!!;
+
+    PipelineLayer debug_layout = helpers::createPipelineLayout(
+        {
+            vk::writeDescriptorSet()
+            .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+            .setDstBinding(0)
+            .setBufferInfo({
+                {
+                    .buffer = cpu_and_gpu.buffer,
+                    .offset = ecs::@get_offset(manager, scene, "CameraData")!!,
+                    .range = ecs::get_size(scene, manager),
+                },
+            }),
+        },
+        (ShaderStageFlags[]){ vk::SHADER_STAGE_VERTEX_BIT, vk::SHADER_STAGE_VERTEX_BIT },
+        (PushConstantRange[]){
+            {
+                .offset = 0,
+                .size = PushConstantData.sizeof,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
             },
         },
         context.device
@@ -742,6 +618,30 @@ fn void main()
         .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
         .setMod(shader_module)
         .setName("fragmentMain")
+    })
+    .setLayout(pipeline_layout.layout)
+    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
+    .setDynamicState(&dynamic_state)
+    .setRasterizationState(&rasterisation_state)
+    .setMultisampleState(&multi_sample_state)
+    .setColorBlendState(&color_blend_state)
+    .setDepthStencilState(&stencil_state)
+    .setViewportState(&view_port_state)
+    .setNext(&p_rendering_info)
+    .build(context.device)!!;
+
+
+    Pipeline debug_pipeline = vk::graphicsPipelineCreateInfo()
+    .setStages({
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_VERTEX_BIT)
+        .setMod(shader_module)
+        .setName("vertDebug"),
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
+        .setMod(shader_module)
+        .setName("fragDebug")
     })
     .setLayout(pipeline_layout.layout)
     .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
@@ -839,7 +739,14 @@ fn void main()
             }
         };
 
-       RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
+        RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
+        .setImageView(descriptor_images.last()!!.imageView)
+        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+        .setClearValue({ .depthStencil = { 1.0, 0 } });
+
+        RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
         .setImageView(context.swapchain_views[next_image])
         .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
         .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
@@ -848,12 +755,8 @@ fn void main()
             .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
         });
 
-        RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
-        .setImageView(descriptor_images.last()!!.imageView)
-        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({ .depthStencil = { 1.0, 0 } });
+        rendering_info.setColorAttachments({ main_render_target });
+        rendering_info.setDepthAttachment(&main_depth_target);
 
         CommandBuffer command_buffer = context.command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!!;
@@ -867,14 +770,10 @@ fn void main()
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
 
-        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vk::cmdBeginRendering(command_buffer, &rendering_info);
 
         vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, indices.offset, vk::INDEX_TYPE_UINT16);
- 
-        rendering_info.setColorAttachments({ main_render_target });
-        rendering_info.setDepthAttachment(&main_depth_target);
-
-        vk::cmdBeginRendering(command_buffer, &rendering_info);
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         manager.@query("Render"; Entity entity) {
             uint offset = ecs::@get_offset(manager, entity, "Render")!!;
@@ -892,6 +791,10 @@ fn void main()
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
+
+        // Draw debug
+
+        //vk::cmdDraw(command_buffer, draw_memory.buffer, debug_data.offset, 1, Render.sizeof / debug_data.used_size);
 
         vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
