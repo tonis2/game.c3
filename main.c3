@@ -142,15 +142,13 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
 const float SPEED = 0.05;
 
 const MoveEvent[] MOVE_EVENTS = {
-    {W, {0, 0, SPEED}},
-    {S, {0, 0, -SPEED}},
+    {W, {0, SPEED, 0}},
+    {S, {0, -SPEED, 0}},
     {A, {SPEED, 0, 0}},
     {D, {-SPEED, 0, 0}},
-    {UP_ARROW, {0, SPEED, 0}},
-    {DOWN_ARROW, {0, -SPEED, 0}},
+    {UP_ARROW, {0, 0, SPEED}},
+    {DOWN_ARROW, {0, 0, -SPEED}},
 };
-
-const float GRAVITY = -9.8;
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     physics_world.run_step((float)time);
@@ -164,7 +162,6 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             foreach (event: MOVE_EVENTS) {
                 if (key_map.is_pressed(event.key)) {
                     rigid_body.translation += event.move;
-                    node.dirty = true;
                 };
             }
         }
@@ -522,8 +519,7 @@ fn void main()
                     if (node.collider.has_shape()) {
                         // Collision is basic shape
                         Shape shape = gltf.shapes[node.collider.shape];
-                        
-                        io::printfn("%s", mesh_data.aabb);
+                    
                         switch (shape.type) {
                             case BOX: body.collider = &&mesh_data.aabb;
                             case SPHERE: body.collider = &&(Sphere){node.translation, shape.radius};
