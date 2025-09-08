@@ -30,6 +30,7 @@ struct MoveEvent {
 struct PushConstantData {
     uint draw_index;
     bool collided;
+    Matrix4f scale;
 }
 
 struct Material @tag("BUFFER", 3) {
@@ -148,6 +149,8 @@ const MoveEvent[] MOVE_EVENTS = {
     {D, {-SPEED, 0, 0}},
     {UP_ARROW, {0, 0, SPEED}},
     {DOWN_ARROW, {0, 0, -SPEED}},
+    {T, {0, 0, -SPEED}},
+    {G, {0, 0, SPEED}},
 };
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
@@ -161,14 +164,19 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
         if (collider.is_player) {
             foreach (event: MOVE_EVENTS) {
                 if (key_map.is_pressed(event.key)) {
-                    rigid_body.translation += event.move;
+                    if (event.key == T || event.key == G) {
+                        rigid_body.apply_angular_impulse(event.move);
+                    } else {
+                        rigid_body.collider.translation += event.move;
+                    }
                 };
             }
         }
 
         if (rigid_body != null) {
-            node.translation = rigid_body.translation;
-            node.rotation = rigid_body.rotation;
+            // if (!rigid_body.is_static()) node.rotation *= QUATERNIONF_IDENTITY.rotate_by_axis_angle({0, 0, 0.5}, 1).normalize();
+            node.translation = rigid_body.collider.translation;
+            node.rotation = rigid_body.collider.rotation;
             node.dirty = true;
         }
         
@@ -502,29 +510,29 @@ fn void main()
               
                     Rigidbody body = {
                         .id = node_entity.id,
-                        .translation = node.translation,
-                        .scale = node.scale,
-                        .rotation = node.rotation,
                         .aabb = mesh_data.aabb,
                         .material = {
                             .dynamic_friction = physics_material.dynamic_friction,
                             .static_friction = physics_material.static_friction,
                             .restitution = physics_material.restitution,
                         },
-                        .motion = {
-                            .is_kinematic = false,
-                        }
+                        .collider = collision::transformed_shape_from(
+                            translation: node.translation,
+                            scale: node.scale,
+                            rotation: node.rotation,
+                        )
                     };
 
                     if (node.collider.has_shape()) {
                         // Collision is basic shape
                         Shape shape = gltf.shapes[node.collider.shape];
-                    
+
                         switch (shape.type) {
-                            case BOX: body.collider = &&mesh_data.aabb;
-                            case SPHERE: body.collider = &&(Sphere){node.translation, shape.radius};
-                            case CYLINDER: body.collider = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
-                            case CAPSULE: body.collider = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                            case BOX: body.collider.shape = &&mesh_data.aabb;
+                            case SPHERE: body.collider.shape = &&(Sphere){node.translation, shape.radius};
+                            case CYLINDER: body.collider.shape = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
+                            case CAPSULE: body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                            default: {}
                         }
                   
                         if (node.motion != null) {
@@ -536,7 +544,6 @@ fn void main()
                                 .inertia_orientation = node.motion.inertia_orientation,
                                 .linear_velocity = node.motion.linear_velocity,
                                 .angular_velocity = node.motion.angular_velocity,
-                                .is_kinematic = true
                             };
                         }
 
@@ -767,6 +774,8 @@ fn void main()
     Clock render_time = clock::now();
 
     double time = 0;
+    uint frame_count = 1;
+
     while (running) {
         NanoDuration start_time = render_time.mark();
 
@@ -786,6 +795,10 @@ fn void main()
             ecs::@upload(manager, scene, &&camera.data());
         }
 
+        if (event.is_pressed(L)) {
+            frame_count +=1;
+        }
+
         if (event.is_pressed(MOUSE_SCROLL_UP)) {
             camera.zoom(2);
             ecs::@upload(manager, scene, &&camera.data());
@@ -795,7 +808,11 @@ fn void main()
             running = false;
         }
 
-        physics_system(manager, event, frame_time);
+        if (frame_count > 0) {
+            physics_system(manager, event, frame_time);
+            frame_count -= 1;
+        };
+        
  
         uint next_image = context.next_image()!!;
     
@@ -877,6 +894,7 @@ fn void main()
             CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
+                .scale = MATRIX4F_IDENTITY,
             };
 
             if (try state) {
@@ -884,9 +902,18 @@ fn void main()
                 state.collided = false;
             }
 
+            //vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+
+            constant_data.scale = MATRIX4F_IDENTITY.scale({1.01, 1.01, 1.01});
+            constant_data.collided = true;
+
+            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+   
         };
 
         vk::cmdEndRendering(command_buffer);

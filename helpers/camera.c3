@@ -81,17 +81,17 @@ fn void Camera.rotate(&self, float x_offset, float y_offset) {
 
     self.pitch = math::clamp(self.pitch, -89, 89);
 
-    Quaternionf y_axis = self.rotation.rotate_by_axis_angle({0, 1, 0}, radians(self.yaw)).normalize();
-    Quaternionf x_axis = self.rotation.rotate_by_axis_angle({1, 0, 0}, radians(self.pitch)).normalize();
-    if (self.zoom_value == 0) self.zoom_value = -15;
+    // Quaternionf y_axis = self.rotation.rotate_by_axis_angle({0, 1, 0}, radians(self.yaw)).normalize();
+    // Quaternionf x_axis = self.rotation.rotate_by_axis_angle({1, 0, 0}, radians(self.pitch)).normalize();
+    // if (self.zoom_value == 0) self.zoom_value = -15;
 
-    Vec3f offset = self.translation.rotate_by_quat(x_axis.mul2(y_axis));
+    // Vec3f offset = self.translation.rotate_by_quat(x_axis.mul2(y_axis));
 
-    self.view = gltf::to_matrix(
-        self.translation,
-        self.scale,
-        self.rotation.mul2(y_axis.mul2(x_axis))
-    ).inverse()!!;
+    // self.view = gltf::to_matrix(
+    //     self.translation,
+    //     self.scale,
+    //     self.rotation.mul2(y_axis.mul2(x_axis))
+    // ).inverse()!!;
     
     self.view.m23 = self.zoom_value;
 }

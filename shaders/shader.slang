@@ -55,6 +55,7 @@ struct PushData
 {
     uint draw_index;
     uint8_t collides;
+    row_major float4x4 scale;
 };
 
 struct Node {
@@ -130,7 +131,7 @@ FragmentData vertexMain(VertexInput input)
 
 
     row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
-    node_matrix = mul(node_matrix, skin_matrix);
+    node_matrix = mul(mul(node_matrix, skin_matrix), push_constant.scale);
 
     // if (draw.animation_offset > -1)
     // {
