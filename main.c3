@@ -30,7 +30,6 @@ struct MoveEvent {
 struct PushConstantData {
     uint draw_index;
     bool collided;
-    Matrix4f scale;
 }
 
 struct Material @tag("BUFFER", 3) {
@@ -140,7 +139,7 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
     stage_buffer.free();
 }
 
-const float SPEED = 0.05;
+const float SPEED = 0.2f;
 
 const MoveEvent[] MOVE_EVENTS = {
     {W, {0, SPEED, 0}},
@@ -167,7 +166,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
                     if (event.key == T || event.key == G) {
                         rigid_body.apply_angular_impulse(event.move);
                     } else {
-                        rigid_body.collider.translation += event.move;
+                        rigid_body.apply_linear_impulse(event.move);
                     }
                 };
             }
@@ -534,7 +533,7 @@ fn void main()
                             case CAPSULE: body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
                             default: {}
                         }
-                  
+
                         if (node.motion != null) {
                             body.motion = {
                                 .mass = node.motion.mass,
@@ -808,12 +807,12 @@ fn void main()
             running = false;
         }
 
-        if (frame_count > 0) {
-            physics_system(manager, event, frame_time);
-            frame_count -= 1;
-        };
+        // if (frame_count > 0) {
+        //     physics_system(manager, event, frame_time);
+        //     frame_count -= 1;
+        // };
         
- 
+        physics_system(manager, event, frame_time);
         uint next_image = context.next_image()!!;
     
         ImageMemoryBarrier2 begin_barrier = {
@@ -894,7 +893,6 @@ fn void main()
             CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,
-                .scale = MATRIX4F_IDENTITY,
             };
 
             if (try state) {
@@ -907,7 +905,6 @@ fn void main()
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
 
-            constant_data.scale = MATRIX4F_IDENTITY.scale({1.01, 1.01, 1.01});
             constant_data.collided = true;
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
