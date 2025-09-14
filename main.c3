@@ -776,8 +776,6 @@ fn void main()
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
 
-    double time = 0;
-
     while (running) {
         NanoDuration start_time = render_time.mark();
 
