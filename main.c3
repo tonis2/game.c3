@@ -139,7 +139,7 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
     stage_buffer.free();
 }
 
-const float SPEED = 0.2f;
+const float SPEED = 0.5f;
 
 const MoveEvent[] MOVE_EVENTS = {
     {W, {0, SPEED, 0}},
@@ -167,13 +167,13 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
                         rigid_body.apply_angular_impulse(event.move);
                     } else {
                         rigid_body.apply_linear_impulse(event.move);
+                        //rigid_body.collider.translation += event.move;
                     }
                 };
             }
         }
 
         if (rigid_body != null) {
-            // if (!rigid_body.is_static()) node.rotation *= QUATERNIONF_IDENTITY.rotate_by_axis_angle({0, 0, 0.5}, 1).normalize();
             node.translation = rigid_body.collider.translation;
             node.rotation = rigid_body.collider.rotation;
             node.dirty = true;
@@ -510,6 +510,7 @@ fn void main()
                     Rigidbody body = {
                         .id = node_entity.id,
                         .aabb = mesh_data.aabb,
+                        .is_static = true,
                         .material = {
                             .dynamic_friction = physics_material.dynamic_friction,
                             .static_friction = physics_material.static_friction,
@@ -528,13 +529,14 @@ fn void main()
 
                         switch (shape.type) {
                             case BOX: body.collider.shape = &&mesh_data.aabb;
-                            case SPHERE: body.collider.shape = &&(Sphere){node.translation, shape.radius};
+                            case SPHERE: body.collider.shape = &&(Sphere){.radius = shape.radius};
                             case CYLINDER: body.collider.shape = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
                             case CAPSULE: body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
                             default: {}
                         }
 
                         if (node.motion != null) {
+                            body.is_static = false;
                             body.motion = {
                                 .mass = node.motion.mass,
                                 .gravity_factor = node.motion.gravity_factor,
@@ -543,6 +545,8 @@ fn void main()
                                 .inertia_orientation = node.motion.inertia_orientation,
                                 .linear_velocity = node.motion.linear_velocity,
                                 .angular_velocity = node.motion.angular_velocity,
+                                .linear_dampening = 0.95,
+                                .angular_dampening = 0.9
                             };
                         }
 
