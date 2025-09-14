@@ -777,7 +777,6 @@ fn void main()
     Clock render_time = clock::now();
 
     double time = 0;
-    uint frame_count = 1;
 
     while (running) {
         NanoDuration start_time = render_time.mark();
@@ -786,20 +785,16 @@ fn void main()
 
         EventMap event = win.getEvent();
        
-        if (event.is_pressed(LEFT_MOUSE)) {
-            Vec2f mouse_pos = win.getMousePos();
-            camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
-            ecs::@upload(manager, scene, &&camera.data());
-            prev_mouse = mouse_pos;
-        }
+        // if (event.is_pressed(LEFT_MOUSE)) {
+        //     Vec2f mouse_pos = win.getMousePos();
+        //     camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
+        //     ecs::@upload(manager, scene, &&camera.data());
+        //     prev_mouse = mouse_pos;
+        // }
 
         if (event.is_pressed(MOUSE_SCROLL_DOWN)) {
             camera.zoom(-2);
             ecs::@upload(manager, scene, &&camera.data());
-        }
-
-        if (event.is_pressed(L)) {
-            frame_count +=1;
         }
 
         if (event.is_pressed(MOUSE_SCROLL_UP)) {
@@ -810,11 +805,6 @@ fn void main()
         if (event.is_pressed(ESCAPE)) {
             running = false;
         }
-
-        // if (frame_count > 0) {
-        //     physics_system(manager, event, frame_time);
-        //     frame_count -= 1;
-        // };
         
         physics_system(manager, event, frame_time);
         uint next_image = context.next_image()!!;
