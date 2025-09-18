@@ -424,6 +424,8 @@ fn void main()
 
     // Build draw commands for Vulkan
     foreach (uint node_index, node : gltf.nodes) {
+        Entity node_entity = manager.@create_entity()!!;
+
         if (node.has_camera()) {
             gltf::Camera camera_data = gltf.cameras[node.camera];
 
@@ -438,9 +440,120 @@ fn void main()
                 .y_fov = camera_data.perspective.yfov
             };
         }
-        if (node.has_mesh() && node.name != "physicsMeshDataNode") {
+
+        // Physics joint
+        if (node.has_joint()) {
+            gltf::Node connected_node = gltf.nodes[node.connected_node];
+            gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
+            io::printfn("%s %s", connected_node.name, node.name);
+            
+            GenericJoint3D generic_joint = {
+                .anchor_a = node.translation,
+                .anchor_b = connected_node.translation
+            };
+
+            foreach (limit: joint.limits) {
+                generic_joint.limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = (collision::Axis[3])limit.axes,
+                    .type = (collision::LimitType)limit.type
+                });
+            }
+
+            physics_world.add_constraint(generic_joint)!!;
+        }
+
+        if (node.has_collider()) {
+            gltf::Collider collider = gltf.colliders[node.collider];
+
+            Matrix4f global_matrix = node.global_matrix();
+            PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
+
+            CollisionData collision_data = {
+                .collided = false,
+                .node_index = node_index,
+                .is_player = node.name == "player"
+            };
+        
+            Rigidbody body = {
+                .id = node_entity.id,
+                .is_static = true,
+                .material = {
+                    .dynamic_friction = physics_material.dynamic_friction,
+                    .static_friction = physics_material.static_friction,
+                    .restitution = physics_material.restitution,
+                },
+                .collider = collision::transformed_shape_from(
+                    translation: node.translation,
+                    scale: node.scale,
+                    rotation: node.rotation,
+                )
+            };
+
+            if (node.has_motion()) {
+                gltf::Motion motion = gltf.motions[node.motion];
+                
+                body.is_static = false;
+                body.motion = {
+                    .mass = motion.mass,
+                    .gravity_factor = motion.gravity_factor,
+                    .mass_center = motion.mass_center,
+                    .inertia_diagonal = motion.inertia_diagonal,
+                    .inertia_orientation = motion.inertia_orientation,
+                    .linear_velocity = motion.linear_velocity,
+                    .angular_velocity = motion.angular_velocity,
+                    .linear_dampening = 0.95,
+                    .angular_dampening = 0.9
+                };
+            }
+
+            if (collider.has_shape()) {
+                // Collision is basic shape
+                Shape shape = gltf.shapes[collider.shape];
+
+                switch (shape.type) {
+                    case BOX: body.collider.shape = &&collision::aabb_from_half(shape.size);
+                    case SPHERE: body.collider.shape = &&(Sphere){.radius = shape.radius};
+                    case CYLINDER: body.collider.shape = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
+                    case CAPSULE: body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                    default: {}
+                }
+
+
+                physics_world.add_body(body: body)!!;
+            } else {
+                    io::printfn("Only collision shapes are implemented");
+                    return;
+                    // Create collision data from vertices
+                    // usz vertex_offset = mesh_positions.len();
+                    // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
+                    // usz vertex_len = mesh_positions.len() - vertex_offset;
+                    // collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
+
+                    // physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
+                    // Collider has no shape, and is static, so probably ground object
+                    // collision_data.is_terrain = true;
+                    // gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
+                    //     foreach (i, value: triangle) {
+                    //         Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
+                    //         triangle[i] = item.xyz;
+                    //     }
+
+                    //     ground_triangles.push({
+                    //         triangle[0],
+                    //         triangle[1],
+                    //         triangle[2]
+                    //     });
+                    // }!!;
+
+            }
+            
+            node_entity.@add(collision_data, &manager)!!;
+        }
+
+        if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-            Entity node_entity = manager.@create_entity()!!;
 
             if (node.extras.has_key("animation")) {
                 node_entity.@add((WorldAnimation) {
@@ -495,90 +608,6 @@ fn void main()
                         );
                         instances.@push(instance_matrix);
                     }
-                }
-
-                if (node.collider != null) {
-                    Matrix4f global_matrix = node.global_matrix();
-                    PhysicsMaterial physics_material = gltf.physics_materials[node.collider.material];
-
-                    CollisionData collision_data = {
-                        .collided = false,
-                        .node_index = node_index,
-                        .is_player = node.name == "player"
-                    };
-              
-                    Rigidbody body = {
-                        .id = node_entity.id,
-                        .aabb = mesh_data.aabb,
-                        .is_static = true,
-                        .material = {
-                            .dynamic_friction = physics_material.dynamic_friction,
-                            .static_friction = physics_material.static_friction,
-                            .restitution = physics_material.restitution,
-                        },
-                        .collider = collision::transformed_shape_from(
-                            translation: node.translation,
-                            scale: node.scale,
-                            rotation: node.rotation,
-                        )
-                    };
-
-                    if (node.collider.has_shape()) {
-                        // Collision is basic shape
-                        Shape shape = gltf.shapes[node.collider.shape];
-
-                        switch (shape.type) {
-                            case BOX: body.collider.shape = &&mesh_data.aabb;
-                            case SPHERE: body.collider.shape = &&(Sphere){.radius = shape.radius};
-                            case CYLINDER: body.collider.shape = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
-                            case CAPSULE: body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
-                            default: {}
-                        }
-
-                        if (node.motion != null) {
-                            body.is_static = false;
-                            body.motion = {
-                                .mass = node.motion.mass,
-                                .gravity_factor = node.motion.gravity_factor,
-                                .mass_center = node.motion.mass_center,
-                                .inertia_diagonal = node.motion.inertia_diagonal,
-                                .inertia_orientation = node.motion.inertia_orientation,
-                                .linear_velocity = node.motion.linear_velocity,
-                                .angular_velocity = node.motion.angular_velocity,
-                                .linear_dampening = 0.95,
-                                .angular_dampening = 0.9
-                            };
-                        }
-
-                        physics_world.add_body(body: body)!!;
-                    } else {
-                            io::printfn("Only collision shapes are implemented");
-                            return;
-                            // Create collision data from vertices
-                            // usz vertex_offset = mesh_positions.len();
-                            // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
-                            // usz vertex_len = mesh_positions.len() - vertex_offset;
-                            // collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
-
-                            // physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
-                            // Collider has no shape, and is static, so probably ground object
-                            // collision_data.is_terrain = true;
-                            // gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
-                            //     foreach (i, value: triangle) {
-                            //         Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
-                            //         triangle[i] = item.xyz;
-                            //     }
-
-                            //     ground_triangles.push({
-                            //         triangle[0],
-                            //         triangle[1],
-                            //         triangle[2]
-                            //     });
-                            // }!!;
-     
-                    }
-                   
-                    node_entity.@add(collision_data, &manager)!!;
                 }
 
                 node_entity.@add(render_data, &manager)!!;
