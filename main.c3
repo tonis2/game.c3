@@ -158,7 +158,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
-        Rigidbody* rigid_body = physics_world.find_body(entity.id);
+        Rigidbody* rigid_body = physics_world.find_body(collider.node_index);
 
         if (collider.is_player) {
             foreach (event: MOVE_EVENTS) {
@@ -297,7 +297,7 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/game.gltf")!!;
     defer gltf.free();
 
     physics_world = collision::create_world({ .cell_size = 2.0 });
@@ -423,7 +423,7 @@ fn void main()
     defer mesh_positions.free();
 
     // Build draw commands for Vulkan
-    foreach (uint node_index, node : gltf.nodes) {
+    foreach (node : gltf.nodes) {
         Entity node_entity = manager.@create_entity()!!;
 
         if (node.has_camera()) {
@@ -441,27 +441,31 @@ fn void main()
             };
         }
 
-        // Physics joint
         if (node.has_joint()) {
             gltf::Node connected_node = gltf.nodes[node.connected_node];
+            gltf::Node body_a = *node.parent;
+            gltf::Node body_b = *connected_node.parent;
+
             gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
-            io::printfn("%s %s", connected_node.name, node.name);
-            
+
             GenericJoint3D generic_joint = {
-                .anchor_a = node.translation,
-                .anchor_b = connected_node.translation
+                .anchor_a = node.translation.rotate_by_quat(node.rotation),
+                .anchor_b = connected_node.translation.rotate_by_quat(connected_node.rotation),
+                .body_a = body_a.index,
+                .body_b = body_b.index,
             };
 
             foreach (limit: joint.limits) {
                 generic_joint.limits.push({
                     .min = limit.min,
                     .max = limit.max,
-                    .axes = (collision::Axis[3])limit.axes,
+                    .axes = limit.axes,
                     .type = (collision::LimitType)limit.type
                 });
             }
 
             physics_world.add_constraint(generic_joint)!!;
+
         }
 
         if (node.has_collider()) {
@@ -472,13 +476,12 @@ fn void main()
 
             CollisionData collision_data = {
                 .collided = false,
-                .node_index = node_index,
+                .node_index = node.index,
                 .is_player = node.name == "player"
             };
         
             Rigidbody body = {
-                .id = node_entity.id,
-                .is_static = true,
+                .id = node.index,
                 .material = {
                     .dynamic_friction = physics_material.dynamic_friction,
                     .static_friction = physics_material.static_friction,
@@ -493,18 +496,14 @@ fn void main()
 
             if (node.has_motion()) {
                 gltf::Motion motion = gltf.motions[node.motion];
-                
-                body.is_static = false;
                 body.motion = {
                     .mass = motion.mass,
                     .gravity_factor = motion.gravity_factor,
                     .mass_center = motion.mass_center,
-                    .inertia_diagonal = motion.inertia_diagonal,
-                    .inertia_orientation = motion.inertia_orientation,
                     .linear_velocity = motion.linear_velocity,
                     .angular_velocity = motion.angular_velocity,
                     .linear_dampening = 0.95,
-                    .angular_dampening = 0.9
+                    .angular_dampening = 0.8
                 };
             }
 
@@ -513,10 +512,23 @@ fn void main()
                 Shape shape = gltf.shapes[collider.shape];
 
                 switch (shape.type) {
-                    case BOX: body.collider.shape = &&collision::aabb_from_half(shape.size);
-                    case SPHERE: body.collider.shape = &&(Sphere){.radius = shape.radius};
-                    case CYLINDER: body.collider.shape = &&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom};
-                    case CAPSULE: body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                    case BOX: {
+                        Aabb3 item = collision::aabb_from_half(shape.size);
+                        body.collider.shape = &item;
+                        if (node.has_motion()) body.motion.inertia = item.scale(node.scale).inertia_tensor(body.motion.mass).inverse()!!;
+                    }
+                    case SPHERE: {
+                        Sphere item = {.radius = shape.radius};
+                        body.collider.shape = &item;
+                        if (node.has_motion()) body.motion.inertia = item.inertia_tensor(body.motion.mass).inverse()!!;
+                    }
+                    case CYLINDER: {
+                        Cylinder item = {shape.height, shape.radius_top, shape.radius_bottom};
+                        body.collider.shape = &item;
+                    }
+                    case CAPSULE: {
+                        body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                    }
                     default: {}
                 }
 
@@ -566,7 +578,7 @@ fn void main()
             if (node.extras.has_key("skin_clone")) {
                 node_entity.@add((SkinAnimation) {
                     .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-                    .active_time = node_index * 0.05,
+                    .active_time = node.index * 0.05,
                     .repeat = true
                 }, &manager)!!;
             }
@@ -589,7 +601,7 @@ fn void main()
                     .instance_offset = (uint)instances.used_size,
                     .skin_offset = -1,
                     .material = mesh_data.materialIndex,
-                    .node_index = node_index,
+                    .node_index = node.index,
                 };
 
                 // If node has instance data, build transform matrices for it
