@@ -446,11 +446,14 @@ fn void main()
             gltf::Node body_a = *node.parent;
             gltf::Node body_b = *connected_node.parent;
 
+            Vec3f anchor_a = gltf::decompose_joint(body: body_a, joint: node);
+            Vec3f anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node);
+
             gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
 
             GenericJoint3D generic_joint = {
-                .anchor_a = node.translation.rotate_by_quat(node.rotation),
-                .anchor_b = connected_node.translation.rotate_by_quat(connected_node.rotation),
+                .anchor_a = anchor_a,
+                .anchor_b = anchor_b,
                 .body_a = body_a.index,
                 .body_b = body_b.index,
             };
@@ -465,7 +468,6 @@ fn void main()
             }
 
             physics_world.add_constraint(generic_joint)!!;
-
         }
 
         if (node.has_collider()) {
@@ -513,9 +515,8 @@ fn void main()
 
                 switch (shape.type) {
                     case BOX: {
-                        Aabb3 item = collision::aabb_from_half(shape.size);
-                        body.collider.shape = &item;
-                        if (node.has_motion()) body.motion.inertia = item.scale(node.scale).inertia_tensor(body.motion.mass).inverse()!!;
+                        body.collider.shape = &&collision::aabb_from_half(shape.size);
+                        if (node.has_motion()) body.motion.inertia = collision::aabb_from_half(shape.size * node.scale * 2).inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     case SPHERE: {
                         Sphere item = {.radius = shape.radius};
