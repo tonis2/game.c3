@@ -146,7 +146,7 @@ const MoveEvent[] MOVE_EVENTS = {
     {S, {0, -SPEED, 0}},
     {A, {SPEED, 0, 0}},
     {D, {-SPEED, 0, 0}},
-    {UP_ARROW, {0, 0, SPEED}},
+    {UP_ARROW, {0, 0, SPEED * 5}},
     {DOWN_ARROW, {0, 0, -SPEED}},
     {T, {0, 0, -SPEED}},
     {G, {0, 0, SPEED}},
@@ -297,7 +297,7 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.gltf")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
     physics_world = collision::create_world({ .cell_size = 2.0 });
@@ -389,7 +389,7 @@ fn void main()
     }
 
     foreach (index, node: gltf.nodes) {
-        io::printfn("%s %s %s", node.translation, node.rotation.v, node.name);
+        io::printfn("%s %s %s %s", node.translation, node.rotation.v, node.name, node.index);
         nodes.@push((ecs::Node) {
             .matrix = node.global_matrix(),
             .translation = node.translation,
@@ -441,35 +441,6 @@ fn void main()
             };
         }
 
-        if (node.has_joint()) {
-            gltf::Node connected_node = gltf.nodes[node.connected_node];
-            gltf::Node body_a = *node.parent;
-            gltf::Node body_b = *connected_node.parent;
-
-            Vec3f anchor_a = gltf::decompose_joint(body: body_a, joint: node);
-            Vec3f anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node);
-
-            gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
-
-            GenericJoint3D generic_joint = {
-                .anchor_a = anchor_a,
-                .anchor_b = anchor_b,
-                .body_a = body_a.index,
-                .body_b = body_b.index,
-            };
-
-            foreach (limit: joint.limits) {
-                generic_joint.limits.push({
-                    .min = limit.min,
-                    .max = limit.max,
-                    .axes = limit.axes,
-                    .type = (collision::LimitType)limit.type
-                });
-            }
-
-            physics_world.add_constraint(generic_joint)!!;
-        }
-
         if (node.has_collider()) {
             gltf::Collider collider = gltf.colliders[node.collider];
 
@@ -516,7 +487,7 @@ fn void main()
                 switch (shape.type) {
                     case BOX: {
                         body.collider.shape = &&collision::aabb_from_half(shape.size);
-                        if (node.has_motion()) body.motion.inertia = collision::aabb_from_half(shape.size * node.scale * 2).inertia_tensor(body.motion.mass).inverse()!!;
+                        if (node.has_motion()) body.motion.inertia = collision::aabb_from_half(shape.size * node.scale).inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     case SPHERE: {
                         Sphere item = {.radius = shape.radius};
@@ -563,6 +534,35 @@ fn void main()
             }
             
             node_entity.@add(collision_data, &manager)!!;
+        }
+
+        if (node.has_joint()) {
+            gltf::Node connected_node = gltf.nodes[node.connected_node];
+            gltf::Node body_a = *node.parent;
+            gltf::Node body_b = *connected_node.parent;
+
+            Vec3f anchor_a = gltf::decompose_joint(body: body_a, joint: node);
+            Vec3f anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node);
+
+            gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
+
+            GenericJoint3D generic_joint = {
+                .anchor_a = anchor_a,
+                .anchor_b = anchor_b,
+                .body_a = body_a.index,
+                .body_b = body_b.index,
+            };
+
+            foreach (limit: joint.limits) {
+                generic_joint.limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = limit.axes,
+                    .type = (collision::LimitType)limit.type
+                });
+            }
+
+            physics_world.add_constraint(generic_joint)!!;
         }
 
         if (node.has_mesh()) {
