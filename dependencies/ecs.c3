@@ -218,7 +218,7 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
 }
 
 <*
- @require (@typekind(#type) != OPTIONAL && @typekind(#type) != POINTER) : "Added type should not be optional or pointer"
+ @require ($kindof(#type) != OPTIONAL && $kindof(#type) != POINTER) : "Added type should not be optional or pointer"
 *>
 macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index = -1) {
     String type_name = $typeof(#type).nameof;
@@ -296,7 +296,7 @@ macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
     Allocator buffer = self.manager.buffers[self.buffer];
     usz data_offset = self.offset + offset + self.used_size;
 
-    $if @typekind(#data) == POINTER: {
+    $if $kindof(#data) == POINTER: {
         if (size == 0) data_size = $typeof(*#data).sizeof;
     }
     $else {
@@ -304,7 +304,7 @@ macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
     }   
     $endif
 
-    $if @typekind(#data) == POINTER: {
+    $if $kindof(#data) == POINTER: {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             self.manager.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
@@ -333,7 +333,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     usz data_offset = 0;
     String type_name;
 
-    $if @typekind(#data) == POINTER: {
+    $if $kindof(#data) == POINTER: {
         if (size == 0) data_size = $typeof(*#data).sizeof;
         type_name = $typeof(*#data).nameof;
     }
@@ -369,7 +369,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         // };
     $endif;
 
-    $if @typekind(#data) == POINTER: {
+    $if $kindof(#data) == POINTER: {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
