@@ -158,22 +158,22 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
-        Rigidbody* rigid_body = physics_world.find_body(collider.node_index);
+        Rigidbody*? rigid_body = physics_world.find_body(collider.node_index);
 
-        if (collider.is_player) {
-            foreach (event: MOVE_EVENTS) {
-                if (key_map.is_pressed(event.key)) {
-                    if (event.key == T || event.key == G) {
-                        rigid_body.apply_angular_impulse(event.move);
-                    } else {
-                        rigid_body.apply_linear_impulse(event.move);
-                        //rigid_body.collider.translation += event.move;
-                    }
-                };
+        if (try rigid_body) {
+            if (collider.is_player) {
+                foreach (event: MOVE_EVENTS) {
+                    if (key_map.is_pressed(event.key)) {
+                        if (event.key == T || event.key == G) {
+                            rigid_body.apply_angular_impulse(event.move);
+                        } else {
+                            rigid_body.apply_linear_impulse(event.move);
+                            //rigid_body.collider.translation += event.move;
+                        }
+                    };
+                }
             }
-        }
 
-        if (rigid_body != null) {
             node.translation = rigid_body.collider.translation;
             node.rotation = rigid_body.collider.rotation;
             node.dirty = true;
@@ -467,6 +467,8 @@ fn void main()
                 )
             };
 
+
+
             if (node.has_motion()) {
                 gltf::Motion motion = gltf.motions[node.motion];
                 body.motion = {
@@ -481,13 +483,14 @@ fn void main()
             }
 
             if (collider.has_shape()) {
+
                 // Collision is basic shape
                 Shape shape = gltf.shapes[collider.shape];
 
                 switch (shape.type) {
                     case BOX: {
                         body.collider.shape = &&collision::aabb_from_half(shape.size);
-                        if (node.has_motion()) body.motion.inertia = collision::aabb_from_half(shape.size * node.scale).inertia_tensor(body.motion.mass).inverse()!!;
+                        if (node.has_motion()) body.motion.inertia = collision::aabb_from_half(shape.size * node.scale * 2).inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     case SPHERE: {
                         Sphere item = {.radius = shape.radius};
@@ -497,14 +500,15 @@ fn void main()
                     case CYLINDER: {
                         Cylinder item = {shape.height, shape.radius_top, shape.radius_bottom};
                         body.collider.shape = &item;
+                        if (node.has_motion()) body.motion.inertia = item.inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     case CAPSULE: {
-                        body.collider.shape = &&(Capsule){shape.height, shape.radius_top, shape.radius_bottom};
+                        Capsule item = {shape.height, shape.radius_top, shape.radius_bottom};
+                        body.collider.shape = &item;
+                        if (node.has_motion()) body.motion.inertia = item.inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     default: {}
                 }
-
-
                 physics_world.add_body(body: body)!!;
             } else {
                     io::printfn("Only collision shapes are implemented");
@@ -551,15 +555,15 @@ fn void main()
                 .anchor_b = anchor_b,
                 .body_a = body_a.index,
                 .body_b = body_b.index,
+                .collides = false
             };
 
-            foreach (limit: joint.limits) {
-                generic_joint.limits.push({
-                    .min = limit.min,
-                    .max = limit.max,
-                    .axes = limit.axes,
-                    .type = (collision::LimitType)limit.type
-                });
+            foreach (limit: joint.linear_limits) {
+                generic_joint.limit_linear(limit.axes, min: limit.min, max: limit.max);
+            }
+
+            foreach (limit: joint.angular_limits) {
+                generic_joint.limit_angular(connected_node.rotation * limit.axes, min: limit.min, max: limit.max);
             }
 
             physics_world.add_constraint(generic_joint)!!;
