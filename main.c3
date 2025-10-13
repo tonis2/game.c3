@@ -300,7 +300,7 @@ fn void main()
     gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
-    physics_world = collision::create_world({ .cell_size = 2.0 });
+    physics_world = collision::create_world({ .cell_size = 6.0 });
 
     defer physics_world.free();
 
@@ -467,8 +467,6 @@ fn void main()
                 )
             };
 
-
-
             if (node.has_motion()) {
                 gltf::Motion motion = gltf.motions[node.motion];
                 body.motion = {
@@ -489,23 +487,19 @@ fn void main()
 
                 switch (shape.type) {
                     case BOX: {
-                        body.collider.shape = &&collision::aabb_from_half(shape.size);
-                        if (node.has_motion()) body.motion.inertia = collision::aabb_from_half(shape.size * node.scale * 2).inertia_tensor(body.motion.mass).inverse()!!;
+                        body.collider.shape = &&collision::aabb_from_half(shape.size).scale(node.scale);
                     }
                     case SPHERE: {
                         Sphere item = {.radius = shape.radius};
                         body.collider.shape = &item;
-                        if (node.has_motion()) body.motion.inertia = item.inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     case CYLINDER: {
                         Cylinder item = {shape.height, shape.radius_top, shape.radius_bottom};
                         body.collider.shape = &item;
-                        if (node.has_motion()) body.motion.inertia = item.inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     case CAPSULE: {
                         Capsule item = {shape.height, shape.radius_top, shape.radius_bottom};
                         body.collider.shape = &item;
-                        if (node.has_motion()) body.motion.inertia = item.inertia_tensor(body.motion.mass).inverse()!!;
                     }
                     default: {}
                 }
@@ -693,7 +687,7 @@ fn void main()
             .setBufferInfo({
                 {
                     .buffer = cpu_and_gpu.buffer,
-                    .offset = ecs::@get_offset(manager, scene, "CameraData")!!,
+                    .offset = ecs::@get_offset(manager, scene, "CameraData")!!, // Todo: Add CameraData offset here
                     .range = ecs::get_size(scene, manager),
                 },
             }),

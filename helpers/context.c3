@@ -116,25 +116,25 @@ fn DeviceContext? createContext(c3w::Window win) {
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
-    extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
+    device_extensions.push_all({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
+    extensions.push_all({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
     if (env::OS_TYPE == MACOS) {
-        extensions.add_array({"VK_EXT_metal_surface", "VK_KHR_portability_enumeration"});
+        extensions.push_all({"VK_EXT_metal_surface", "VK_KHR_portability_enumeration"});
         device_extensions.push("VK_KHR_portability_subset");
     }
 
     if (env::OS_TYPE == WIN32) {
-        extensions.add_array({"VK_KHR_win32_surface"});
+        extensions.push_all({"VK_KHR_win32_surface"});
     }
 
     if (env::OS_TYPE == LINUX) {
         $if $feature(WAYLAND):
-            extensions.add_array({"VK_KHR_wayland_surface"});
+            extensions.push_all({"VK_KHR_wayland_surface"});
         $endif
 
         $if $feature(X11):
-            extensions.add_array({"VK_KHR_xcb_surface"});
+            extensions.push_all({"VK_KHR_xcb_surface"});
         $endif
     }
 
