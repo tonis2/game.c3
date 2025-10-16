@@ -16,15 +16,15 @@ struct Material
     float3 pad2;
 };
 
-struct Vertex
-{
-    float4 position;
-    float4 normal;
-    float4 tex_cord;
-    float4 tangent;
-    uint4 skin_pos;
-    float4 skin_weight;
-};
+// struct Vertex
+// {
+//     float4 position;
+//     float4 normal;
+//     float4 tex_cord;
+//     float4 tangent;
+//     uint4 skin_pos;
+//     float4 skin_weight;
+// };
 
 struct Light
 {
@@ -77,7 +77,7 @@ cbuffer Scene
     row_major float4x4 view;
     float4 eye;
     Light light;
-    Vertex* vertices;
+    uint64_t* draw_buffer;
     DrawCommand* draw_cmds;
     Material* materials;
     Node* nodes;
@@ -108,29 +108,29 @@ struct VertexInput {
 FragmentData vertexMain(VertexInput input)
 {
     DrawCommand draw = draw_cmds[push_constant.draw_index];
-    Vertex vertex = vertices[input.vertID];
+    float3 position = ((float3*)draw_buffer)[draw.vertexOffset + input.vertID];
 
-    float4x4 skin_matrix = {
-        1, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    };
+    // float4x4 skin_matrix = {
+    //     1, 0, 0, 0,
+    //     0, 1, 0, 0,
+    //     0, 0, 1, 0,
+    //     0, 0, 0, 1
+    // };
 
-    if (draw.skin_offset > -1)
-    {
-        float4x4* skin_matrixes = skin_data + draw.skin_offset;
+    // if (draw.skin_offset > -1)
+    // {
+    //     float4x4* skin_matrixes = skin_data + draw.skin_offset;
 
-        skin_matrix =
-        vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
-        vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
-        vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
-        vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
-    }
+    //     skin_matrix =
+    //     vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
+    //     vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
+    //     vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
+    //     vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
+    // }
 
 
     row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
-    node_matrix = mul(node_matrix, skin_matrix);
+    // node_matrix = mul(node_matrix, skin_matrix);
 
     // if (draw.animation_offset > -1)
     // {
@@ -142,11 +142,11 @@ FragmentData vertexMain(VertexInput input)
         node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
     }
 
-    float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
+    float4 frag_pos = mul(node_matrix, float4(position, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
 
     FragmentData output = {
-        vertex.tex_cord.xy,
+        {0, 0},
         draw.material,
         vertex_pos
     };

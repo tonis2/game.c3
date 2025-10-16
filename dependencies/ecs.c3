@@ -291,10 +291,10 @@ fn uint get_size(Entity entity, EntityManager manager) {
 <*
  @require self.size > (self.used_size + size) : "Component total size is too small"
 *>
-macro void Component.@push(&self, #data, usz size = 0, usz offset = 0) {
+macro void Component.@push(&self, #data, usz size = 0, usz offset = 0, bool auto_increase = true) {
     usz data_size = size;
     Allocator buffer = self.manager.buffers[self.buffer];
-    usz data_offset = self.offset + offset + self.used_size;
+    usz data_offset = self.offset + offset + (self.used_size * (auto_increase ? 1 : 0));
 
     $if $kindof(#data) == POINTER: {
         if (size == 0) data_size = $typeof(*#data).sizeof;
@@ -602,6 +602,29 @@ fn void NodeComponent.recalculate(&self, bool loop = false) @inline
     }
 }
 
+struct MeshData {
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+    uint meshCount;
+    usz vertex_offset;
+    usz vertex_len;
+    int materialIndex;
+    Aabb3 aabb;
+    bool visible;
+}
+
+struct Vertex {
+    Vec3f pos;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    uint[4] skin_pos;
+    Vec4f skin_weight;
+}
+
 struct MeshInfo {
     usz offset;
     usz count;
@@ -625,12 +648,9 @@ fn MeshData? MeshContainer.get(&self, uint index) => self.meshes[index];
 <*
  @require self.mesh_map.len() > 0 : `MeshContainer is empty`
 *>
-macro void? MeshContainer.@iter(&self, String name; @callback(uint index, MeshData* data)) {
+macro MeshData[]? MeshContainer.primitives(&self, String name) {
     MeshInfo info = self.get_name(name)!;
-    for (uint i = 0; i<info.count; i++) {
-        uint index = (uint)info.offset + i;
-        @callback(index, &self.meshes[index]);
-    }
+    return self.meshes.array_view()[info.offset .. (info.offset + info.count - 1)];
 }
 
 fn void? MeshContainer.parse_gltf_mesh(&self, Gltf gltf, gltf::Mesh mesh) {
@@ -764,29 +784,6 @@ fn void MeshContainer.add(&self, String name, MeshData mesh) {
         });
         self.meshes.push(mesh);
     }
-}
-
-struct MeshData {
-    uint indexCount;
-    uint firstInstance;
-    uint instanceCount;
-    uint firstIndex;
-    uint vertexOffset;
-    uint meshCount;
-    usz vertex_offset;
-    usz vertex_len;
-    int materialIndex;
-    Aabb3 aabb;
-    bool visible;
-}
-
-struct Vertex {
-    Vec3f pos;
-    Vec3f normal;
-    Vec2f tex_cord;
-    Vec4f tangent;
-    uint[4] skin_pos;
-    Vec4f skin_weight;
 }
 
 fn bool MeshData.has_material(self) => self.materialIndex > -1;
