@@ -110,6 +110,8 @@ FragmentData vertexMain(VertexInput input)
     DrawCommand draw = draw_cmds[push_constant.draw_index];
     float3 position = ((float3*)draw_buffer)[draw.vertexOffset + input.vertID];
 
+    // printf("offset %d", draw.vertexOffset + input.vertID);
+
     // float4x4 skin_matrix = {
     //     1, 0, 0, 0,
     //     0, 1, 0, 0,

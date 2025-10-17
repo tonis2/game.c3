@@ -391,19 +391,20 @@ fn void main()
     foreach (mesh: gltf.meshes) {
         foreach (usz prim_index, primitive: mesh.primitives) {
             usz mesh_index = mesh.name.hash() + prim_index;
-            usz indice_index = primitive.attributes["indices"]!!;
-            gltf::Accessor index_accessor = gltf.accessors[indice_index];
 
-            gltf::BufferView index_view = gltf.get_view(indice_index);
-            gltf::BufferView pos_view = gltf.get_view(primitive.attributes["POSITION"]!!);
+            gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+            gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+
+            gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
+            gltf::BufferView pos_view = gltf.bufferViews[pos_accessor.view];
           
             draw_buffer.@push(gltf.get_data(pos_view), size: pos_view.byteLength, offset: pos_view.offset, auto_increase: false);
             draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength, offset: index_view.offset, auto_increase: false);
- 
+
             meshes.set(mesh_index, {
-                .vertexOffset = (int)pos_view.offset,
-                .firstIndex = (uint)(index_view.offset / index_accessor.dataSize()),
-                .indexCount = (uint)(index_view.byteLength / index_accessor.dataSize())
+                .vertexOffset = (int)pos_view.offset / pos_accessor.stride(),
+                .firstIndex = (uint)(index_view.offset / index_accessor.stride()),
+                .indexCount = (uint)(index_view.byteLength / index_accessor.stride())
             });
         }
     }
@@ -461,8 +462,7 @@ fn void main()
 
         if (node.has_mesh()) {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
-            
-
+        
             if (node.extras.has_key("animation")) {
                 node_entity.@add((WorldAnimation) {
                     .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
@@ -491,7 +491,7 @@ fn void main()
                 usz mesh_index = mesh.name.hash() + prim_index;
 
                 DrawIndexedIndirectCommand draw = meshes[mesh_index]!!;
-         
+             
                 Render render_data = {
                     .indexCount = draw.indexCount,
                     .firstIndex = draw.firstIndex,
@@ -973,7 +973,7 @@ fn void main()
 
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            // vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
         vk::cmdEndRendering(command_buffer);

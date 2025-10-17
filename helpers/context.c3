@@ -186,11 +186,11 @@ fn DeviceContext? createContext(c3w::Window win) {
     // Create surface
     $switch(env::OS_TYPE):
         $case MACOS:
-            MetalSurfaceCreateInfoEXT createInfo = {
-                .sType = vk::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-                .pLayer = (CAMetalLayer*)win.src.layer.id
-            };
-            vk::createMetalSurfaceEXT(context.instance, &createInfo, null, &context.surface)!!;
+                MetalSurfaceCreateInfoEXT createInfo = {
+                    .sType = vk::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+                    .pLayer = (CAMetalLayer*)win.src.layer.id
+                };
+                vk::createMetalSurfaceEXT(context.instance, &createInfo, null, &context.surface)!!;
         $case LINUX:
             $if $feature(WAYLAND):
                 WaylandSurfaceCreateInfoKHR createInfo = {
