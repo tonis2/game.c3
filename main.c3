@@ -22,7 +22,23 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
-alias MeshMap = HashMap{usz, vk::DrawIndexedIndirectCommand};
+alias MeshMap = HashMap{usz, Render};
+
+enum Buffers: inline uint {
+    CPU,
+    DRAW,
+    CPU_GPU,
+    GPU
+}
+
+struct Vertex {
+    Vec3f position;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    uint[4] skin_pos;
+    Vec4f weights;
+}
 
 struct MoveEvent {
     EventKey key;
@@ -34,7 +50,7 @@ struct PushConstantData {
     bool collided;
 }
 
-struct Material @tag("BUFFER", 3) {
+struct Material @tag("BUFFER", Buffers.GPU) {
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
@@ -48,7 +64,7 @@ struct Material @tag("BUFFER", 3) {
     int metallicRoughnessTexture;
 }
 
-struct Render @tag("BUFFER", 1) {
+struct Render @tag("BUFFER", Buffers.DRAW) {
     uint indexCount;
     uint instanceCount;
     uint firstIndex;
@@ -60,9 +76,9 @@ struct Render @tag("BUFFER", 1) {
     uint node_index;
 }
 
-typedef Collider @tag("BUFFER", 1) = Render;
+typedef Collider @tag("BUFFER", Buffers.DRAW) = Render;
 
-struct SceneData @tag("BUFFER", 2) {
+struct SceneData @tag("BUFFER", Buffers.CPU_GPU) {
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
@@ -71,7 +87,7 @@ struct SceneData @tag("BUFFER", 2) {
     vk::DeviceAddress instances;
 }
 
-struct CollisionData @tag("BUFFER", 0) {
+struct CollisionData @tag("BUFFER", Buffers.CPU) {
     uint node_index;
     bool collided;
     bool is_player;
@@ -96,12 +112,17 @@ struct Animation {
    bool repeat;
 }
 
-enum Buffers: inline uint {
-    CPU,
-    DRAW,
-    CPU_GPU,
-    GPU
-}
+
+
+// enum VertexMask: inline uint {
+//    TEX_CORD,
+//    NORMAL,
+//    TANGENT,
+//    JOINT,
+// }
+
+//    
+     
 
 typedef SkinAnimation = Animation;
 typedef WorldAnimation = Animation;
@@ -392,20 +413,42 @@ fn void main()
         foreach (usz prim_index, primitive: mesh.primitives) {
             usz mesh_index = mesh.name.hash() + prim_index;
 
-            gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+            gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
 
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
-            gltf::BufferView pos_view = gltf.bufferViews[pos_accessor.view];
-          
-            draw_buffer.@push(gltf.get_data(pos_view), size: pos_view.byteLength, offset: pos_view.offset, auto_increase: false);
-            draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength, offset: index_view.offset, auto_increase: false);
 
-            meshes.set(mesh_index, {
-                .vertexOffset = (int)pos_view.offset / pos_accessor.stride(),
-                .firstIndex = (uint)(index_view.offset / index_accessor.stride()),
-                .indexCount = (uint)(index_view.byteLength / index_accessor.stride())
-            });
+            int vertex_offset = (int) draw_buffer.used_size;
+            for (usz i; i < pos_accessor.count; i++) {
+                Vertex data = {
+                    .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
+                    .tex_cord = gltf.@cast_with_default(primitive.attributes["TEXCOORD_0"], i, (Vec2f) {0, 0}),
+                    .normal = gltf.@cast_with_default(primitive.attributes["NORMAL"], i, (Vec3f) {0, 0, 0}),
+                    .tangent = gltf.@cast_with_default(primitive.attributes["TANGENT"], i, (Vec4f) {0, 0, 0, 0}),
+                    .weights = gltf.@cast_with_default(primitive.attributes["WEIGHTS_0"], i, (Vec4f) {0, 0, 0, 0}),
+                };
+
+                {
+                    usz? attribute = primitive.attributes["JOINTS_0"];
+                    // Joint data can be in different types on gltf files
+                    if (try attribute) {
+                        Accessor accessor = gltf.accessors[attribute];
+                        if (accessor.data_type == DataType.USHORT) data.skin_pos = (uint[4]){...gltf.@cast_buffer(accessor, i, short[4])};
+                        if (accessor.data_type == DataType.CHAR) data.skin_pos = (uint[4]){...gltf.@cast_buffer(accessor, i, char[4])};
+                    }
+                }
+
+                draw_buffer.@push(data);
+            }
+
+            Render mesh_data = {
+                .vertexOffset = vertex_offset,
+                .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
+                .indexCount = index_accessor.count
+            };
+          
+            draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
+            meshes.set(mesh_index, mesh_data);
         }
     }
 
@@ -490,12 +533,10 @@ fn void main()
             foreach (usz prim_index, primitive: mesh.primitives) {
                 usz mesh_index = mesh.name.hash() + prim_index;
 
-                DrawIndexedIndirectCommand draw = meshes[mesh_index]!!;
+                Render draw = meshes[mesh_index]!!;
              
                 Render render_data = {
-                    .indexCount = draw.indexCount,
-                    .firstIndex = draw.firstIndex,
-                    .vertexOffset = draw.vertexOffset,
+                    ...draw,
                     .instanceCount = 1,
                     .firstInstance = 0,
                     .instance_offset = (uint)instances.used_size,
