@@ -34,7 +34,6 @@ struct DeviceContext {
     Format depth_format;
     SurfaceFormatKHR surface_format;
     Extent2D extent;
-    DebugUtilsMessengerEXT debug_messenger;
     SurfaceKHR surface;
 
     vk::Allocation device_allocation;
@@ -54,10 +53,6 @@ struct PipelineLayer {
 
 fn void DeviceContext.free(self) {
     self.device.waitIdle();
-    $if $feature(DEBUG):
-        self.debug_messenger.free(self.instance);
-    $endif
-
     foreach (view : self.swapchain_views) view.free(self.device);
     self.swapchain.free(self.device);
 
@@ -90,7 +85,7 @@ fn uint? DeviceContext.next_image(self) {
 
 fn void? DeviceContext.present_image(&self, uint next_image, CommandBuffer command_buffer) {
     Semaphore wait_semaphore = self.wait_semaphores[self.frame];
-    Semaphore signal_semaphore = self.signal_semaphores[self.frame];
+    Semaphore signal_semaphore = self.signal_semaphores[next_image];
     Fence frame_fence = self.frame_fences[self.frame];
 
     SubmitInfo submit_info = vk::submitInfo()
@@ -112,12 +107,18 @@ fn void? DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
 }
 
 fn DeviceContext? createContext(c3w::Window win) {
-    DeviceContext context;
+ 
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
     device_extensions.push_all({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
-    extensions.push_all({"VK_KHR_surface", "VK_EXT_debug_utils"});
+    extensions.push_all({"VK_KHR_surface"});
+
+    Instance instance;
+    PhysicalDevice physical_device;
+    DeviceQueue graphics_queue;
+    Device device;
+    SurfaceKHR surface;
 
     if (env::OS_TYPE == MACOS) {
         extensions.push_all({"VK_EXT_metal_surface", "VK_KHR_portability_enumeration"});
@@ -138,50 +139,27 @@ fn DeviceContext? createContext(c3w::Window win) {
         $endif
     }
 
-    InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
-    .setApplicationInfo(&&(ApplicationInfo){
+    vk::checkInstanceExtensionSupport(extensions)!!;
+
+    ApplicationInfo info = {
       .pApplicationName = "TEST",
       .pEngineName = "Super engine",
       .applicationVersion = vk::@makeApiVersion(0,1,0,0),
       .engineVersion = vk::@makeApiVersion(0,1,0,0),
       .apiVersion = vk::@makeApiVersion(0,1,3,0)
-    })
-    .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
-    .setEnabledExtensionNames(extensions.array_view());
-  
-    DebugUtilsMessengerCreateInfoEXT debug_info = {
-        .sType = vk::STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        .messageSeverity = vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT,
-        .messageType = vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-        .pfnUserCallback = (PFN_vkDebugUtilsMessengerCallbackEXT)&debugCallback
     };
 
-    // Debug enabled
-    $if $feature(DEBUG):
-        ValidationFeatureEnableEXT[] enables = {vk::VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT, vk::VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT};
-        ValidationFeatureDisableEXT[] disables = {};
-        String[] validations = {"VK_LAYER_KHRONOS_validation"};
+    InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
+    .setApplicationInfo(&info)
+    .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
+    .setEnabledExtensionNames(extensions.array_view());
 
-        ValidationFeaturesEXT features = {
-            .sType = vk::STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
-            .enabledValidationFeatureCount = enables.len,
-            .pEnabledValidationFeatures = enables.ptr,
-            .disabledValidationFeatureCount = disables.len,
-            .pDisabledValidationFeatures = disables.ptr
-        };
+    if (catch err = vk::createInstance(&instanceInfo, null, &instance)) {
+        io::printfn("Extension error");
+        return NO_SUITABLE_DEVICE?;
+    }
 
-        vk::checkValidationLayersSupport(validations)!!;
-        instanceInfo.pNext = &features;
-        instanceInfo.enabledLayerCount = (uint)validations.len;
-        instanceInfo.ppEnabledLayerNames = (char*)validations.ptr;
-    $endif
-
-    vk::createInstance(&instanceInfo, null, &context.instance)!!;
-    vk::loadExtensions(context.instance);
-
-    $if $feature(DEBUG):
-        context.debug_messenger = debug_info.build(context.instance)!!;
-    $endif
+    vk::loadExtensions(instance);
 
     // Create surface
     $switch(env::OS_TYPE):
@@ -190,8 +168,9 @@ fn DeviceContext? createContext(c3w::Window win) {
                 .sType = vk::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
                 .pLayer = (CAMetalLayer*)win.src.layer.id
             };
-            vk::createMetalSurfaceEXT(context.instance, &createInfo, null, &context.surface)!!;
-        $case LINUX:
+
+            vk::createMetalSurfaceEXT(instance, &createInfo, null, &surface)!!;
+        $case LINUX: {
             $if $feature(WAYLAND):
                 WaylandSurfaceCreateInfoKHR createInfo = {
                     vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR, 
@@ -200,7 +179,7 @@ fn DeviceContext? createContext(c3w::Window win) {
                     win.src.display,
                     win.src.surface,
                 };
-                vk::createWaylandSurfaceKHR(context.instance, &createInfo, null, &context.surface)!!;
+                vk::createWaylandSurfaceKHR(instance, &createInfo, null, &surface)!!;
             $endif
 
             $if $feature(X11):
@@ -211,9 +190,10 @@ fn DeviceContext? createContext(c3w::Window win) {
                     win.src.connection,
                     (vk::Window)win.src.window,
                 };
-                vk::createXcbSurfaceKHR(context.instance, &createInfo, null, &context.surface)!!;
+                vk::createXcbSurfaceKHR(instance, &createInfo, null, &surface)!!;
             $endif
-        $case WIN32:
+        }
+        $case WIN32: {
             Win32SurfaceCreateInfoKHR createInfo = {
                 vk::STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
                 null,
@@ -222,10 +202,12 @@ fn DeviceContext? createContext(c3w::Window win) {
                 win.src.window
             };
             vk::createWin32SurfaceKHR(instance, &createInfo, null, &surface)!!;
+        }
         $default: {}
     $endswitch
 
-    DeviceList devices = context.instance.getDevices()!!;
+    DeviceList devices = instance.getDevices()!!;
+
     uint best_score = 0;
 
     foreach (entry: devices) {
@@ -239,46 +221,48 @@ fn DeviceContext? createContext(c3w::Window win) {
 
         PhysicalDeviceProperties properties;
         vk::getPhysicalDeviceProperties(entry, &properties);
-        assert(context.surface.checkSurfaceSupport((usz)queue_index, entry)!!);
- 
+        assert(surface.checkSurfaceSupport((usz)queue_index, entry)!!);
+        
         if (queue_index >= 0 && supports_extensions && properties.vendorID != 0) {
+            io::printfn("Device selected %s", (ZString)properties.deviceName[0..]);
+
             uint score = 0;
             if (properties.deviceType == 1) score += 100;
             if (properties.deviceType == 2) score += 200;
 
-            io::printfn("Device found %s type %s", (ZString)properties.deviceName[0..], properties.deviceType);
-
             if (score > best_score) {
-                context.pdevice = entry;
-                context.graphics_queue.index = queue_index;
+                best_score = score;
+                physical_device = entry;
+                graphics_queue.index = queue_index;
             }
         }
     }
 
-    if (context.pdevice == null) {
+    if (physical_device == null) {
         io::printfn("Found no suitable device");
         return NO_SUITABLE_DEVICE?;
     }
 
     devices.free();
 
-    PhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused_attchments = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT,
-        .pNext = null,
-        .dynamicRenderingUnusedAttachments = vk::TRUE
-    };
-
-    // PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
-    //     .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
-    //     .pNext = &unused_attchments,
-    //     .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
+    // PhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused_attchments = {
+    //     .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT,
+    //     .pNext = null,
+    //     .dynamicRenderingUnusedAttachments = vk::TRUE
     // };
+
+    PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
+        .pNext = null,
+        .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
+    };
 
     PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-        .pNext = &unused_attchments,
+        .pNext = &dynamicProperties,
         .extendedDynamicState3ColorBlendEnable = vk::TRUE,
     };
+
 
     PhysicalDeviceVulkan13Features vulkan13Features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
@@ -300,52 +284,53 @@ fn DeviceContext? createContext(c3w::Window win) {
         .pNext = &vulkan11Features,
     };
 
-    vk::getPhysicalDeviceFeatures2(context.pdevice, &device_features);
+    vk::getPhysicalDeviceFeatures2(physical_device, &device_features);
 
     DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfo()
-    .setQueueFamilyIndex(context.graphics_queue.index)
+    .setQueueFamilyIndex(graphics_queue.index)
     .setQueuePriorities({1.0});
 
-    context.device = vk::deviceCreateInfo()
-      .setQueueCreateInfos({ graphicsInfo })
-      .setEnabledExtensionNames(device_extensions.array_view())
-      .setNext(&device_features)
-      .build(context.pdevice)!;
+    device = vk::deviceCreateInfo()
+        .setQueueCreateInfos({ graphicsInfo })
+        .setEnabledExtensionNames(device_extensions.array_view())
+        .setNext(&device_features)
+        .build(physical_device)!!;
 
-    // Add actual queue handles to queue family, easier to keep them is one place
-    context.graphics_queue.handle = context.device.getQueue(context.graphics_queue.index);
 
-    SurfaceFormatList surface_formats = context.surface.getFormats(context.pdevice)!;
-    PresentModeList present_modes = context.surface.getPresentModes(context.pdevice)!;
-    SurfaceCapabilitiesKHR capabilities = context.surface.deviceSurfaceCapabilities(context.pdevice)!;
+    graphics_queue.handle = device.getQueue(graphics_queue.index);
 
-    defer {
-      surface_formats.free();
-      present_modes.free();
-    }
+    SurfaceFormatList surface_formats = surface.getFormats(physical_device)!!;
+    PresentModeList present_modes = surface.getPresentModes(physical_device)!!;
+    SurfaceCapabilitiesKHR capabilities = surface.deviceSurfaceCapabilities(physical_device)!!;
 
-    context.depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: context.pdevice);
+	defer {
+		surface_formats.free();
+		present_modes.free();
+	}
 
+    vk::Format depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: physical_device);
     SurfaceFormatKHR format = {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
-    context.surface_format = format;
-    context.extent = {(uint)win.width, (uint)win.height};
+
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
+    Extent2D extent = {(uint)win.width, (uint)win.height};;
 
     SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHR()
-      .setMinImageCount(min_images)
-      .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-      .setImageSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-      .setCompositeAlpha(vk::COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
-      .setPresentMode(vk::PRESENT_MODE_MAILBOX_KHR)
-      .setPreTransform(capabilities.currentTransform)
-      .setImageColorSpace(format.colorSpace)
-      .setImageFormat(format.format)
-      .setSurface(context.surface)
-      .setImageArrayLayers(1)
-      .setImageExtent(context.extent);
+        .setMinImageCount(min_images)
+        .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        .setImageSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+        .setCompositeAlpha(vk::COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+        .setPresentMode(vk::PRESENT_MODE_FIFO_KHR)
+        .setPreTransform(capabilities.currentTransform)
+        .setImageColorSpace(format.colorSpace)
+        .setImageFormat(format.format)
+        .setSurface(surface)
+        .setImageArrayLayers(1)
+        .setImageExtent(extent);
 
-    context.swapchain = swapchain_info.build(context.device)!;
-    context.swapchain_images = context.swapchain.getImages(context.device, swapchain_info.minImageCount)!;
+    SwapchainKHR swapchain = swapchain_info.build(device)!!;
+    vk::ImageList swapchain_images = swapchain.getImages(device, swapchain_info.minImageCount)!!;
+
+    ImageViewList swapchain_views;
 
     for (int i = 0; i < swapchain_info.minImageCount; ++i) {
         ImageView view = vk::imageViewCreateInfo()
@@ -364,21 +349,43 @@ fn DeviceContext? createContext(c3w::Window win) {
             .layerCount = 1,
             .levelCount = 1,
         })
-        .setImage(context.swapchain_images[i])
-        .build(context.device)!;
-        context.swapchain_views.push(view);
+        .setImage(swapchain_images[i])
+        .build(device)!!;
+
+        swapchain_views.push(view);
     }
 
-    context.command_pool = context.device.createCommandPool(queue: context.graphics_queue.index)!;
-    context.command_buffers = context.device.createCommandBuffers(context.command_pool, swapchain_info.minImageCount)!;
+    CommandPool command_pool = device.createCommandPool(queue: graphics_queue.index)!;
+    CommandBufferList command_buffers = device.createCommandBuffers(command_pool, swapchain_info.minImageCount)!;
 
-    for (uint i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        context.wait_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
-        context.signal_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
-        context.frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(context.device))!;
+    SemaphoreList wait_semaphores;
+    SemaphoreList signal_semaphores;
+    FenceList frame_fences;
+
+    for (uint i = 0; i < swapchain_info.minImageCount; ++i) {
+        wait_semaphores.push(vk::semaphoreCreateInfo().build(device))!;
+        signal_semaphores.push(vk::semaphoreCreateInfo().build(device))!;
+        frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
     }
 
-    return context;
+    return (DeviceContext) {
+        .instance = instance,
+        .device = device,
+        .pdevice = physical_device,
+        .swapchain = swapchain,
+        .swapchain_views = swapchain_views,
+        .swapchain_images = swapchain_images,
+        .command_pool = command_pool,
+        .command_buffers = command_buffers,
+        .graphics_queue = graphics_queue,
+        .depth_format = depth_format,
+        .surface_format = format,
+        .extent = extent,
+        .surface = surface,
+        .wait_semaphores = wait_semaphores,
+        .signal_semaphores = signal_semaphores,
+        .frame_fences = frame_fences,
+    };
 }
 
 fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceContext* context) {
@@ -827,23 +834,4 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 
     self.push(cube_texture);
     return cube_image;
-}
-
-
-fn bool debugCallback(
-    vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-    vk::DebugUtilsMessageTypeFlagsEXT messageType,
-    vk::DebugUtilsMessengerCallbackDataEXT* data,
-    void* userData
-) {
-    if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-       io::printfn("ERROR: %s \n", (ZString)data.pMessage);
-    } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-       io::printfn("WARNING: %s \n", (ZString)data.pMessage);
-    } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-       io::printfn("INFO: %s \n", (ZString)data.pMessage);
-    } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
-       io::printfn("VERBOSE: %s \n", (ZString)data.pMessage);
-    }
-    return false;
 }

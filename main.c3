@@ -22,6 +22,24 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
+alias MeshMap = HashMap{usz, Render};
+
+enum Buffers: inline uint {
+    CPU,
+    DRAW,
+    CPU_GPU,
+    GPU
+}
+
+struct Vertex {
+    Vec3f position;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    uint[4] skin_pos;
+    Vec4f weights;
+}
+
 struct MoveEvent {
     EventKey key;
     Vec3f move;
@@ -32,21 +50,21 @@ struct PushConstantData {
     bool collided;
 }
 
-struct Material @tag("BUFFER", 3) {
+struct Material @tag("BUFFER", Buffers.GPU) {
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
-    Vec4f emissiveFactor;
-    Vec4f baseColorFactor;
-
     int normalTexture;
     int occlusionTexture;
     int emissiveTexture;
     int baseColorTexture;
     int metallicRoughnessTexture;
+
+    Vec4f emissiveFactor;
+    Vec4f baseColorFactor;
 }
 
-struct Render @tag("BUFFER", 1) {
+struct Render @tag("BUFFER", Buffers.DRAW) {
     uint indexCount;
     uint instanceCount;
     uint firstIndex;
@@ -58,18 +76,18 @@ struct Render @tag("BUFFER", 1) {
     uint node_index;
 }
 
-typedef Collider @tag("BUFFER", 1) = Render;
+typedef Collider @tag("BUFFER", Buffers.DRAW) = Render;
 
-struct SceneData @tag("BUFFER", 2) {
+struct SceneData @tag("BUFFER", Buffers.CPU_GPU) {
     vk::DeviceAddress vertices;
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
     vk::DeviceAddress nodes;
-    vk::DeviceAddress animations;
-    vk::DeviceAddress instances;
+    // vk::DeviceAddress animations;
+    // vk::DeviceAddress instances;
 }
 
-struct CollisionData @tag("BUFFER", 0) {
+struct CollisionData @tag("BUFFER", Buffers.CPU) {
     uint node_index;
     bool collided;
     bool is_player;
@@ -92,7 +110,7 @@ struct Animation {
    uint animation_index;
    double active_time;
    bool repeat;
-}
+} 
 
 typedef SkinAnimation = Animation;
 typedef WorldAnimation = Animation;
@@ -112,9 +130,7 @@ Gltf gltf;
 
 List{AnimationData} animation_list;
 NodeComponent nodes;
-MeshContainer meshes;
 
-// SpatialHash3D spatial_map;
 // BVHNode terrain_map;
 
 PhysicsWorld physics_world;
@@ -144,8 +160,8 @@ const float SPEED = 0.5f;
 const MoveEvent[] MOVE_EVENTS = {
     {W, {0, SPEED, 0}},
     {S, {0, -SPEED, 0}},
-    {A, {SPEED, 0, 0}},
-    {D, {-SPEED, 0, 0}},
+    {A, {-SPEED, 0, 0}},
+    {D, {SPEED, 0, 0}},
     {UP_ARROW, {0, 0, SPEED * 5}},
     {DOWN_ARROW, {0, 0, -SPEED}},
     {T, {0, 0, -SPEED}},
@@ -184,100 +200,100 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     nodes.recalculate();
 }
 
-fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
-    SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
+// fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
+//     Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
+//     SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
 
-    AnimationData data = animation_list[animation.animation_index];
-    assert(data.data.size != 0, "Please initialize animation component");
+//     AnimationData data = animation_list[animation.animation_index];
+//     assert(data.data.size != 0, "Please initialize animation component");
 
-    double new_time = animation.active_time + time;
-    animation.active_time = new_time < data.max_time ? new_time : 0;
+//     double new_time = animation.active_time + time;
+//     animation.active_time = new_time < data.max_time ? new_time : 0;
 
-    double frame_index = animation.active_time * ANIMATION_FPS;
-    entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
-}
+//     double frame_index = animation.active_time * ANIMATION_FPS;
+//     entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
+// }
 
-fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
-    gltf::Animation data = gltf.animations[animation.animation_index];
+// fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
+//     WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
+//     gltf::Animation data = gltf.animations[animation.animation_index];
 
-    double new_time = animation.active_time + (time);
-    animation.active_time = new_time < data.max_time ? new_time : 0;
+//     double new_time = animation.active_time + (time);
+//     animation.active_time = new_time < data.max_time ? new_time : 0;
     
-    gltf.@run_animation_channels(
-        frame_time: animation.active_time,
-        animation: data;
-        uint node_index,
-        AnimationProperty property,
-        Vec4f value
-    ) {
-            ecs::Node* node = nodes[node_index];
-            node.dirty = true;
+//     gltf.@run_animation_channels(
+//         frame_time: animation.active_time,
+//         animation: data;
+//         uint node_index,
+//         AnimationProperty property,
+//         Vec4f value
+//     ) {
+//             ecs::Node* node = nodes[node_index];
+//             node.dirty = true;
 
-            switch (property) {
-                case TRANSLATION: node.translation = value.xyz;
-                case ROTATION: node.rotation = (Quaternionf){.v = value };
-                case SCALE: node.scale = value.xyz;
-                default: {}
-            }
-    };
+//             switch (property) {
+//                 case TRANSLATION: node.translation = value.xyz;
+//                 case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                 case SCALE: node.scale = value.xyz;
+//                 default: {}
+//             }
+//     };
 
-    nodes.recalculate();
-}
+//     nodes.recalculate();
+// }
 
 // Bake skin animations
-fn void bake_skin_animations(Component animations, uint skin_index) {
-    gltf::Skin skin = gltf.skins[skin_index];
+// fn void bake_skin_animations(Component animations, uint skin_index) {
+//     gltf::Skin skin = gltf.skins[skin_index];
 
-    List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-    defer animation_indexes.free();
+//     List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
+//     defer animation_indexes.free();
 
-    foreach (index: animation_indexes) {
-        gltf::Animation animation = gltf.animations[index];
-        io::printfn("animation loaded: %s", animation.name);
+//     foreach (index: animation_indexes) {
+//         gltf::Animation animation = gltf.animations[index];
+//         io::printfn("animation loaded: %s", animation.name);
         
-        List{Matrix4f} skin_matrixes;
-        defer skin_matrixes.free();
+//         List{Matrix4f} skin_matrixes;
+//         defer skin_matrixes.free();
 
-        uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-        AnimationData data = {
-            .joints_len = (uint)skin.joints.len(),
-            .buffer_offset = animations.used_size / Matrix4f.sizeof,
-            .data = animations,
-            .max_time = animation.max_time,
-            .min_time =  animation.min_time,
-            .frames = frame_count,
-            .skin_index = skin_index,
-        };
+//         uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+//         AnimationData data = {
+//             .joints_len = (uint)skin.joints.len(),
+//             .buffer_offset = animations.used_size / Matrix4f.sizeof,
+//             .data = animations,
+//             .max_time = animation.max_time,
+//             .min_time =  animation.min_time,
+//             .frames = frame_count,
+//             .skin_index = skin_index,
+//         };
 
-        for (usz i = 0; i < frame_count; i++) {
-            double time = i / (double)ANIMATION_FPS;
-            gltf.@run_animation_channels(
-                frame_time: time,
-                animation: animation;
-                uint node_index,
-                AnimationProperty property,
-                Vec4f value
-            ) {
-                gltf::Node* node = gltf.nodes.get_ref(node_index);
-                switch (property) {
-                    case TRANSLATION: node.translation = value.xyz;
-                    case ROTATION: node.rotation = (Quaternionf){.v = value };
-                    case SCALE: node.scale = value.xyz;
-                    default: {}
-                }
-            };
+//         for (usz i = 0; i < frame_count; i++) {
+//             double time = i / (double)ANIMATION_FPS;
+//             gltf.@run_animation_channels(
+//                 frame_time: time,
+//                 animation: animation;
+//                 uint node_index,
+//                 AnimationProperty property,
+//                 Vec4f value
+//             ) {
+//                 gltf::Node* node = gltf.nodes.get_ref(node_index);
+//                 switch (property) {
+//                     case TRANSLATION: node.translation = value.xyz;
+//                     case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                     case SCALE: node.scale = value.xyz;
+//                     default: {}
+//                 }
+//             };
 
-            gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
-                skin_matrixes.push(matrix);
-            };
-        }
+//             gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
+//                 skin_matrixes.push(matrix);
+//             };
+//         }
 
-        animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
-        animation_list.push(data);
-    };
-}
+//         animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
+//         animation_list.push(data);
+//     };
+// }
 
 fn void main()
 {
@@ -293,6 +309,9 @@ fn void main()
 
     defer win.free();
 
+    MeshMap meshes;
+    defer meshes.free();
+
     // Vulkan context
     context = helpers::createContext(win)!!;
     defer context.free();
@@ -304,7 +323,7 @@ fn void main()
 
     defer physics_world.free();
 
-    // Create camera
+    // Create default camera
     helpers::Camera camera = {
         .view =  matrix::look_at{float}({15, 0.0, 10}, {0, 0, 0}, {0.0, 1.0, 0.0}),
         .aspect_ratio = 1.3,
@@ -368,24 +387,59 @@ fn void main()
 
     defer manager.free();
 
-    nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * ecs::Node.sizeof), buffer_index: 2)!!;
+    nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * ecs::Node.sizeof), buffer_index: Buffers.CPU_GPU)!!;
 
-    Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component indices = manager.@create_component(size: 3_000_000, buffer_index: 3)!!;
-    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 3)!!;
-    Component materials = manager.@create_component(size: 1_000_000, buffer_index: 3)!!;
-    
-    meshes = {
-        .vertex_buffer = &vertices,
-        .index_buffer = &indices,
-    };
-
-    defer meshes.free();
+    Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
+    Component draw_buffer = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
+    Component indices = manager.@create_component(size: 3_000_000, buffer_index: Buffers.GPU)!!;
+    Component instances = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
+    Component materials = manager.@create_component(size: 1_000_000, buffer_index: Buffers.GPU)!!;
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
-        meshes.parse_gltf_mesh(gltf: gltf, mesh: mesh)!!;
+        foreach (usz prim_index, primitive: mesh.primitives) {
+            usz mesh_index = mesh.name.hash() + prim_index;
+
+            gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+            gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+
+            gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
+
+            int vertex_offset = (int) draw_buffer.used_size;
+            for (usz i; i < pos_accessor.count; i++) {
+
+                // Cast data or use default value
+                Vertex data = {
+                    .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
+                    .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? (Vec2f) {0, 0},
+                    .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? (Vec3f) {0, 0, 0},
+                    .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? (Vec4f) {0, 0, 0, 0},
+                    .weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? (Vec4f) {0, 0, 0, 0},
+                };
+
+                {
+                    usz? attribute = primitive.attributes["JOINTS_0"];
+                    // Joint data can be in different types on gltf files
+                    if (try attribute) {
+                        Accessor accessor = gltf.accessors[attribute];
+                        if (accessor.data_type == DataType.USHORT) data.skin_pos = (uint[4]){...gltf.@cast_buffer(accessor, i, short[4])};
+                        if (accessor.data_type == DataType.CHAR) data.skin_pos = (uint[4]){...gltf.@cast_buffer(accessor, i, char[4])};
+                    }
+                }
+
+                draw_buffer.@push(data);
+            }
+
+            io::printfn("%s %s", mesh.name, (uint)(draw_buffer.used_size / index_accessor.stride()));
+            Render mesh_data = {
+                .vertexOffset = vertex_offset,
+                .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
+                .indexCount = index_accessor.count
+            };
+          
+            draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
+            meshes.set(mesh_index, mesh_data);
+        }
     }
 
     foreach (index, node: gltf.nodes) {
@@ -400,7 +454,7 @@ fn void main()
         });
     }
         
-    foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
+    // foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
             .emissiveStrength = material.emissiveStrength,
@@ -418,9 +472,7 @@ fn void main()
 
     defer animation_list.free();
 
-    List{Triangle} ground_triangles;
-    List{Vec3f} mesh_positions;
-    defer mesh_positions.free();
+    // List{Triangle} ground_triangles;
 
     // Build draw commands for Vulkan
     foreach (node : gltf.nodes) {
@@ -440,6 +492,68 @@ fn void main()
                 .y_fov = camera_data.perspective.yfov
             };
         }
+
+        if (node.has_mesh()) {
+            gltf::Mesh mesh = gltf.meshes[node.mesh];
+        
+            if (node.extras.has_key("animation")) {
+                node_entity.@add((WorldAnimation) {
+                    .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
+                    .active_time = 0,
+                    .repeat = true
+                }, &manager)!!;
+            }
+                
+            if (node.extras.has_key("skin_clone")) {
+                node_entity.@add((SkinAnimation) {
+                    .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
+                    .active_time = node.index * 0.05,
+                    .repeat = true
+                }, &manager)!!;
+            }
+
+            if (node.extras.has_key("skin_animation")) {
+                node_entity.@add((SkinAnimation) {
+                    .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
+                    .active_time = 0.0,
+                    .repeat = true
+                }, &manager)!!;
+            }
+
+            foreach (usz prim_index, primitive: mesh.primitives) {
+                usz mesh_index = mesh.name.hash() + prim_index;
+             
+                Render render_data = {
+                    ...meshes[mesh_index]!!,
+                    .instanceCount = 1,
+                    .firstInstance = 0,
+                    .instance_offset = (uint)instances.used_size,
+                    .skin_offset = -1,
+                    .material = (int)primitive.attributes["material"] ?? -1,
+                    .node_index = node.index,
+                };
+
+                // If node has instance data, build transform matrices for it
+                if (node.attributes.len() > 0) {
+                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                    render_data.instanceCount = translation_accessor.count;
+                    render_data.firstInstance = 1;
+
+                    for (uint i = 0; i < translation_accessor.count; i++) {
+                        Matrix4f instance_matrix = gltf::to_matrix(
+                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
+                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
+                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
+                        );
+                        instances.@push(instance_matrix);
+                    }
+                }
+
+                node_entity.@add(render_data, &manager)!!;
+            }
+        };
 
         if (node.has_collider()) {
             gltf::Collider collider = gltf.colliders[node.collider];
@@ -481,13 +595,13 @@ fn void main()
             }
 
             if (collider.has_shape()) {
-
                 // Collision is basic shape
                 Shape shape = gltf.shapes[collider.shape];
 
                 switch (shape.type) {
                     case BOX: {
-                        body.collider.shape = &&collision::aabb_from_half(shape.size).scale(node.scale);
+                        Aabb3 item = collision::aabb_from_half(shape.size).scale(node.scale);
+                        body.collider.shape = &item;
                     }
                     case SPHERE: {
                         Sphere item = {.radius = shape.radius};
@@ -504,30 +618,39 @@ fn void main()
                     default: {}
                 }
                 physics_world.add_body(body: body)!!;
-            } else {
-                    io::printfn("Only collision shapes are implemented");
-                    return;
-                    // Create collision data from vertices
-                    // usz vertex_offset = mesh_positions.len();
-                    // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
-                    // usz vertex_len = mesh_positions.len() - vertex_offset;
-                    // collision_data.collider = &&(ConvexPolyhedron){mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]};
+            } else if (node.has_mesh()) {
+                gltf::Mesh mesh = gltf.meshes[node.mesh];
 
-                    // physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
-                    // Collider has no shape, and is static, so probably ground object
-                    // collision_data.is_terrain = true;
-                    // gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
-                    //     foreach (i, value: triangle) {
-                    //         Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
-                    //         triangle[i] = item.xyz;
-                    //     }
+                // MeshData mesh_data = meshes.primitives(mesh.name)!![0];
 
-                    //     ground_triangles.push({
-                    //         triangle[0],
-                    //         triangle[1],
-                    //         triangle[2]
-                    //     });
-                    // }!!;
+            //    ConvexPolyhedron item = {mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]}
+
+                // io::printfn("%s", node.mesh);
+                // io::printfn("Only collision shapes are implemented");
+                // Capsule item = {shape.height, shape.radius_top, shape.radius_bottom};
+
+                return;
+                // Create collision data from vertices
+                // usz vertex_offset = mesh_positions.len();
+                // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
+                // usz vertex_len = mesh_positions.len() - vertex_offset;
+                // collision_data.collider = &&;
+
+                // physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
+                // Collider has no shape, and is static, so probably ground object
+                // collision_data.is_terrain = true;
+                // gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
+                //     foreach (i, value: triangle) {
+                //         Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
+                //         triangle[i] = item.xyz;
+                //     }
+
+                //     ground_triangles.push({
+                //         triangle[0],
+                //         triangle[1],
+                //         triangle[2]
+                //     });
+                // }!!;
 
             }
             
@@ -562,72 +685,7 @@ fn void main()
 
             physics_world.add_constraint(generic_joint)!!;
         }
-
-        if (node.has_mesh()) {
-            gltf::Mesh mesh = gltf.meshes[node.mesh];
-
-            if (node.extras.has_key("animation")) {
-                node_entity.@add((WorldAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
-                    .active_time = 0,
-                    .repeat = true
-                }, &manager)!!;
-            }
-                
-            if (node.extras.has_key("skin_clone")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-                    .active_time = node.index * 0.05,
-                    .repeat = true
-                }, &manager)!!;
-            }
-
-            if (node.extras.has_key("skin_animation")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
-                    .active_time = 0.0,
-                    .repeat = true
-                }, &manager)!!;
-            }
-
-            meshes.@iter(mesh.name; uint mesh_index, MeshData* mesh_data) {
-                Render render_data = {
-                    .indexCount = mesh_data.indexCount,
-                    .firstIndex = mesh_data.firstIndex,
-                    .vertexOffset = mesh_data.vertexOffset,
-                    .instanceCount = 1,
-                    .firstInstance = 0,
-                    .instance_offset = (uint)instances.used_size,
-                    .skin_offset = -1,
-                    .material = mesh_data.materialIndex,
-                    .node_index = node.index,
-                };
-
-                // If node has instance data, build transform matrices for it
-                if (node.attributes.len() > 0) {
-                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                    render_data.instanceCount = translation_accessor.count;
-                    render_data.firstInstance = 1;
-
-                    for (uint i = 0; i < translation_accessor.count; i++) {
-                        Matrix4f instance_matrix = gltf::to_matrix(
-                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
-                        );
-                        instances.@push(instance_matrix);
-                    }
-                }
-
-                node_entity.@add(render_data, &manager)!!;
-            }!!;
-        };
     }
-
-    // terrain_map.build_recursive(ground_triangles.array_view());
-    // ground_triangles.free();
 
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -661,6 +719,8 @@ fn void main()
         descriptor_images.free();
     }
 
+ 
+
     Entity scene = manager.@create_entity(
         camera.data(),
         (SceneLight) {
@@ -671,13 +731,15 @@ fn void main()
         },
         (SceneData) {
             .draw_cmds = draw_memory.address,
-            .vertices = ecs::@get_address(manager, vertices),
+            .vertices = ecs::@get_address(manager, draw_buffer),
             .materials = ecs::@get_address(manager, materials),
-            .animations = ecs::@get_address(manager, skin_animations),
-            .instances = ecs::@get_address(manager, instances),
+            // .animations = ecs::@get_address(manager, skin_animations),
+            // .instances = ecs::@get_address(manager, instances),
             .nodes = ecs::@get_address(manager, nodes)
         },
     )!!;
+
+    io::printfn("address %s", ecs::@get_offset(manager, scene, "CameraData")!!);
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
@@ -913,7 +975,7 @@ fn void main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, indices.offset, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, ecs::@get_offset(manager, draw_buffer), vk::INDEX_TYPE_UINT16);
  
         rendering_info.setColorAttachments({ main_render_target });
         rendering_info.setDepthAttachment(&main_depth_target);
@@ -942,7 +1004,6 @@ fn void main()
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
-   
         };
 
         vk::cmdEndRendering(command_buffer);
@@ -957,6 +1018,4 @@ fn void main()
             time_delta = (start_time - render_time.mark());
         }
     }
-    
-    context.device.waitIdle();
 }

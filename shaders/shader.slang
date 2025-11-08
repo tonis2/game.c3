@@ -5,22 +5,21 @@ struct Material
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
-    float pad;
-    float4 emissiveFactor;
-    float4 baseColorFactor;
     int normalTexture;
     int occlusionTexture;
     int emissiveTexture;
     int baseColorTexture;
     int metallicRoughnessTexture;
-    float3 pad2;
+
+    float4 emissiveFactor;
+    float4 baseColorFactor;
 };
 
 struct Vertex
 {
-    float4 position;
-    float4 normal;
-    float4 tex_cord;
+    float3 position;
+    float3 normal;
+    float2 tex_cord;
     float4 tangent;
     uint4 skin_pos;
     float4 skin_weight;
@@ -28,14 +27,13 @@ struct Vertex
 
 struct Light
 {
-    float4 position;
-    float4 color;
+    float3 position;
+    float3 color;
     uint type;
     float intensity;
     float range;
     float inner_angle;
     float outer_angle;
-    float3 pad;
 }
 
 struct DrawCommand
@@ -60,9 +58,9 @@ struct PushData
 struct Node {
     bool dirty;
     int parent;
-    float2 pad;
-    float4 position;
-    float4 scale;
+
+    float3 position;
+    float3 scale;
     float4 rotation;
     row_major float4x4 matrix;
 }
@@ -77,12 +75,13 @@ cbuffer Scene
     row_major float4x4 view;
     float4 eye;
     Light light;
-    Vertex* vertices;
+    float4 pad;
+    uint8_t* draw_buffer;
     DrawCommand* draw_cmds;
     Material* materials;
     Node* nodes;
-    row_major float4x4* skin_data;
-    row_major float4x4* instances;
+    // row_major float4x4* skin_data;
+    // row_major float4x4* instances;
 }
 
 [vk_binding(1)]
@@ -108,7 +107,8 @@ struct VertexInput {
 FragmentData vertexMain(VertexInput input)
 {
     DrawCommand draw = draw_cmds[push_constant.draw_index];
-    Vertex vertex = vertices[input.vertID];
+
+    Vertex vertex = ((Vertex*)(draw_buffer + draw.vertexOffset))[input.vertID];
 
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -117,30 +117,23 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (draw.skin_offset > -1)
-    {
-        float4x4* skin_matrixes = skin_data + draw.skin_offset;
+    // if (draw.skin_offset > -1)
+    // {
+    //     float4x4* skin_matrixes = skin_data + draw.skin_offset;
 
-        skin_matrix =
-        vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
-        vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
-        vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
-        vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
-    }
-
+    //     skin_matrix =
+    //     vertex.skin_weight[0] * skin_matrixes[vertex.skin_pos[0]] +
+    //     vertex.skin_weight[1] * skin_matrixes[vertex.skin_pos[1]] +
+    //     vertex.skin_weight[2] * skin_matrixes[vertex.skin_pos[2]] +
+    //     vertex.skin_weight[3] * skin_matrixes[vertex.skin_pos[3]];
+    // }
 
     row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
     node_matrix = mul(node_matrix, skin_matrix);
 
-    // if (draw.animation_offset > -1)
-    // {
-    //     float4x4* animation_data = skin_data + draw.skin_offset;
+    // if (input.instanceID > 0) {
     //     node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
     // }
-
-    if (input.instanceID > 0) {
-        node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
-    }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
