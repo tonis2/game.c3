@@ -54,14 +54,14 @@ struct Material @tag("BUFFER", Buffers.GPU) {
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
-    Vec4f emissiveFactor;
-    Vec4f baseColorFactor;
-
     int normalTexture;
     int occlusionTexture;
     int emissiveTexture;
     int baseColorTexture;
     int metallicRoughnessTexture;
+
+    Vec4f emissiveFactor;
+    Vec4f baseColorFactor;
 }
 
 struct Render @tag("BUFFER", Buffers.DRAW) {
@@ -83,8 +83,8 @@ struct SceneData @tag("BUFFER", Buffers.CPU_GPU) {
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
     vk::DeviceAddress nodes;
-    vk::DeviceAddress animations;
-    vk::DeviceAddress instances;
+    // vk::DeviceAddress animations;
+    // vk::DeviceAddress instances;
 }
 
 struct CollisionData @tag("BUFFER", Buffers.CPU) {
@@ -110,19 +110,7 @@ struct Animation {
    uint animation_index;
    double active_time;
    bool repeat;
-}
-
-
-
-// enum VertexMask: inline uint {
-//    TEX_CORD,
-//    NORMAL,
-//    TANGENT,
-//    JOINT,
-// }
-
-//    
-     
+} 
 
 typedef SkinAnimation = Animation;
 typedef WorldAnimation = Animation;
@@ -143,7 +131,6 @@ Gltf gltf;
 List{AnimationData} animation_list;
 NodeComponent nodes;
 
-// SpatialHash3D spatial_map;
 // BVHNode terrain_map;
 
 PhysicsWorld physics_world;
@@ -173,8 +160,8 @@ const float SPEED = 0.5f;
 const MoveEvent[] MOVE_EVENTS = {
     {W, {0, SPEED, 0}},
     {S, {0, -SPEED, 0}},
-    {A, {SPEED, 0, 0}},
-    {D, {-SPEED, 0, 0}},
+    {A, {-SPEED, 0, 0}},
+    {D, {SPEED, 0, 0}},
     {UP_ARROW, {0, 0, SPEED * 5}},
     {DOWN_ARROW, {0, 0, -SPEED}},
     {T, {0, 0, -SPEED}},
@@ -213,100 +200,100 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     nodes.recalculate();
 }
 
-fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
-    SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
+// fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
+//     Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
+//     SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
 
-    AnimationData data = animation_list[animation.animation_index];
-    assert(data.data.size != 0, "Please initialize animation component");
+//     AnimationData data = animation_list[animation.animation_index];
+//     assert(data.data.size != 0, "Please initialize animation component");
 
-    double new_time = animation.active_time + time;
-    animation.active_time = new_time < data.max_time ? new_time : 0;
+//     double new_time = animation.active_time + time;
+//     animation.active_time = new_time < data.max_time ? new_time : 0;
 
-    double frame_index = animation.active_time * ANIMATION_FPS;
-    entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
-}
+//     double frame_index = animation.active_time * ANIMATION_FPS;
+//     entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
+// }
 
-fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-    WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
-    gltf::Animation data = gltf.animations[animation.animation_index];
+// fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
+//     WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
+//     gltf::Animation data = gltf.animations[animation.animation_index];
 
-    double new_time = animation.active_time + (time);
-    animation.active_time = new_time < data.max_time ? new_time : 0;
+//     double new_time = animation.active_time + (time);
+//     animation.active_time = new_time < data.max_time ? new_time : 0;
     
-    gltf.@run_animation_channels(
-        frame_time: animation.active_time,
-        animation: data;
-        uint node_index,
-        AnimationProperty property,
-        Vec4f value
-    ) {
-            ecs::Node* node = nodes[node_index];
-            node.dirty = true;
+//     gltf.@run_animation_channels(
+//         frame_time: animation.active_time,
+//         animation: data;
+//         uint node_index,
+//         AnimationProperty property,
+//         Vec4f value
+//     ) {
+//             ecs::Node* node = nodes[node_index];
+//             node.dirty = true;
 
-            switch (property) {
-                case TRANSLATION: node.translation = value.xyz;
-                case ROTATION: node.rotation = (Quaternionf){.v = value };
-                case SCALE: node.scale = value.xyz;
-                default: {}
-            }
-    };
+//             switch (property) {
+//                 case TRANSLATION: node.translation = value.xyz;
+//                 case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                 case SCALE: node.scale = value.xyz;
+//                 default: {}
+//             }
+//     };
 
-    nodes.recalculate();
-}
+//     nodes.recalculate();
+// }
 
 // Bake skin animations
-fn void bake_skin_animations(Component animations, uint skin_index) {
-    gltf::Skin skin = gltf.skins[skin_index];
+// fn void bake_skin_animations(Component animations, uint skin_index) {
+//     gltf::Skin skin = gltf.skins[skin_index];
 
-    List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-    defer animation_indexes.free();
+//     List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
+//     defer animation_indexes.free();
 
-    foreach (index: animation_indexes) {
-        gltf::Animation animation = gltf.animations[index];
-        io::printfn("animation loaded: %s", animation.name);
+//     foreach (index: animation_indexes) {
+//         gltf::Animation animation = gltf.animations[index];
+//         io::printfn("animation loaded: %s", animation.name);
         
-        List{Matrix4f} skin_matrixes;
-        defer skin_matrixes.free();
+//         List{Matrix4f} skin_matrixes;
+//         defer skin_matrixes.free();
 
-        uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-        AnimationData data = {
-            .joints_len = (uint)skin.joints.len(),
-            .buffer_offset = animations.used_size / Matrix4f.sizeof,
-            .data = animations,
-            .max_time = animation.max_time,
-            .min_time =  animation.min_time,
-            .frames = frame_count,
-            .skin_index = skin_index,
-        };
+//         uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+//         AnimationData data = {
+//             .joints_len = (uint)skin.joints.len(),
+//             .buffer_offset = animations.used_size / Matrix4f.sizeof,
+//             .data = animations,
+//             .max_time = animation.max_time,
+//             .min_time =  animation.min_time,
+//             .frames = frame_count,
+//             .skin_index = skin_index,
+//         };
 
-        for (usz i = 0; i < frame_count; i++) {
-            double time = i / (double)ANIMATION_FPS;
-            gltf.@run_animation_channels(
-                frame_time: time,
-                animation: animation;
-                uint node_index,
-                AnimationProperty property,
-                Vec4f value
-            ) {
-                gltf::Node* node = gltf.nodes.get_ref(node_index);
-                switch (property) {
-                    case TRANSLATION: node.translation = value.xyz;
-                    case ROTATION: node.rotation = (Quaternionf){.v = value };
-                    case SCALE: node.scale = value.xyz;
-                    default: {}
-                }
-            };
+//         for (usz i = 0; i < frame_count; i++) {
+//             double time = i / (double)ANIMATION_FPS;
+//             gltf.@run_animation_channels(
+//                 frame_time: time,
+//                 animation: animation;
+//                 uint node_index,
+//                 AnimationProperty property,
+//                 Vec4f value
+//             ) {
+//                 gltf::Node* node = gltf.nodes.get_ref(node_index);
+//                 switch (property) {
+//                     case TRANSLATION: node.translation = value.xyz;
+//                     case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                     case SCALE: node.scale = value.xyz;
+//                     default: {}
+//                 }
+//             };
 
-            gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
-                skin_matrixes.push(matrix);
-            };
-        }
+//             gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
+//                 skin_matrixes.push(matrix);
+//             };
+//         }
 
-        animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
-        animation_list.push(data);
-    };
-}
+//         animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
+//         animation_list.push(data);
+//     };
+// }
 
 fn void main()
 {
@@ -320,23 +307,23 @@ fn void main()
         name: "GLTF animation"
     )!!;
 
+    defer win.free();
+
     MeshMap meshes;
     defer meshes.free();
-
-    defer win.free();
 
     // Vulkan context
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.gltf")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
     physics_world = collision::create_world({ .cell_size = 3.0 });
 
     defer physics_world.free();
 
-    // Create camera
+    // Create default camera
     helpers::Camera camera = {
         .view =  matrix::look_at{float}({15, 0.0, 10}, {0, 0, 0}, {0.0, 1.0, 0.0}),
         .aspect_ratio = 1.3,
@@ -420,12 +407,14 @@ fn void main()
 
             int vertex_offset = (int) draw_buffer.used_size;
             for (usz i; i < pos_accessor.count; i++) {
+
+                // Cast data or use default value
                 Vertex data = {
                     .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
-                    .tex_cord = gltf.@cast_with_default(primitive.attributes["TEXCOORD_0"], i, (Vec2f) {0, 0}),
-                    .normal = gltf.@cast_with_default(primitive.attributes["NORMAL"], i, (Vec3f) {0, 0, 0}),
-                    .tangent = gltf.@cast_with_default(primitive.attributes["TANGENT"], i, (Vec4f) {0, 0, 0, 0}),
-                    .weights = gltf.@cast_with_default(primitive.attributes["WEIGHTS_0"], i, (Vec4f) {0, 0, 0, 0}),
+                    .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? (Vec2f) {0, 0},
+                    .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? (Vec3f) {0, 0, 0},
+                    .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? (Vec4f) {0, 0, 0, 0},
+                    .weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? (Vec4f) {0, 0, 0, 0},
                 };
 
                 {
@@ -441,6 +430,7 @@ fn void main()
                 draw_buffer.@push(data);
             }
 
+            io::printfn("%s %s", mesh.name, (uint)(draw_buffer.used_size / index_accessor.stride()));
             Render mesh_data = {
                 .vertexOffset = vertex_offset,
                 .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
@@ -464,7 +454,7 @@ fn void main()
         });
     }
         
-    foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
+    // foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
             .emissiveStrength = material.emissiveStrength,
@@ -532,11 +522,9 @@ fn void main()
 
             foreach (usz prim_index, primitive: mesh.primitives) {
                 usz mesh_index = mesh.name.hash() + prim_index;
-
-                Render draw = meshes[mesh_index]!!;
              
                 Render render_data = {
-                    ...draw,
+                    ...meshes[mesh_index]!!,
                     .instanceCount = 1,
                     .firstInstance = 0,
                     .instance_offset = (uint)instances.used_size,
@@ -699,9 +687,6 @@ fn void main()
         }
     }
 
-    // terrain_map.build_recursive(ground_triangles.array_view());
-    // ground_triangles.free();
-
     foreach (image : gltf.images) {
         stb::Image image_data;
 
@@ -734,6 +719,8 @@ fn void main()
         descriptor_images.free();
     }
 
+ 
+
     Entity scene = manager.@create_entity(
         camera.data(),
         (SceneLight) {
@@ -746,11 +733,13 @@ fn void main()
             .draw_cmds = draw_memory.address,
             .vertices = ecs::@get_address(manager, draw_buffer),
             .materials = ecs::@get_address(manager, materials),
-            .animations = ecs::@get_address(manager, skin_animations),
-            .instances = ecs::@get_address(manager, instances),
+            // .animations = ecs::@get_address(manager, skin_animations),
+            // .instances = ecs::@get_address(manager, instances),
             .nodes = ecs::@get_address(manager, nodes)
         },
     )!!;
+
+    io::printfn("address %s", ecs::@get_offset(manager, scene, "CameraData")!!);
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
@@ -1029,6 +1018,4 @@ fn void main()
             time_delta = (start_time - render_time.mark());
         }
     }
-    
-    context.device.waitIdle();
 }

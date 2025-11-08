@@ -4,57 +4,8 @@ import std::math::matrix;
 import std::io;
 import gltf;
 
-fn float radians(float value) => value * (float)math::PI / 180;
 
-fn Quaternionf quaternion_from_matrix(Matrix3f matrix) {
-    Quaternionf q;
-    float trace = matrix.m00 + matrix.m11 + matrix.m22;
-    if (trace > 0) {
-        float t = math::sqrt(trace + (float)1.0) * 2.0;
-        q.l = 0.25 * t;
-        q.i = (matrix.m21 - matrix.m12) / t;
-        q.j = (matrix.m02 - matrix.m20) / t;
-        q.k = (matrix.m10 - matrix.m01) / t;
-    } else if (matrix.m00 > matrix.m11 && matrix.m00 > matrix.m22) {
-        float t = math::sqrt((float)1.0 + matrix.m00 - matrix.m11 - matrix.m22) * 2.0;
-        q.l = (matrix.m21 - matrix.m12) / t;
-        q.i = 0.25 * t;
-        q.j = (matrix.m01 + matrix.m10) / t;
-        q.k = (matrix.m02 + matrix.m20) / t;
-    } else if (matrix.m11 > matrix.m22) {
-        float t = math::sqrt((float)1.0 + matrix.m11 - matrix.m00 - matrix.m22) * 2.0;
-        q.l = (matrix.m02 - matrix.m20) / t;
-        q.i = (matrix.m01 + matrix.m10) / t;
-        q.j = 0.25 * t;
-        q.k = (matrix.m12 + matrix.m21) / t;
-    } else {
-        float t = math::sqrt((float)1.0 + matrix.m22 - matrix.m00 - matrix.m11) * 2.0;
-        q.l = (matrix.m10 - matrix.m01) / t;
-        q.i = (matrix.m02 + matrix.m20) / t;
-        q.j = (matrix.m12 + matrix.m21) / t;
-        q.k = 0.25 * t;
-    }
-    return q;
-}
-
-fn Quaternionf quaternion_look_at(Vec3f forward, Vec3f upwards) {
-    Vec3f forward_norm = forward.normalize();
-    Vec3f right = upwards.cross(forward_norm).normalize();
-
-    if (right.sq_magnitude() < 1e-6f) {
-        return {0.0, 0.0, 0.0, 1.0};
-    }
-
-    Vec3f up = forward_norm.cross(right);
-
-    return quaternion_from_matrix({
-        right.x, right.y, right.z,
-        up.x, up.y, up.z,
-        forward_norm.x, forward_norm.y, forward_norm.z
-    });
-}
-
-struct Camera {
+ struct Camera {
     Vec3f position;
     Matrix4f view;
     Vec3f translation;
