@@ -430,7 +430,6 @@ fn void main()
                 draw_buffer.@push(data);
             }
 
-            io::printfn("%s %s", mesh.name, (uint)(draw_buffer.used_size / index_accessor.stride()));
             Render mesh_data = {
                 .vertexOffset = vertex_offset,
                 .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
