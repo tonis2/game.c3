@@ -411,10 +411,10 @@ fn void main()
                 // Cast data or use default value
                 Vertex data = {
                     .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
-                    .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? (Vec2f) {0, 0},
-                    .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? (Vec3f) {0, 0, 0},
-                    .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? (Vec4f) {0, 0, 0, 0},
-                    .weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? (Vec4f) {0, 0, 0, 0},
+                    .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? {0, 0},
+                    .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? {0, 0, 0},
+                    .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? {0, 0, 0, 0},
+                    .weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? {0, 0, 0, 0},
                 };
 
                 {
@@ -718,8 +718,6 @@ fn void main()
         descriptor_images.free();
     }
 
- 
-
     Entity scene = manager.@create_entity(
         camera.data(),
         (SceneLight) {
@@ -737,8 +735,6 @@ fn void main()
             .nodes = ecs::@get_address(manager, nodes)
         },
     )!!;
-
-    io::printfn("address %s", ecs::@get_offset(manager, scene, "CameraData")!!);
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
