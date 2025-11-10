@@ -324,7 +324,7 @@ fn void main()
     defer win.free();
 
     MeshMap meshes;
-    defer meshes.free();
+    defer meshes.release();
 
     // Vulkan context
     context = helpers::createContext(win)!!;
@@ -344,7 +344,6 @@ fn void main()
         .z_near = 0.1,
         .z_far = 100,
         .y_fov = 0.6
-
     };
 
     // Create allocator of 150MB - DEVICE_ONLY memory
@@ -1023,4 +1022,13 @@ fn void main()
             time_delta = (start_time - render_time.mark());
         }
     }
+}
+
+fn void MeshMap.release(&self) {
+    self.@each(;usz id, MeshInfo mesh) {
+        mesh.collision.vertices.free();
+        mesh.collision.indices.free();
+    };
+
+    self.free();
 }
