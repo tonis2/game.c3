@@ -17,12 +17,12 @@ struct Material
 
 struct Vertex
 {
-    float3 position;
-    float3 normal;
     float2 tex_cord;
+    float3 normal;
     float4 tangent;
-    uint4 skin_pos;
-    float4 skin_weight;
+    uint[4] skin_pos;
+    float4 weights;
+    float4 position;
 };
 
 struct Light
@@ -80,8 +80,8 @@ cbuffer Scene
     DrawCommand* draw_cmds;
     Material* materials;
     Node* nodes;
-    // row_major float4x4* skin_data;
-    // row_major float4x4* instances;
+    row_major float4x4* skin_data;
+    row_major float4x4* instances;
 }
 
 [vk_binding(1)]

@@ -22,7 +22,7 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
-alias MeshMap = HashMap{usz, Render};
+alias MeshMap = HashMap{usz, MeshInfo};
 
 enum Buffers: inline uint {
     CPU,
@@ -32,12 +32,12 @@ enum Buffers: inline uint {
 }
 
 struct Vertex {
-    Vec3f position;
-    Vec3f normal;
     Vec2f tex_cord;
+    Vec3f normal;
     Vec4f tangent;
     uint[4] skin_pos;
     Vec4f weights;
+    Vec4f position;
 }
 
 struct MoveEvent {
@@ -76,6 +76,20 @@ struct Render @tag("BUFFER", Buffers.DRAW) {
     uint node_index;
 }
 
+struct MeshInfo {
+    Render render;
+    struct data {
+        usz vertex_count;
+        usz vertex_offset;
+        usz index_count;
+        usz index_offset;
+    }
+    struct collision {
+        List{Vec4f} vertices;
+        List{usz} indices;
+    }
+}
+
 typedef Collider @tag("BUFFER", Buffers.DRAW) = Render;
 
 struct SceneData @tag("BUFFER", Buffers.CPU_GPU) {
@@ -83,8 +97,8 @@ struct SceneData @tag("BUFFER", Buffers.CPU_GPU) {
     vk::DeviceAddress draw_cmds;
     vk::DeviceAddress materials;
     vk::DeviceAddress nodes;
-    // vk::DeviceAddress animations;
-    // vk::DeviceAddress instances;
+    vk::DeviceAddress animations;
+    vk::DeviceAddress instances;
 }
 
 struct CollisionData @tag("BUFFER", Buffers.CPU) {
@@ -397,20 +411,22 @@ fn void main()
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
+        usz mesh_index = mesh.name.hash();
+
         foreach (usz prim_index, primitive: mesh.primitives) {
-            usz mesh_index = mesh.name.hash() + prim_index;
+            MeshInfo mesh_info;
 
             gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
             gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
 
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
-            int vertex_offset = (int) draw_buffer.used_size;
+            int vertex_offset = (int)draw_buffer.used_size;
+            
             for (usz i; i < pos_accessor.count; i++) {
-
                 // Cast data or use default value
                 Vertex data = {
-                    .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
+                    .position = gltf.@cast_buffer(pos_accessor, i, Vec4f),
                     .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? {0, 0},
                     .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? {0, 0, 0},
                     .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? {0, 0, 0, 0},
@@ -427,17 +443,36 @@ fn void main()
                     }
                 }
 
+                // Create physics convex_hull
+                if (mesh.convex_hull && prim_index == 0) mesh_info.collision.vertices.push(data.position);
+
                 draw_buffer.@push(data);
             }
 
-            Render mesh_data = {
+            // Create physics convex_hull
+            if (mesh.convex_hull && prim_index == 0) {
+                // Todo: make solution for meshes, that have multiple primitives
+                for (usz i; i < index_accessor.count; i++) {
+                    ushort index = gltf.@cast_buffer(index_accessor, i, ushort);
+                    mesh_info.collision.indices.push(index);
+                }
+            }
+
+            mesh_info.render = {
                 .vertexOffset = vertex_offset,
                 .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
                 .indexCount = index_accessor.count
             };
           
             draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
-            meshes.set(mesh_index, mesh_data);
+            meshes.set(mesh_index + prim_index, mesh_info);
+        }
+
+        if (mesh.convex_hull) {
+            // Build convex hull data
+            MeshInfo data = meshes[mesh_index]!!;
+            collision::hull_from_points(&data.collision.vertices, &data.collision.indices);
+            collision::weld_remesh(&data.collision.vertices, &data.collision.indices);
         }
     }
 
@@ -492,38 +527,38 @@ fn void main()
             };
         }
 
-        if (node.has_mesh()) {
+        if (node.has_mesh() && node.name != "physicsMeshDataNode") {
             gltf::Mesh mesh = gltf.meshes[node.mesh];
         
-            if (node.extras.has_key("animation")) {
-                node_entity.@add((WorldAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
-                    .active_time = 0,
-                    .repeat = true
-                }, &manager)!!;
-            }
+            // if (node.extras.has_key("animation")) {
+            //     node_entity.@add((WorldAnimation) {
+            //         .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
+            //         .active_time = 0,
+            //         .repeat = true
+            //     }, &manager)!!;
+            // }
                 
-            if (node.extras.has_key("skin_clone")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-                    .active_time = node.index * 0.05,
-                    .repeat = true
-                }, &manager)!!;
-            }
+            // if (node.extras.has_key("skin_clone")) {
+            //     node_entity.@add((SkinAnimation) {
+            //         .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
+            //         .active_time = node.index * 0.05,
+            //         .repeat = true
+            //     }, &manager)!!;
+            // }
 
-            if (node.extras.has_key("skin_animation")) {
-                node_entity.@add((SkinAnimation) {
-                    .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
-                    .active_time = 0.0,
-                    .repeat = true
-                }, &manager)!!;
-            }
+            // if (node.extras.has_key("skin_animation")) {
+            //     node_entity.@add((SkinAnimation) {
+            //         .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
+            //         .active_time = 0.0,
+            //         .repeat = true
+            //     }, &manager)!!;
+            // }
 
             foreach (usz prim_index, primitive: mesh.primitives) {
                 usz mesh_index = mesh.name.hash() + prim_index;
              
                 Render render_data = {
-                    ...meshes[mesh_index]!!,
+                    ...meshes[mesh_index]!!.render,
                     .instanceCount = 1,
                     .firstInstance = 0,
                     .instance_offset = (uint)instances.used_size,
@@ -619,40 +654,15 @@ fn void main()
                 physics_world.add_body(body: body)!!;
             } else if (node.has_mesh()) {
                 gltf::Mesh mesh = gltf.meshes[node.mesh];
-
-                // MeshData mesh_data = meshes.primitives(mesh.name)!![0];
-
-            //    ConvexPolyhedron item = {mesh_positions.entries[vertex_offset..vertex_offset + vertex_len]}
-
-                // io::printfn("%s", node.mesh);
-                // io::printfn("Only collision shapes are implemented");
-                // Capsule item = {shape.height, shape.radius_top, shape.radius_bottom};
-
-                return;
-                // Create collision data from vertices
-                // usz vertex_offset = mesh_positions.len();
-                // gltf.@get_compound_shape(node_index; Vec3f position) { mesh_positions.push(position); }!!;
-                // usz vertex_len = mesh_positions.len() - vertex_offset;
-                // collision_data.collider = &&;
-
-                // physics_world.add_body(body: body, aabb: mesh_data.aabb.transform(global_matrix))!!;
-                // Collider has no shape, and is static, so probably ground object
-                // collision_data.is_terrain = true;
-                // gltf.@get_positions(gltf.find_mesh(mesh.name), Vec3f[3]; Vec3f[3] triangle) {
-                //     foreach (i, value: triangle) {
-                //         Vec4f item = global_matrix * (Vec4f){value.x, value.y, value.z, 1.0};
-                //         triangle[i] = item.xyz;
-                //     }
-
-                //     ground_triangles.push({
-                //         triangle[0],
-                //         triangle[1],
-                //         triangle[2]
-                //     });
-                // }!!;
-
+                MeshInfo mesh_info = meshes[mesh.name.hash()]!!;
+                ConvexPolyhedron item = {
+                    .vertices = mesh_info.collision.vertices.array_view(),
+                    .indices = mesh_info.collision.indices.array_view()
+                };
+                body.collider.shape = &item;
             }
-            
+
+        
             node_entity.@add(collision_data, &manager)!!;
         }
 
@@ -730,9 +740,9 @@ fn void main()
             .draw_cmds = draw_memory.address,
             .vertices = ecs::@get_address(manager, draw_buffer),
             .materials = ecs::@get_address(manager, materials),
-            // .animations = ecs::@get_address(manager, skin_animations),
-            // .instances = ecs::@get_address(manager, instances),
-            .nodes = ecs::@get_address(manager, nodes)
+            .nodes = ecs::@get_address(manager, nodes),
+            .animations = ecs::@get_address(manager, skin_animations),
+            .instances = ecs::@get_address(manager, instances),
         },
     )!!;
 

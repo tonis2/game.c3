@@ -13,6 +13,7 @@ game.gltf
 *.ilk
 *.map
 *.exp
+data.csv
 
 # Precompiled Headers
 *.gch
