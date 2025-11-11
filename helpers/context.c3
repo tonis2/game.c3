@@ -209,8 +209,9 @@ fn DeviceContext? createContext(c3w::Window win) {
     DeviceList devices = instance.getDevices()!!;
 
     uint best_score = 0;
+    PhysicalDeviceProperties device_props;
 
-    foreach (entry: devices) {
+    foreach (usz i, entry: devices) {
         int queue_index = -1;
         // Check for device extension support
         bool supports_extensions = entry.checkExtensionSupport(device_extensions)!!;
@@ -224,8 +225,6 @@ fn DeviceContext? createContext(c3w::Window win) {
         assert(surface.checkSurfaceSupport((usz)queue_index, entry)!!);
         
         if (queue_index >= 0 && supports_extensions && properties.vendorID != 0) {
-            io::printfn("Device selected %s", (ZString)properties.deviceName[0..]);
-
             uint score = 0;
             if (properties.deviceType == 1) score += 100;
             if (properties.deviceType == 2) score += 200;
@@ -234,6 +233,7 @@ fn DeviceContext? createContext(c3w::Window win) {
                 best_score = score;
                 physical_device = entry;
                 graphics_queue.index = queue_index;
+                device_props = properties;
             }
         }
     }
@@ -242,6 +242,8 @@ fn DeviceContext? createContext(c3w::Window win) {
         io::printfn("Found no suitable device");
         return NO_SUITABLE_DEVICE?;
     }
+
+    io::printfn("Device selected %s", (ZString)device_props.deviceName[0..]);
 
     devices.free();
 

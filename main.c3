@@ -15,7 +15,7 @@ import ecs;
 import collision;
 
 const ANIMATION_FPS = 40;
-const MAX_FPS = 40;
+const MAX_FPS = 60;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 alias Vec2f @private = float[<2>];
