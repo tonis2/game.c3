@@ -590,8 +590,6 @@ fn void main()
 
         if (node.has_collider()) {
             gltf::Collider collider = gltf.colliders[node.collider];
-
-            Matrix4f global_matrix = node.global_matrix();
             PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
 
             CollisionData collision_data = {
@@ -650,7 +648,7 @@ fn void main()
                     }
                     default: {}
                 }
-                physics_world.add_body(body: body)!!;
+               
             } else if (node.has_mesh()) {
                 gltf::Mesh mesh = gltf.meshes[node.mesh];
                 MeshInfo mesh_info = meshes[mesh.name.hash()]!!;
@@ -661,7 +659,7 @@ fn void main()
                 body.collider.shape = &item;
             }
 
-        
+            physics_world.add_body(body: body)!!;
             node_entity.@add(collision_data, &manager)!!;
         }
 
