@@ -11,7 +11,7 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
-enum GpuType : uint
+enum GpuType : inline uint
 {
     HOST_VISIBLE,
     DEVICE_ONLY,
@@ -135,7 +135,7 @@ fn Component? EntityManager.new_component(&self, void* data = null, uint size = 
     self.components.push(component);
  
     if (data != null) {
-        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY) {
             self.uploadFN(buffer, data, size, component.offset);
         } else {
             buffer.upload(data, size, component.offset);
@@ -186,10 +186,7 @@ macro Entity? EntityManager.@create_entity(&self, ...) {
         $endif
     
         if (!self.keys.has_key(type_name)) {
-            self.keys[type_name] = {
-                .id = (uint)self.keys.len(),
-                .buffer = component.buffer,
-            };
+            self.keys.set(type_name, { .id = (uint)self.keys.len(), .buffer = component.buffer });
         }
         
         type_id = self.keys[type_name]!!.id;
@@ -263,12 +260,8 @@ fn void Entity.add_component(&self, String type_name, Component component, Entit
 
 fn uint get_size(Entity entity, EntityManager manager) {
     uint size;
-    @pool() {
-        foreach (key : manager.views.tkeys()) {
-            if (key.entity == entity.id) {
-                size += manager.components[manager.views[key]!!.component].size;
-            }
-        }
+    manager.views.@each(;BufferID key, BufferView view) {
+        if (key.entity == entity.id) size += manager.components[view.component].size;
     };
  
     return size;
@@ -463,20 +456,31 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
     $endif;
 }
 
-macro @get_offset(EntityManager manager, #target, #type = null) {
+macro @get_offset(EntityManager manager, #target, String type = "") {
     $if $typeof(#target).nameof == "Component":
         return (uint)#target.offset;
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
-        Component component = manager.keys[#type]!;
+        if (type != "") {
+            Component component = manager.keys[type]!;
+            BufferID index = {
+                .component = component.id,
+                .entity = #target.id,
+            };
+            return (uint)manager.components[manager.views[index]!!.component].offset;
+        }
 
-        BufferID index = {
-            .component = component.id,
-            .entity = #target.id,
+        // 2240
+        manager.views.@each(;BufferID id, BufferView view) {
+            if (id.entity == #target.id) {
+                Component component = manager.components[view.component];
+                return (usz)component.offset;
+            }
         };
-        return (uint)manager.components[manager.views[index]!!.component].offset;
     $endif;
+
+    return NO_KEY_FOUND?;
 }
 
 struct Buffer (Allocator) {

@@ -22,7 +22,7 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
-alias MeshMap = HashMap{usz, MeshInfo};
+alias MeshMap = HashMap{usz, Render};
 
 enum Buffers: inline uint {
     CPU,
@@ -76,10 +76,6 @@ struct Render @tag("BUFFER", Buffers.DRAW) {
     uint node_index;
 }
 
-struct MeshInfo {
-    Render render;
-    usz collider;
-}
 
 typedef Collider @tag("BUFFER", Buffers.DRAW) = Render;
 
@@ -411,7 +407,7 @@ fn void main()
         usz mesh_index = mesh.name.hash();
 
         foreach (usz prim_index, primitive: mesh.primitives) {
-            MeshInfo mesh_info;
+            Render mesh_info;
 
             gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
             gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
@@ -443,7 +439,7 @@ fn void main()
                 draw_buffer.@push(data);
             }
 
-            mesh_info.render = {
+            mesh_info = {
                 .vertexOffset = vertex_offset,
                 .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
                 .indexCount = index_accessor.count
@@ -452,23 +448,6 @@ fn void main()
             draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
             meshes.set(mesh_index + prim_index, mesh_info);
         }
-
-        // if (mesh.convex_hull) {
-        //     MeshInfo* info = meshes.get_ref(mesh_index)!!;
-        //     // Build convex hull data
- 
-
-        //     usz offset = hull_vertices.len();
-
-
-        //     hull_meshes.push({
-        //         .vertices = hull_vertices.array_view()[offset .. offset + local_vertices.len() - 1],
-        //     });
-
-        //     io::printfn("%s %s", offset, local_vertices.len());
-
-        //     info.collider = hull_meshes.len();
-        // }
     }
 
     // load physics colliders
@@ -589,7 +568,7 @@ fn void main()
                 usz mesh_index = mesh.name.hash() + prim_index;
              
                 Render render_data = {
-                    ...meshes[mesh_index]!!.render,
+                    ...meshes[mesh_index]!!,
                     .instanceCount = 1,
                     .firstInstance = 0,
                     .instance_offset = (uint)instances.used_size,
@@ -984,7 +963,8 @@ fn void main()
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
         manager.@query("Render"; Entity entity) {
-            uint offset = ecs::@get_offset(manager, entity, "Render")!!;
+            uint offset = (uint)ecs::@get_offset(manager, entity, "Render")!!;
+
             CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
             PushConstantData constant_data = {
                 .draw_index = offset / Render.sizeof,

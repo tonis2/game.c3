@@ -3,6 +3,7 @@ import std::math;
 import std::math::matrix;
 import std::io;
 import gltf;
+import main;
 
 
  struct Camera {
@@ -20,7 +21,7 @@ import gltf;
     float z_near;
 }
 
-struct CameraData @tag("BUFFER", 2) {
+struct CameraData @tag("BUFFER", Buffers.CPU_GPU) {
     Matrix4f perspective;
     Matrix4f view;
     Vec4f eye;
