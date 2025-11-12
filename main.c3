@@ -78,16 +78,7 @@ struct Render @tag("BUFFER", Buffers.DRAW) {
 
 struct MeshInfo {
     Render render;
-    struct data {
-        usz vertex_count;
-        usz vertex_offset;
-        usz index_count;
-        usz index_offset;
-    }
-    struct collision {
-        List{Vec4f} vertices;
-        List{usz} indices;
-    }
+    usz collider;
 }
 
 typedef Collider @tag("BUFFER", Buffers.DRAW) = Render;
@@ -324,7 +315,7 @@ fn void main()
     defer win.free();
 
     MeshMap meshes;
-    defer meshes.release();
+    defer meshes.free();
 
     // Vulkan context
     context = helpers::createContext(win)!!;
@@ -407,6 +398,13 @@ fn void main()
     Component indices = manager.@create_component(size: 3_000_000, buffer_index: Buffers.GPU)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: Buffers.GPU)!!;
+    Component hull_data = manager.@create_component(size: 1_000_000, buffer_index: Buffers.CPU)!!;
+
+    List{Vec4f} hull_vertices;
+    defer hull_vertices.free();
+
+    List{ConvexShape} collision_shapes;
+    defer collision_shapes.free();
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
@@ -442,19 +440,7 @@ fn void main()
                     }
                 }
 
-                // Create physics convex_hull
-                if (mesh.convex_hull && prim_index == 0) mesh_info.collision.vertices.push(data.position);
-
                 draw_buffer.@push(data);
-            }
-
-            // Create physics convex_hull
-            if (mesh.convex_hull && prim_index == 0) {
-                // Todo: make solution for meshes, that have multiple primitives
-                for (usz i; i < index_accessor.count; i++) {
-                    ushort index = gltf.@cast_buffer(index_accessor, i, ushort);
-                    mesh_info.collision.indices.push(index);
-                }
             }
 
             mesh_info.render = {
@@ -467,11 +453,59 @@ fn void main()
             meshes.set(mesh_index + prim_index, mesh_info);
         }
 
-        if (mesh.convex_hull) {
-            // Build convex hull data
-            MeshInfo data = meshes[mesh_index]!!;
-            collision::hull_from_points(&data.collision.vertices, &data.collision.indices);
-            collision::weld_remesh(&data.collision.vertices, &data.collision.indices);
+        // if (mesh.convex_hull) {
+        //     MeshInfo* info = meshes.get_ref(mesh_index)!!;
+        //     // Build convex hull data
+ 
+
+        //     usz offset = hull_vertices.len();
+
+
+        //     hull_meshes.push({
+        //         .vertices = hull_vertices.array_view()[offset .. offset + local_vertices.len() - 1],
+        //     });
+
+        //     io::printfn("%s %s", offset, local_vertices.len());
+
+        //     info.collider = hull_meshes.len();
+        // }
+    }
+
+    // load physics colliders
+    foreach (collider: gltf.colliders) {
+        if (collider.has_shape()) {
+            Shape shape = gltf.shapes[collider.shape];
+            switch (shape.type) {
+                case BOX: collision_shapes.push(&&collision::aabb_from_half(shape.size));
+                case SPHERE: collision_shapes.push(&&(Sphere){.radius = shape.radius});
+                case CYLINDER: collision_shapes.push(&&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom});
+                case CAPSULE: collision_shapes.push(&&(Capsule){shape.height, shape.radius_top, shape.radius_bottom});
+                default: {}
+            }
+        }
+
+        if (collider.has_mesh()) {
+            gltf::Mesh mesh = gltf.meshes[collider.mesh];
+
+            List{Vec4f} vertices;
+            List{usz} mesh_indices;
+
+            defer {
+                vertices.free();
+                mesh_indices.free();
+            }
+
+            foreach (primitive: mesh.primitives) {
+               gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+               for (usz i; i < pos_accessor.count; i++) vertices.push(gltf.@cast_buffer(pos_accessor, i, Vec4f));
+            }
+
+            // Create hull and minify it
+            collision::hull_from_points(&vertices, &mesh_indices);
+            collision::weld_remesh(&vertices, &mesh_indices);
+
+            hull_vertices.add_all(&vertices);
+            collision_shapes.push(&&(ConvexPolyhedron){.vertices = hull_vertices.array_view()});
         }
     }
 
@@ -504,8 +538,6 @@ fn void main()
     };
 
     defer animation_list.free();
-
-    // List{Triangle} ground_triangles;
 
     // Build draw commands for Vulkan
     foreach (node : gltf.nodes) {
@@ -606,10 +638,11 @@ fn void main()
                     .restitution = physics_material.restitution,
                 },
                 .collider = collision::transformed_shape_from(
+                    shape: collision_shapes[node.collider],
                     translation: node.translation,
                     scale: node.scale,
                     rotation: node.rotation,
-                )
+                ),
             };
 
             if (node.has_motion()) {
@@ -623,40 +656,6 @@ fn void main()
                     .linear_dampening = 0.95,
                     .angular_dampening = 0.8
                 };
-            }
-
-            if (collider.has_shape()) {
-                // Collision is basic shape
-                Shape shape = gltf.shapes[collider.shape];
-
-                switch (shape.type) {
-                    case BOX: {
-                        Aabb3 item = collision::aabb_from_half(shape.size).scale(node.scale);
-                        body.collider.shape = &item;
-                    }
-                    case SPHERE: {
-                        Sphere item = {.radius = shape.radius};
-                        body.collider.shape = &item;
-                    }
-                    case CYLINDER: {
-                        Cylinder item = {shape.height, shape.radius_top, shape.radius_bottom};
-                        body.collider.shape = &item;
-                    }
-                    case CAPSULE: {
-                        Capsule item = {shape.height, shape.radius_top, shape.radius_bottom};
-                        body.collider.shape = &item;
-                    }
-                    default: {}
-                }
-               
-            } else if (node.has_mesh()) {
-                gltf::Mesh mesh = gltf.meshes[node.mesh];
-                MeshInfo mesh_info = meshes[mesh.name.hash()]!!;
-                ConvexPolyhedron item = {
-                    .vertices = mesh_info.collision.vertices.array_view(),
-                    .indices = mesh_info.collision.indices.array_view()
-                };
-                body.collider.shape = &item;
             }
 
             physics_world.add_body(body: body)!!;
@@ -1020,13 +1019,4 @@ fn void main()
             time_delta = (start_time - render_time.mark());
         }
     }
-}
-
-fn void MeshMap.release(&self) {
-    self.@each(;usz id, MeshInfo mesh) {
-        mesh.collision.vertices.free();
-        mesh.collision.indices.free();
-    };
-
-    self.free();
 }
