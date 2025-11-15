@@ -428,8 +428,6 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
 fn void* Component.get_ref(&self) => (void*)self.manager.buffers[self.buffer].data() + self.offset;
 
-
-
 // <*
 //  @require self.size != 0 && self.used_size != 0 : `Component is empty`
 // *>

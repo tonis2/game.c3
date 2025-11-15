@@ -13,9 +13,9 @@ import gltf;
 
 alias Vec2f = float[<2>];
 alias Vec3f = float[<3>];
-alias Vec4f = float[<4>];
 
-fn usz? Vec4f.to_format(&self, Formatter* formatter) @dynamic => formatter.printf("%s,%s,%s", self.x, self.y, self.z)!;
+alias Vec4f = float[<4>];
+// fn usz? Vec4f.to_format(&self, Formatter* formatter) @dynamic => formatter.printf("%f,%f,%f", self.x, self.y, self.z)!;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 

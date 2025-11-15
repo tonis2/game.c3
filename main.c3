@@ -311,8 +311,9 @@ fn void main()
     defer win.free();
 
     MeshMap meshes;
-    defer meshes.free();
-
+    List{Vec4f} hull_vertices;
+    List{ConvexShape} collision_shapes;
+    
     // Vulkan context
     context = helpers::createContext(win)!!;
     defer context.free();
@@ -322,7 +323,13 @@ fn void main()
 
     physics_world = collision::create_world({ .cell_size = 3.0 });
 
-    defer physics_world.free();
+    defer {
+        physics_world.free();
+        foreach (shape: collision_shapes) mem::free(shape);
+        collision_shapes.free();
+        hull_vertices.free();
+        meshes.free();
+    };
 
     // Create default camera
     helpers::Camera camera = {
@@ -396,12 +403,6 @@ fn void main()
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: Buffers.GPU)!!;
     Component hull_data = manager.@create_component(size: 1_000_000, buffer_index: Buffers.CPU)!!;
 
-    List{Vec4f} hull_vertices;
-    defer hull_vertices.free();
-
-    List{ConvexShape} collision_shapes;
-    defer collision_shapes.free();
-
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
         usz mesh_index = mesh.name.hash();
@@ -455,24 +456,19 @@ fn void main()
         if (collider.has_shape()) {
             Shape shape = gltf.shapes[collider.shape];
             switch (shape.type) {
-                case BOX: collision_shapes.push(&&collision::aabb_from_half(shape.size));
-                case SPHERE: collision_shapes.push(&&(Sphere){.radius = shape.radius});
-                case CYLINDER: collision_shapes.push(&&(Cylinder){shape.height, shape.radius_top, shape.radius_bottom});
-                case CAPSULE: collision_shapes.push(&&(Capsule){shape.height, shape.radius_top, shape.radius_bottom});
+                case BOX: collision_shapes.push(@clone(collision::aabb_from_half(shape.size)));
+                case SPHERE: collision_shapes.push(@clone((Sphere){.radius = shape.radius}));
+                case CYLINDER: collision_shapes.push(@clone((Cylinder){shape.height, shape.radius_top, shape.radius_bottom}));
+                case CAPSULE: collision_shapes.push(@clone((Capsule){shape.height, shape.radius_top, shape.radius_bottom}));
                 default: {}
             }
         }
 
         if (collider.has_mesh()) {
-            gltf::Mesh mesh = gltf.meshes[collider.mesh];
-
             List{Vec4f} vertices;
             List{usz} mesh_indices;
 
-            defer {
-                vertices.free();
-                mesh_indices.free();
-            }
+            gltf::Mesh mesh = gltf.meshes[collider.mesh];
 
             foreach (primitive: mesh.primitives) {
                gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
@@ -483,13 +479,19 @@ fn void main()
             collision::hull_from_points(&vertices, &mesh_indices);
             collision::weld_remesh(&vertices, &mesh_indices);
 
-            hull_vertices.add_all(&vertices);
-            collision_shapes.push(&&(ConvexPolyhedron){.vertices = hull_vertices.array_view()});
+            // Gota clone the points, orelse its broken
+            collision_shapes.push(@clone((ConvexPolyhedron){ .vertices = hull_data.get_ref() + hull_data.used_size, .count = vertices.len()}));
+
+            hull_data.@push(vertices.entries, size: vertices.byte_size());
+
+            vertices.free();
+            mesh_indices.free();
         }
     }
 
+    // Push mesh translation nodes to GPU/CPU buffer
     foreach (index, node: gltf.nodes) {
-        io::printfn("%s %s %s %s", node.translation, node.rotation.v, node.name, node.index);
+        // io::printfn("%s %s %s %s", node.translation, node.rotation.v, node.name, node.index);
         nodes.@push((ecs::Node) {
             .matrix = node.global_matrix(),
             .translation = node.translation,
@@ -501,6 +503,8 @@ fn void main()
     }
         
     // foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
+
+    // Push materials info to GPU buffer
     foreach (index, material: gltf.materials) {
         materials.@push((Material) {
             .emissiveStrength = material.emissiveStrength,
@@ -518,7 +522,7 @@ fn void main()
 
     defer animation_list.free();
 
-    // Build draw commands for Vulkan
+    // Build GPU draw commands for Vulkan
     foreach (node : gltf.nodes) {
         Entity node_entity = manager.@create_entity()!!;
 
@@ -602,13 +606,13 @@ fn void main()
         if (node.has_collider()) {
             gltf::Collider collider = gltf.colliders[node.collider];
             PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
-
+          
             CollisionData collision_data = {
                 .collided = false,
                 .node_index = node.index,
                 .is_player = node.name == "player"
             };
-        
+
             Rigidbody body = {
                 .id = node.index,
                 .material = {
@@ -616,12 +620,12 @@ fn void main()
                     .static_friction = physics_material.static_friction,
                     .restitution = physics_material.restitution,
                 },
-                .collider = collision::transformed_shape_from(
-                    shape: collision_shapes[node.collider],
-                    translation: node.translation,
-                    scale: node.scale,
-                    rotation: node.rotation,
-                ),
+                .collider = {
+                    .shape = collision_shapes.get(node.collider),
+                    .translation = node.translation,
+                    .scale = node.scale,
+                    .rotation = node.rotation,
+                },
             };
 
             if (node.has_motion()) {
@@ -753,6 +757,7 @@ fn void main()
     )!!;
 
     defer pipeline_layout.free(context.device);
+
 
     ShaderModule shader_module = vk::shaderModuleCreateInfo()
     .setCodeSize(shader.len)
