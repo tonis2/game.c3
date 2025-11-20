@@ -19,10 +19,10 @@ struct Vertex
 {
     float2 tex_cord;
     float3 normal;
+    float3 position;
     float4 tangent;
     uint[4] skin_pos;
     float4 weights;
-    float4 position;
 };
 
 struct Light

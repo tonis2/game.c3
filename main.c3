@@ -34,10 +34,10 @@ enum Buffers: inline uint {
 struct Vertex {
     Vec2f tex_cord;
     Vec3f normal;
+    Vec3f position;
     Vec4f tangent;
     uint[4] skin_pos;
     Vec4f weights;
-    Vec4f position;
 }
 
 struct MoveEvent {
@@ -312,7 +312,7 @@ fn void main()
 
     MeshMap meshes;
     List{Vec4f} hull_vertices;
-    List{ConvexShape} collision_shapes;
+    List{CollisionShape} collision_shapes;
     
     // Vulkan context
     context = helpers::createContext(win)!!;
@@ -420,7 +420,7 @@ fn void main()
             for (usz i; i < pos_accessor.count; i++) {
                 // Cast data or use default value
                 Vertex data = {
-                    .position = gltf.@cast_buffer(pos_accessor, i, Vec4f),
+                    .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
                     .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? {0, 0},
                     .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? {0, 0, 0},
                     .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? {0, 0, 0, 0},
@@ -465,22 +465,33 @@ fn void main()
         }
 
         if (collider.has_mesh()) {
-            List{Vec4f} vertices;
+            List{Vec3f} vertices;
             List{usz} mesh_indices;
 
             gltf::Mesh mesh = gltf.meshes[collider.mesh];
 
             foreach (primitive: mesh.primitives) {
                gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-               for (usz i; i < pos_accessor.count; i++) vertices.push(gltf.@cast_buffer(pos_accessor, i, Vec4f));
+               for (usz i; i < pos_accessor.count; i++) vertices.push(gltf.@cast_buffer(pos_accessor, i, Vec3f));
             }
 
-            // Create hull and minify it
-            collision::hull_from_points(&vertices, &mesh_indices);
-            collision::weld_remesh(&vertices, &mesh_indices);
+            if (collider.convex_hull) {
+                // Create hull and minify it
+                collision::hull_from_points(&vertices, &mesh_indices);
+                collision::weld_remesh(&vertices, &mesh_indices);
 
-            // Gota clone the points, orelse its broken
-            collision_shapes.push(@clone((ConvexPolyhedron){ .vertices = hull_data.get_ref() + hull_data.used_size, .count = vertices.len()}));
+                // Gota clone the points, orelse its broken
+                collision_shapes.push(@clone((ConvexPolyhedron){ .vertices = bitcast((hull_data.get_ref() + hull_data.used_size)[0..vertices.len()], Vec3f[]) }));
+            } else {
+                // BVHNode bvh = {
+                //     .positions = hull_data.get_ref(),
+                //     .count = vertices.len()
+                // };
+
+                // bvh.build_recursive();
+
+                // collision_shapes.push(@clone(bvh));
+            }
 
             hull_data.@push(vertices.entries, size: vertices.byte_size());
 
