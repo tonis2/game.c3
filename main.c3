@@ -195,7 +195,6 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             node.rotation = rigid_body.collider.rotation;
             node.dirty = true;
         }
-        
     };
     
     nodes.recalculate();
@@ -234,7 +233,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
 //             switch (property) {
 //                 case TRANSLATION: node.translation = value.xyz;
-//                 case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                 case ROTATION: node.rotation = (QuaternionValue){.v = value };
 //                 case SCALE: node.scale = value.xyz;
 //                 default: {}
 //             }
@@ -280,7 +279,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 //                 gltf::Node* node = gltf.nodes.get_ref(node_index);
 //                 switch (property) {
 //                     case TRANSLATION: node.translation = value.xyz;
-//                     case ROTATION: node.rotation = (Quaternionf){.v = value };
+//                     case ROTATION: node.rotation = (QuaternionValue){.v = value };
 //                     case SCALE: node.scale = value.xyz;
 //                     default: {}
 //                 }
@@ -475,25 +474,17 @@ fn void main()
                for (usz i; i < pos_accessor.count; i++) vertices.push(gltf.@cast_buffer(pos_accessor, i, Vec3f));
             }
 
+            usz offset = hull_data.used_size;
+        
             if (collider.convex_hull) {
                 // Create hull and minify it
                 collision::hull_from_points(&vertices, &mesh_indices);
                 collision::weld_remesh(&vertices, &mesh_indices);
-
-                // Gota clone the points, orelse its broken
-                collision_shapes.push(@clone((ConvexPolyhedron){ .vertices = bitcast((hull_data.get_ref() + hull_data.used_size)[0..vertices.len()], Vec3f[]) }));
-            } else {
-                // BVHNode bvh = {
-                //     .positions = hull_data.get_ref(),
-                //     .count = vertices.len()
-                // };
-
-                // bvh.build_recursive();
-
-                // collision_shapes.push(@clone(bvh));
+                collision_shapes.push(@clone((ConvexPolyhedron){.vertices = bitcast((hull_data.get_ref() + offset)[0..vertices.len()], Vec3f[])}));
             }
 
             hull_data.@push(vertices.entries, size: vertices.byte_size());
+            
 
             vertices.free();
             mesh_indices.free();
@@ -604,7 +595,7 @@ fn void main()
                         Matrix4f instance_matrix = gltf::to_matrix(
                             gltf.@cast_buffer(translation_accessor, i, Vec3f), 
                             gltf.@cast_buffer(scale_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
+                            gltf.@cast_buffer(rotation_accessor, i, QuaternionValue)
                         );
                         instances.@push(instance_matrix);
                     }

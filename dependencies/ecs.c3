@@ -544,7 +544,7 @@ struct Node {
     int parent;
     Vec3f translation;
     Vec3f scale;
-    Quaternionf rotation;
+    QuaternionValue rotation;
     Matrix4f matrix;
 }
 
