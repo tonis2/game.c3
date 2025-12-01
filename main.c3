@@ -450,8 +450,20 @@ fn void main()
         }
     }
 
+    // for (usz i; i < 2; i++) {
+    //     usz offset = vertices.len();
+
+    //     for (usz j; j < 500; j++) {
+    //         vertices.push({1, 2, 4});
+    //     }
+
+    //     temp.push(vertices.entries + offset);
+    // }
+
+
+
     // load physics colliders
-    foreach (collider: gltf.colliders) {
+    foreach (usz j, collider: gltf.colliders) {
         if (collider.has_shape()) {
             Shape shape = gltf.shapes[collider.shape];
             switch (shape.type) {
@@ -467,6 +479,11 @@ fn void main()
             List{Vec3f} vertices;
             List{usz} mesh_indices;
 
+            defer {
+                vertices.free();
+                mesh_indices.free();
+            }
+
             gltf::Mesh mesh = gltf.meshes[collider.mesh];
 
             foreach (primitive: mesh.primitives) {
@@ -480,17 +497,19 @@ fn void main()
                 // Create hull and minify it
                 collision::hull_from_points(&vertices, &mesh_indices);
                 collision::weld_remesh(&vertices, &mesh_indices);
-                collision_shapes.push(@clone((ConvexPolyhedron){.vertices = bitcast((hull_data.get_ref() + offset)[0..vertices.len()], Vec3f[])}));
+
+                collision_shapes.push(@clone((ConvexPolyhedron){.vertices = hull_data.get_ref() + offset, .count = vertices.len()}));
+                hull_data.@push(vertices.entries, size: vertices.byte_size());
+
+            } else {
+                hull_data.@push(vertices.entries, size: vertices.byte_size() / Vec3f.sizeof);
+                collision_shapes.push(@clone((ConvexPolyhedron){.vertices = hull_data.get_ref() + offset, .count = vertices.len()}));
             }
-
-            hull_data.@push(vertices.entries, size: vertices.byte_size());
-            
-
-            vertices.free();
-            mesh_indices.free();
         }
     }
 
+    // io::printfn("%s", collision_shapes[1].get_aabb());
+    // return;
     // Push mesh translation nodes to GPU/CPU buffer
     foreach (index, node: gltf.nodes) {
         // io::printfn("%s %s %s %s", node.translation, node.rotation.v, node.name, node.index);
@@ -652,25 +671,31 @@ fn void main()
             gltf::Node body_a = *node.parent;
             gltf::Node body_b = *connected_node.parent;
 
-            Vec3f anchor_a = gltf::decompose_joint(body: body_a, joint: node);
-            Vec3f anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node);
-
             gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
 
             GenericJoint3D generic_joint = {
-                .anchor_a = anchor_a,
-                .anchor_b = anchor_b,
+                .anchor_a = gltf::decompose_joint(body: body_a, joint: node),
+                .anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node),
+                .relative_orientation = body_a.rotation.conjugate() * body_b.rotation,
                 .body_a = body_a.index,
                 .body_b = body_b.index,
                 .collides = false
             };
 
             foreach (limit: joint.linear_limits) {
-                generic_joint.limit_linear(limit.axes, min: limit.min, max: limit.max);
+                generic_joint.linear_limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = limit.axes,
+                });
             }
 
             foreach (limit: joint.angular_limits) {
-                generic_joint.limit_angular(connected_node.rotation * limit.axes, min: limit.min, max: limit.max);
+                generic_joint.angular_limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = connected_node.rotation * limit.axes,
+                });
             }
 
             physics_world.add_constraint(generic_joint)!!;
