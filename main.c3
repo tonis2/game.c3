@@ -317,10 +317,10 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/game.gltf")!!;
     defer gltf.free();
 
-    physics_world = collision::create_world({ .cell_size = 3.0 });
+    physics_world = collision::create_world(cell_size: 3.0);
 
     defer {
         physics_world.free();
@@ -641,17 +641,20 @@ fn void main()
                     .static_friction = physics_material.static_friction,
                     .restitution = physics_material.restitution,
                 },
+                .can_sleep = true,
                 .collider = {
                     .shape = collision_shapes.get(node.collider),
                     .translation = node.translation,
                     .scale = node.scale,
                     .rotation = node.rotation,
                 },
+                .gravity_factor = 1
             };
 
             if (node.has_motion()) {
                 gltf::Motion motion = gltf.motions[node.motion];
-                body.motion = {
+                body = {
+                    ...body,
                     .mass = motion.mass,
                     .gravity_factor = motion.gravity_factor,
                     .mass_center = motion.mass_center,
@@ -687,6 +690,8 @@ fn void main()
                     .min = limit.min,
                     .max = limit.max,
                     .axes = limit.axes,
+                    .stiffness = 100,
+                    .damping = 0.1
                 });
             }
 
