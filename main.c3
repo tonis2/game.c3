@@ -691,7 +691,7 @@ fn void main()
                     .max = limit.max,
                     .axes = limit.axes,
                     .stiffness = 100,
-                    .damping = 0.1
+                    .damping = 0
                 });
             }
 
@@ -700,6 +700,8 @@ fn void main()
                     .min = limit.min,
                     .max = limit.max,
                     .axes = connected_node.rotation * limit.axes,
+                    .stiffness = 100,
+                    .damping = 0
                 });
             }
 
