@@ -11,3 +11,5 @@ Install [C3](https://c3-lang.org/), [VulkanSDK](https://vulkan.lunarg.com/sdk/ho
 
 Clone repository, then you can run example with `c3c run game` inside the cloned directory
 
+Press P, to start physics simulator
+

@@ -5,7 +5,7 @@
 	"version": "0.1.0",
 	"dependency-search-paths": [ "./dependencies"],
 	"dependencies": ["c3w", "vk", "stb", "collision", "gltf"],
-	"features": ["X11", "ECS_EXTRA"],
+	"features": ["WAYLAND", "ECS_EXTRA"],
 	"linked-libraries": ["vulkan"],
 	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
 	"script-dir": "./",

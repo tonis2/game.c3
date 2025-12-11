@@ -892,6 +892,7 @@ fn void main()
     });
 
     bool running = true;
+    bool pause = true;
     Vec2f prev_mouse = {window_size.x / 4, window_size.y / 4};
     
     Clock animation_time = clock::now();
@@ -911,6 +912,10 @@ fn void main()
         //     prev_mouse = mouse_pos;
         // }
 
+        if (event.is_pressed(P)) {
+            pause = !pause;
+        }
+
         if (event.is_pressed(MOUSE_SCROLL_DOWN)) {
             camera.zoom(-2);
             ecs::@upload(manager, scene, &&camera.data());
@@ -924,8 +929,11 @@ fn void main()
         if (event.is_pressed(ESCAPE)) {
             running = false;
         }
+
+        if (!pause) {
+            physics_system(manager, event, frame_time);
+        };
         
-        physics_system(manager, event, frame_time);
         uint next_image = context.next_image()!!;
     
         ImageMemoryBarrier2 begin_barrier = {
