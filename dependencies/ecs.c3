@@ -426,7 +426,7 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
     $endif;
 }
 
-fn void* Component.get_ref(&self) => (void*)self.manager.buffers[self.buffer].data() + self.offset;
+fn void* Component.get_ref(&self) => (void*)(self.manager.buffers[self.buffer].data() + self.offset);
 
 // <*
 //  @require self.size != 0 && self.used_size != 0 : `Component is empty`
@@ -481,6 +481,7 @@ macro @get_offset(EntityManager manager, #target, String type = "") {
     return NO_KEY_FOUND?;
 }
 
+
 struct Buffer (Allocator) {
     usz size;
     usz used_size;
@@ -500,7 +501,7 @@ fn void Buffer.push(&self, void* data, usz size) @dynamic {
 
 // usz size = alignUp(new_size, 256);
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
-    new_size = alignUp(new_size, 16);
+    // new_size = alignUp(new_size, 16);
     if (self.used_size + new_size > self.size) {
         self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
@@ -513,7 +514,7 @@ fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
 }
 
 fn void Buffer.free(&self) @dynamic {
-    mem::free(self.mapped);
+    // mem::free(self.mapped);
     self.size = 0;
     self.used_size = 0;
 }

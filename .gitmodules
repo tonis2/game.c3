@@ -1,0 +1,6 @@
+[submodule "dependencies/collision.c3l"]
+	path = dependencies/collision.c3l
+	url = git@github.com:tonis2/collision.c3.git
+[submodule "dependencies/gltf.c3l"]
+	path = dependencies/gltf.c3l
+	url = git@github.com:tonis2/gltf.c3.git
