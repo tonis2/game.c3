@@ -520,9 +520,7 @@ fn void main()
 				defer hull.free();
 				collision_shapes.push(@clone(hull));
 			} else {
-				List{collision::Mesh} hull_pieces = collision::decompose(&collision_mesh);
-				defer hull_pieces.free();
-				io::printfn("%s", hull_pieces.len());
+				collision_shapes.push(@clone(collision_mesh));
 			}
         }
     }
