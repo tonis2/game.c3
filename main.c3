@@ -297,6 +297,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
 fn void main()
 {
+
     c3w::Window win = c3w::new(
         params: {
             .width = (int)window_size.x,
@@ -400,7 +401,6 @@ fn void main()
     Component draw_buffer = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
     Component materials = manager.@create_component(size: 1_000_000, buffer_index: Buffers.GPU)!!;
-    Component hull_data = manager.@create_component(size: 1_000_000, buffer_index: Buffers.CPU)!!;
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
@@ -497,54 +497,35 @@ fn void main()
         }
 
         if (collider.has_mesh()) {
-            List{Vec3f} vertices;
-            List{ushort} indices;
+			gltf::Mesh mesh = gltf.meshes[collider.mesh];
 
-            gltf::Mesh mesh = gltf.meshes[collider.mesh];
+			List{Vec3f} vertices;
+			List{uint} indices;
+
+			defer {
+				vertices.free();
+				indices.free();
+			}
 
             gltf.@get_positions(mesh, Vec3f; Vec3f position, ushort index) {
                 vertices.push(position);
-                indices.push(index);
+				indices.push((uint)index);
             }!!;
 
-            usz offset = hull_data.used_size;
+			collision::Mesh collision_mesh = collision::create_mesh(vertices.array_view(), indices.array_view());
+			defer collision_mesh.free();
         
-            if (collider.convex_hull) {
-                // Create hull and minify it
-                collision::hull_from_points(&vertices, &indices);
-
-				// Todo: whats happening here, vertices should be released
-				ConvexPolyhedron* shape = @clone((ConvexPolyhedron){.vertices = vertices.entries, .count = vertices.len()});
-                collision_shapes.push(shape);
-				// hull_data.@push(vertices.entries, size: vertices.byte_size());
-            } else {
-                List{ConvexPiece} concave_mesh;
-                defer concave_mesh.free();
-
-				return;
-
-                // collision::acd_recursive({
-                //     .vertices = vertices,
-                //     .indices = indices
-                // }, &concave_mesh);
-				
-                // Collider is triangle mesh
-                // hull_data.@push(vertices.entries, size: vertices.byte_size());
-                // BVHNode* tree = collision::create_bvh_tree(vertices: hull_data.get_ref() + offset, count: vertices.len());
-                // collision_shapes.push(tree);
-            }
-
-			vertices.free();
-			indices.free();
+			if (collider.convex_hull) {
+				collision::Mesh hull = collision::quickhull(vertices.array_view());
+				defer hull.free();
+				collision_shapes.push(@clone(hull));
+			} else {
+				List{collision::Mesh} hull_pieces = collision::decompose(&collision_mesh);
+				defer hull_pieces.free();
+				io::printfn("%s", hull_pieces.len());
+			}
         }
     }
-
-	// io::printfn("%s", gltf.colliders.len());
-
-	// CollisionShape shape_3 = collision_shapes[2];
-	// io::printfn("%s", shape_3.get_type());
-	// io::printfn("%s", ((ConvexPolyhedron*)shape_3).count);
-	// io::printfn("%s", ((ConvexPolyhedron*)shape_3).vertices);
 
     // Build GPU draw commands for Vulkan
     foreach (node : gltf.nodes) {
