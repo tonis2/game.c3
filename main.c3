@@ -297,7 +297,6 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
 
 fn void main()
 {
-
     c3w::Window win = c3w::new(
         params: {
             .width = (int)window_size.x,
@@ -507,20 +506,24 @@ fn void main()
 				indices.free();
 			}
 
-            gltf.@get_positions(mesh, Vec3f; Vec3f position, ushort index) {
+			// Collect vertices in triangle order - each 3 vertices form a triangle
+            gltf.@get_positions(mesh, Vec3f; Vec3f position, usz index) {
                 vertices.push(position);
-				indices.push((uint)index);
+				indices.push((ushort)index);
             }!!;
 
 			collision::Mesh collision_mesh = collision::create_mesh(vertices.array_view(), indices.array_view());
 			defer collision_mesh.free();
-        
+			
 			if (collider.convex_hull) {
 				collision::Mesh hull = collision::quickhull(vertices.array_view());
-				defer hull.free();
 				collision_shapes.push(@clone(hull));
+				hull.free();
 			} else {
-				collision_shapes.push(@clone(collision_mesh));
+				// Clone first, then build BVH on the cloned mesh (avoid dangling pointer)
+				collision::Mesh* cloned_mesh = @clone(collision_mesh);
+				cloned_mesh.build_bvh();
+				collision_shapes.push(cloned_mesh);		
 			}
         }
     }

@@ -1,6 +1,9 @@
 # Prerequisites
 *.d
+CLAUDE.md
+tasks.md
 
+task_images/*
 notes.md
 build/*
 # Object files
