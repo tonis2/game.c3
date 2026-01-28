@@ -630,11 +630,7 @@ fn void main()
 
             Rigidbody body = {
                 .id = node.index,
-                .material = {
-                    .dynamic_friction = physics_material.dynamic_friction,
-                    .static_friction = physics_material.static_friction,
-                    .restitution = physics_material.restitution,
-                },
+                .material = {...physics_material},
                 .can_sleep = true,
                 .collider = {
                     .shape = shape,
