@@ -9,10 +9,8 @@ import main;
  struct Camera {
     Vec3f position;
     Matrix4f view;
-    Vec3f translation;
-    Vec3f scale;
-    Quaternionf rotation;
-    float zoom_value;
+    Vec3f target;
+    float distance;
     float yaw;
     float pitch;
     float aspect_ratio;
@@ -28,29 +26,36 @@ struct CameraData @tag("BUFFER", Buffers.CPU_GPU) {
 }
 
 fn void Camera.rotate(&self, float x_offset, float y_offset) {
-    self.yaw += x_offset / 50;
-    self.pitch += y_offset / 50;
+    self.yaw -= x_offset * 0.01;
+    self.pitch -= y_offset * 0.01;
 
-    self.pitch = math::clamp(self.pitch, -89, 89);
+    // Clamp pitch to avoid gimbal lock
+    self.pitch = math::clamp(self.pitch, -1.5f, 1.5f);
 
-    // QuaternionValue y_axis = self.rotation.rotate_by_axis_angle({0, 1, 0}, radians(self.yaw)).normalize();
-    // QuaternionValue x_axis = self.rotation.rotate_by_axis_angle({1, 0, 0}, radians(self.pitch)).normalize();
-    // if (self.zoom_value == 0) self.zoom_value = -15;
-
-    // Vec3f offset = self.translation.rotate_by_quat(x_axis.mul2(y_axis));
-
-    // self.view = gltf::to_matrix(
-    //     self.translation,
-    //     self.scale,
-    //     self.rotation.mul2(y_axis.mul2(x_axis))
-    // ).inverse()!!;
-    
-    self.view.m23 = self.zoom_value;
+    self.update_view();
 }
 
 fn void Camera.zoom(&self, float value) {
-    self.zoom_value += value;
-    self.view.m23 += value;
+    self.distance -= value;
+    if (self.distance < 1.0f) self.distance = 1.0f;
+
+    self.update_view();
+}
+
+fn void Camera.update_view(&self) {
+    // Calculate camera position on sphere around target
+    float cos_pitch = math::cos(self.pitch);
+    float sin_pitch = math::sin(self.pitch);
+    float cos_yaw = math::cos(self.yaw);
+    float sin_yaw = math::sin(self.yaw);
+
+    self.position = {
+        self.target.x + self.distance * cos_pitch * cos_yaw,
+        self.target.y + self.distance * cos_pitch * sin_yaw,
+        self.target.z + self.distance * sin_pitch
+    };
+
+    self.view = matrix::look_at{float}(self.position, self.target, {0.0, 0.0, 1.0});
 }
 
 fn CameraData Camera.data(&self) {

@@ -333,12 +333,16 @@ fn void main()
 
     // Create default camera
     helpers::Camera camera = {
-        .view =  matrix::look_at{float}({15, 0.0, 10}, {0, 0, 0}, {0.0, 1.0, 0.0}),
+        .target = {0, 0, 0},
+        .distance = 18,
+        .yaw = 0,
+        .pitch = 0.58,
         .aspect_ratio = 1.3,
         .z_near = 0.1,
         .z_far = 100,
         .y_fov = 0.6
     };
+    camera.update_view();
 
     // Create allocator of 150MB - DEVICE_ONLY memory
     context.device_allocation = (vk::Allocation){
@@ -534,17 +538,20 @@ fn void main()
 
         if (node.has_camera()) {
             gltf::Camera camera_data = gltf.cameras[node.camera];
+            Vec3f pos = node.translation;
+            float dist = pos.length();
 
             camera = {
-                .translation = node.translation,
-                .scale = node.scale,
-                .rotation = node.rotation,
+                .target = {0, 0, 0},
+                .distance = dist > 0 ? dist : 18,
+                .yaw = math::atan2(pos.y, pos.x),
+                .pitch = dist > 0 ? math::asin(pos.z / dist) : 0.58,
                 .aspect_ratio = camera_data.perspective.aspectRatio,
-                .view = node.global_matrix().inverse()!!,
                 .z_near = camera_data.perspective.znear,
                 .z_far = camera_data.perspective.zfar,
                 .y_fov = camera_data.perspective.yfov
             };
+            camera.update_view();
         }
 
         if (node.has_mesh() && node.name != "physicsMeshDataNode") {
@@ -892,12 +899,12 @@ fn void main()
 
         EventMap event = win.getEvent();
        
-        // if (event.is_pressed(LEFT_MOUSE)) {
-        //     Vec2f mouse_pos = win.getMousePos();
-        //     camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
-        //     ecs::@upload(manager, scene, &&camera.data());
-        //     prev_mouse = mouse_pos;
-        // }
+        if (event.is_pressed(LEFT_MOUSE)) {
+            Vec2f mouse_pos = win.getMousePos();
+            camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
+            ecs::@upload(manager, scene, &&camera.data());
+            prev_mouse = mouse_pos;
+        }
 
         if (event.is_pressed(P)) {
             pause = !pause;
