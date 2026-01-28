@@ -675,26 +675,9 @@ fn void main()
                 .collides = false
             };
 
-            foreach (limit: joint.linear_limits) {
-                generic_joint.linear_limits.push({
-                    .min = limit.min,
-                    .max = limit.max,
-                    .axes = limit.axes,
-                    .stiffness = limit.stiffness,
-                    .damping = limit.damping
-                });
-            }
-
-            foreach (limit: joint.angular_limits) {
-                generic_joint.angular_limits.push({
-                    .min = limit.min,
-                    .max = limit.max,
-                    .axes = connected_node.rotation * limit.axes,
-                    .stiffness = limit.stiffness,
-                    .damping = limit.damping
-                });
-            }
-
+            foreach (limit: joint.linear_limits) generic_joint.linear_limits.push({...limit});
+            foreach (limit: joint.angular_limits) generic_joint.angular_limits.push({...limit});
+			
             physics_world.add_constraint(generic_joint)!!;
         }
     }
