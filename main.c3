@@ -134,7 +134,7 @@ NodeComponent nodes;
 
 // BVHNode terrain_map;
 
-PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
+PhysicsWorld physics_world = {...collision::DEFAULT_PHYSICS_WORLD, .threaded = true};
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -512,6 +512,8 @@ fn void main()
 			} else {
 				// Clone first, then build BVH on the cloned mesh (avoid dangling pointer)
 				collision::Mesh* cloned_mesh = @clone(collision_mesh);
+				
+				cloned_mesh.remesh();
 				cloned_mesh.build_bvh();
 				collision_shapes.push(cloned_mesh);		
 			}
