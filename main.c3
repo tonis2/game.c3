@@ -318,7 +318,7 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.gltf")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
     defer {
