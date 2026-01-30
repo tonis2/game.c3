@@ -510,12 +510,28 @@ fn void main()
 				collision_shapes.push(@clone(hull));
 				hull.free();
 			} else {
-				// Clone first, then build BVH on the cloned mesh (avoid dangling pointer)
-				collision::Mesh* cloned_mesh = @clone(collision_mesh);
-				
-				cloned_mesh.remesh();
-				cloned_mesh.build_bvh();
-				collision_shapes.push(cloned_mesh);		
+				List{collision::Mesh} pieces = collision_mesh.decompose(collision::COACD_FAST);
+
+				// foreach (piece: pieces) {
+				// 	io::printfn("%s", piece);
+				// }
+
+				// Create compound shape from decomposed pieces
+				CompoundShape* compound = mem::new(CompoundShape);
+				foreach (&piece : pieces) {
+					collision::Mesh* cloned_piece = mem::new(collision::Mesh);
+					cloned_piece.vertices.push_all(piece.vertices.array_view());
+					cloned_piece.triangles.push_all(piece.triangles.array_view());
+					compound.add_piece(cloned_piece);
+				}
+
+				// Free the temporary pieces list (compound owns cloned copies)
+				foreach (&piece : pieces) {
+					piece.free();
+				}
+				pieces.free();
+
+				collision_shapes.push(compound);
 			}
         }
     }
