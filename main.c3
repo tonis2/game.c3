@@ -138,10 +138,12 @@ PhysicsWorld physics_world;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
-    Memory stage_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        &context.local_allocation,
-        data,
+
+	Memory stage_buffer = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: null,
         data_size: size
     )!!;
 
@@ -343,44 +345,27 @@ fn void main()
         .y_fov = 0.6
     };
     camera.update_view();
-
-    // Create allocator of 150MB - DEVICE_ONLY memory
-    context.device_allocation = (vk::Allocation){
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 256_000_000
-    }.build()!!;
-
-    // Allocation where data can be changed from CPU
-    context.local_allocation = (vk::Allocation){
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
-    }.build()!!;
-
-    Memory draw_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        &context.local_allocation,
-        null,
+	Memory draw_memory = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: null,
         data_size: 5_000_000
     )!!;
-
-    Memory cpu_and_gpu = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        &context.local_allocation,
-        null,
+	Memory cpu_and_gpu = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: null,
         data_size: 20_000_000
     )!!;
 
-    Memory gpu_only_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
-        &context.device_allocation,
-        null,
-        data_size: 30_000_000,
+	Memory gpu_only_memory = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
+        properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        data: null,
+        data_size: 30_000_000
     )!!;
 
     ecs::Buffer cpu_only;
@@ -707,7 +692,7 @@ fn void main()
         image_data.free();
     }
 
-    descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
+    descriptor_images.addDepthTexture(&context.allocator, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);

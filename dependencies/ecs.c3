@@ -122,7 +122,7 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
 fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
 
-    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW?;
+    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW~;
 
     Component component = {
         .id = (uint)self.components.len(),
@@ -478,7 +478,7 @@ macro @get_offset(EntityManager manager, #target, String type = "") {
         };
     $endif;
 
-    return NO_KEY_FOUND?;
+    return NO_KEY_FOUND~;
 }
 
 
