@@ -134,7 +134,7 @@ NodeComponent nodes;
 
 // BVHNode terrain_map;
 
-PhysicsWorld physics_world = {...collision::DEFAULT_PHYSICS_WORLD, .threaded = true};
+PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -312,7 +312,7 @@ fn void main()
     defer win.free();
 
     MeshMap meshes;
-    List{CollisionShape} collision_shapes;
+    CollisionShapes collision_shapes;
     
     // Vulkan context
     context = helpers::createContext(win)!!;
@@ -323,11 +323,7 @@ fn void main()
 
     defer {
         physics_world.free();
-        foreach (shape: collision_shapes) {
-            if (&shape.free) shape.free();
-            mem::free(shape);
-        };
-        collision_shapes.free();
+        collision_shapes.release();
         meshes.free();
     };
 
@@ -507,31 +503,16 @@ fn void main()
 			
 			if (collider.convex_hull) {
 				collision::Mesh hull = collision::quickhull(vertices.array_view());
+				defer hull.free();
 				collision_shapes.push(@clone(hull));
-				hull.free();
 			} else {
-				List{collision::Mesh} pieces = collision_mesh.decompose(collision::COACD_FAST);
+				// Create compound mesh from concave mesh pieces.
+				MeshList pieces = collision_mesh.decompose(collision::COACD_FAST);
+				defer pieces.release();
 
-				// foreach (piece: pieces) {
-				// 	io::printfn("%s", piece);
-				// }
-
-				// Create compound shape from decomposed pieces
-				CompoundShape* compound = mem::new(CompoundShape);
-				foreach (&piece : pieces) {
-					collision::Mesh* cloned_piece = mem::new(collision::Mesh);
-					cloned_piece.vertices.push_all(piece.vertices.array_view());
-					cloned_piece.triangles.push_all(piece.triangles.array_view());
-					compound.add_piece(cloned_piece);
-				}
-
-				// Free the temporary pieces list (compound owns cloned copies)
-				foreach (&piece : pieces) {
-					piece.free();
-				}
-				pieces.free();
-
-				collision_shapes.push(compound);
+				CompoundShape compound;
+				foreach (piece : pieces) compound.add_piece(@clone(piece));
+				collision_shapes.push(@clone(compound));
 			}
         }
     }
@@ -680,13 +661,7 @@ fn void main()
             };
 
 			foreach (limit: joint.linear_limits) {
-                generic_joint.linear_limits.push({
-                    .min = limit.min,
-                    .max = limit.max,
-                    .axes = limit.axes,
-                    .stiffness = limit.stiffness,
-                    .damping = limit.damping
-                });
+                generic_joint.linear_limits.push({...limit});
             }
 
             foreach (limit: joint.angular_limits) {
