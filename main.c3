@@ -134,7 +134,7 @@ NodeComponent nodes;
 
 // BVHNode terrain_map;
 
-PhysicsWorld physics_world;
+PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
@@ -143,7 +143,7 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
 		allocator: &context.allocator,
         usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
         properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
-        data: null,
+        data: data,
         data_size: size
     )!!;
 
@@ -318,10 +318,8 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/game.gltf")!!;
     defer gltf.free();
-
-    physics_world = collision::create_world(cell_size: 3.0);
 
     defer {
         physics_world.free();
@@ -344,7 +342,9 @@ fn void main()
         .z_far = 100,
         .y_fov = 0.6
     };
+	
     camera.update_view();
+
 	Memory draw_memory = vk::new_buffer(
 		allocator: &context.allocator,
         usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
@@ -352,6 +352,7 @@ fn void main()
         data: null,
         data_size: 5_000_000
     )!!;
+
 	Memory cpu_and_gpu = vk::new_buffer(
 		allocator: &context.allocator,
         usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -660,8 +661,25 @@ fn void main()
                 .collides = false
             };
 
-            foreach (limit: joint.linear_limits) generic_joint.linear_limits.push({...limit});
-            foreach (limit: joint.angular_limits) generic_joint.angular_limits.push({...limit});
+			foreach (limit: joint.linear_limits) {
+                generic_joint.linear_limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = limit.axes,
+                    .stiffness = limit.stiffness,
+                    .damping = limit.damping
+                });
+            }
+
+            foreach (limit: joint.angular_limits) {
+                generic_joint.angular_limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = connected_node.rotation * limit.axes,
+                    .stiffness = limit.stiffness,
+                    .damping = limit.damping
+                });
+            }
 			
             physics_world.add_constraint(generic_joint)!!;
         }
