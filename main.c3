@@ -134,14 +134,16 @@ NodeComponent nodes;
 
 // BVHNode terrain_map;
 
-PhysicsWorld physics_world;
+PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
-    Memory stage_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        &context.local_allocation,
-        data,
+
+	Memory stage_buffer = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: data,
         data_size: size
     )!!;
 
@@ -310,24 +312,18 @@ fn void main()
     defer win.free();
 
     MeshMap meshes;
-    List{CollisionShape} collision_shapes;
+    CollisionShapes collision_shapes;
     
     // Vulkan context
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/game.gltf")!!;
     defer gltf.free();
-
-    physics_world = collision::create_world(cell_size: 3.0);
 
     defer {
         physics_world.free();
-        foreach (shape: collision_shapes) {
-            if (&shape.free) shape.free();
-            mem::free(shape);
-        };
-        collision_shapes.free();
+        collision_shapes.release();
         meshes.free();
     };
 
@@ -342,45 +338,31 @@ fn void main()
         .z_far = 100,
         .y_fov = 0.6
     };
+	
     camera.update_view();
 
-    // Create allocator of 150MB - DEVICE_ONLY memory
-    context.device_allocation = (vk::Allocation){
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 256_000_000
-    }.build()!!;
-
-    // Allocation where data can be changed from CPU
-    context.local_allocation = (vk::Allocation){
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
-    }.build()!!;
-
-    Memory draw_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        &context.local_allocation,
-        null,
+	Memory draw_memory = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: null,
         data_size: 5_000_000
     )!!;
 
-    Memory cpu_and_gpu = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        &context.local_allocation,
-        null,
+	Memory cpu_and_gpu = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: null,
         data_size: 20_000_000
     )!!;
 
-    Memory gpu_only_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
-        &context.device_allocation,
-        null,
-        data_size: 30_000_000,
+	Memory gpu_only_memory = vk::new_buffer(
+		allocator: &context.allocator,
+        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
+        properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        data: null,
+        data_size: 30_000_000
     )!!;
 
     ecs::Buffer cpu_only;
@@ -521,13 +503,16 @@ fn void main()
 			
 			if (collider.convex_hull) {
 				collision::Mesh hull = collision::quickhull(vertices.array_view());
+				defer hull.free();
 				collision_shapes.push(@clone(hull));
-				hull.free();
 			} else {
-				// Clone first, then build BVH on the cloned mesh (avoid dangling pointer)
-				collision::Mesh* cloned_mesh = @clone(collision_mesh);
-				cloned_mesh.build_bvh();
-				collision_shapes.push(cloned_mesh);		
+				// Create compound mesh from concave mesh pieces.
+				MeshList pieces = collision_mesh.decompose(collision::COACD_FAST);
+				defer pieces.release();
+
+				CompoundShape compound;
+				foreach (piece : pieces) compound.add_piece(@clone(piece));
+				collision_shapes.push(@clone(compound));
 			}
         }
     }
@@ -675,8 +660,19 @@ fn void main()
                 .collides = false
             };
 
-            foreach (limit: joint.linear_limits) generic_joint.linear_limits.push({...limit});
-            foreach (limit: joint.angular_limits) generic_joint.angular_limits.push({...limit});
+			foreach (limit: joint.linear_limits) {
+                generic_joint.linear_limits.push({...limit});
+            }
+
+            foreach (limit: joint.angular_limits) {
+                generic_joint.angular_limits.push({
+                    .min = limit.min,
+                    .max = limit.max,
+                    .axes = connected_node.rotation * limit.axes,
+                    .stiffness = limit.stiffness,
+                    .damping = limit.damping
+                });
+            }
 			
             physics_world.add_constraint(generic_joint)!!;
         }
@@ -707,7 +703,7 @@ fn void main()
         image_data.free();
     }
 
-    descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
+    descriptor_images.addDepthTexture(&context.allocator, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);

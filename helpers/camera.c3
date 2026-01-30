@@ -62,7 +62,7 @@ fn CameraData Camera.data(&self) {
     return {
         matrix::perspective{float}(self.y_fov, self.aspect_ratio, self.z_near, self.z_far),
         self.view,
-        (Vec4f){self.position, 1.0}
+        (Vec4f){...self.position, 1.0}
     };
 }
 

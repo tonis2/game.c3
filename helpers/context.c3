@@ -38,9 +38,7 @@ struct DeviceContext {
     Extent2D extent;
     SurfaceKHR surface;
 
-    vk::Allocation device_allocation;
-    vk::Allocation local_allocation;
-
+    vk::Allocator allocator;
     SemaphoreList wait_semaphores;
     SemaphoreList signal_semaphores;
     FenceList frame_fences;
@@ -68,9 +66,7 @@ fn void DeviceContext.free(self) {
     self.signal_semaphores.release(self.device);
     self.frame_fences.release(self.device);
 
-    self.device_allocation.free();
-    self.local_allocation.free();
-
+    self.allocator.free();
     self.device.free();
     self.instance.free();
 }
@@ -158,7 +154,7 @@ fn DeviceContext? createContext(c3w::Window win) {
 
     if (catch err = vk::createInstance(&instanceInfo, null, &instance)) {
         io::printfn("Extension error");
-        return NO_SUITABLE_DEVICE?;
+        return NO_SUITABLE_DEVICE~;
     }
 
     vk::loadExtensions(instance);
@@ -242,7 +238,7 @@ fn DeviceContext? createContext(c3w::Window win) {
 
     if (physical_device == null) {
         io::printfn("Found no suitable device");
-        return NO_SUITABLE_DEVICE?;
+        return NO_SUITABLE_DEVICE~;
     }
 
     io::printfn("Device selected %s", (ZString)device_props.deviceName[0..]);
@@ -372,6 +368,14 @@ fn DeviceContext? createContext(c3w::Window win) {
         frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
     }
 
+	// Single allocator manages everything
+    vk::Allocator allocator = (vk::Allocator){
+        .device = device,
+        .pdevice = physical_device,
+        .queue = &graphics_queue,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
+    }.init()!;
+
     return (DeviceContext) {
         .instance = instance,
         .device = device,
@@ -389,6 +393,7 @@ fn DeviceContext? createContext(c3w::Window win) {
         .wait_semaphores = wait_semaphores,
         .signal_semaphores = signal_semaphores,
         .frame_fences = frame_fences,
+		.allocator = allocator
     };
 }
 
@@ -398,8 +403,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
 
     DeviceQueue graphics_queue = context.graphics_queue;
 
-    vk::Allocation* local_allocation = &context.local_allocation;
-    vk::Allocation* device_allocation = &context.device_allocation;
+     vk::Allocator* allocator = &context.allocator;
 
     Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
     DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
@@ -416,7 +420,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
         .setFormat(image_format)
         .build(device)!;
 
-    vk::create_image_buffer(texture_image, device_allocation)!;
+    vk::create_image_buffer(texture_image, allocator, properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT)!;
 
     texture.sampler = vk::samplerCreateInfo()
             .setMagFilter(vk::FILTER_NEAREST)
@@ -450,13 +454,14 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
             })
             .setImage(texture_image)
             .build(device)!;
-            
-    Memory stage_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        local_allocation,
-        image_data.pixels,
-        (usz)image_data.width * image_data.height * 4
-    )!;
+
+	Memory stage_buffer = vk::new_buffer(
+		allocator: allocator,
+        usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: image_data.pixels,
+        data_size: (usz)image_data.width * image_data.height * 4
+    )!!;
 
     defer stage_buffer.free();
 
@@ -531,7 +536,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
     self.push(texture);
 }
 
-fn vk::Image? DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
+fn vk::Image? DescriptorImages.addDepthTexture(&self, vk::Allocator* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
     DescriptorImageInfo texture;
 
     vk::Device device = allocator.device;
@@ -551,7 +556,7 @@ fn vk::Image? DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator,
     .setFormat(format)
     .build(device)!;
 
-    vk::create_image_buffer(depth_image, allocator)!;
+    vk::create_image_buffer(depth_image, allocator, properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT)!;
 
     texture.sampler = vk::samplerCreateInfo()
     .setMagFilter(vk::FILTER_LINEAR)
@@ -688,8 +693,7 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
-    vk::Allocation* local_allocation = &context.local_allocation;
-    vk::Allocation* device_allocation = &context.device_allocation;
+     vk::Allocator* allocator = &context.allocator;
 
     stb::Image cube_map_image = stb::loadImage(path, stb::Channel.STBI_RGB_ALPHA)!;
     defer cube_map_image.free();
@@ -718,7 +722,7 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
         .setFormat(cube_format)
         .build(device)!;
 
-    vk::create_image_buffer(cube_image, device_allocation)!;
+    vk::create_image_buffer(cube_image, allocator, properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT)!;
 
     cube_texture.sampler = vk::samplerCreateInfo()
         .setMagFilter(vk::FILTER_LINEAR)
@@ -749,12 +753,13 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     .setImage(cube_image)
     .build(device)!;
 
-    Memory stage_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        local_allocation,
-        cube_map_image.pixels,
-        (usz)cube_map_image.width * cube_map_image.height * 4
-    )!;
+	Memory stage_buffer = vk::new_buffer(
+		allocator: allocator,
+        usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        data: cube_map_image.pixels,
+        data_size: (usz)cube_map_image.width * cube_map_image.height * 4
+    )!!;
 
     defer stage_buffer.free();
 
