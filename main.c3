@@ -328,18 +328,7 @@ fn void main()
     };
 
     // Create default camera
-    helpers::Camera camera = {
-        .target = {0, 0, 0},
-        .distance = 18,
-        .yaw = 0,
-        .pitch = 0.58,
-        .aspect_ratio = 1.3,
-        .z_near = 0.1,
-        .z_far = 100,
-        .y_fov = 0.6
-    };
-	
-    camera.update_view();
+    helpers::Camera camera = {};
 
 	Memory draw_memory = vk::new_buffer(
 		allocator: &context.allocator,
@@ -470,6 +459,8 @@ fn void main()
 
 	// load physics colliders
     foreach (usz j, collider: gltf.colliders) {
+		gltf::Node node = gltf.nodes[collider.base_node];
+
         if (collider.has_shape()) {
             Shape shape = gltf.shapes[collider.shape];
             switch (shape.type) {
@@ -506,13 +497,20 @@ fn void main()
 				defer hull.free();
 				collision_shapes.push(@clone(hull));
 			} else {
-				// Create compound mesh from concave mesh pieces.
-				MeshList pieces = collision_mesh.decompose(collision::COACD_FAST);
-				defer pieces.release();
+				if (node.extras.has_key("physics") && node.extras["physics"]!! == "bvh") {
+					// Build BVH tree, more precision but slower
+					collision::Mesh* clone_mesh = @clone(collision_mesh);
+					clone_mesh.build_bvh();
+					collision_shapes.push(clone_mesh);
+				} else {
+					// Create compound mesh from concave mesh pieces.
+					MeshList pieces = collision_mesh.decompose(collision::COACD_FAST);
+					defer pieces.release();
 
-				CompoundShape compound;
-				foreach (piece : pieces) compound.add_piece(@clone(piece));
-				collision_shapes.push(@clone(compound));
+					CompoundShape compound;
+					foreach (piece : pieces) compound.add_piece(@clone(piece));
+					collision_shapes.push(@clone(compound));
+				}
 			}
         }
     }
@@ -522,21 +520,24 @@ fn void main()
         Entity node_entity = manager.@create_entity()!!;
 
         if (node.has_camera()) {
-            gltf::Camera camera_data = gltf.cameras[node.camera];
-            Vec3f pos = node.translation;
-            float dist = pos.length();
+			gltf::Camera camera_data = gltf.cameras[node.camera];
+            Matrix4f global = node.global_matrix();
+
+            // Extract global translation from matrix
+            Vec3f global_translation = { global.m03, global.m13, global.m23 };
+
+            // Extract global rotation from matrix (assuming no scale)
+            Quaternionf global_rotation = helpers::quaternion_from_matrix(global);
 
             camera = {
-                .target = {0, 0, 0},
-                .distance = dist > 0 ? dist : 18,
-                .yaw = math::atan2(pos.y, pos.x),
-                .pitch = dist > 0 ? math::asin(pos.z / dist) : 0.58,
+                .translation = global_translation,
+                .rotation = global_rotation,
                 .aspect_ratio = camera_data.perspective.aspectRatio,
+                .view = global.inverse()!!,
                 .z_near = camera_data.perspective.znear,
                 .z_far = camera_data.perspective.zfar,
                 .y_fov = camera_data.perspective.yfov
             };
-            camera.update_view();
         }
 
         if (node.has_mesh() && node.name != "physicsMeshDataNode") {
