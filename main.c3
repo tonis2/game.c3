@@ -584,7 +584,6 @@ fn void main()
 
             foreach (usz prim_index, primitive: mesh.primitives) {
                 usz mesh_index = mesh.name.hash() + prim_index;
-             
                 Render render_data = {
                     ...meshes[mesh_index]!!,
                     .instanceCount = 1,

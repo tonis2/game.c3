@@ -335,7 +335,7 @@ float4 fragmentMain(FragmentData input)
     Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL;
 
     // Ambient lighting (simple approximation)
-    float3 ambient = float3(0.03, 0.03, 0.03) * albedo.rgb * ao;
+    float3 ambient = float3(0.03) * albedo.rgb * ao;
 
     // Final color
     float3 color = ambient + Lo + emissive;
