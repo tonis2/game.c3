@@ -9,7 +9,11 @@ For running example:
 
 Install [C3](https://c3-lang.org/), [VulkanSDK](https://vulkan.lunarg.com/sdk/home)
 
-Clone repository, then you can run example with `c3c run game` inside the cloned directory
+Clone repository recursively.
+```sh
+git clone --recursive
+```
+Then you can run example with `c3c run game` inside the cloned directory
 
-Press P, to start physics simulator
+Currently only tested on linux, but could potentially work on Mac too if you install MoltenVK
 
