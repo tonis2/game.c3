@@ -15,7 +15,7 @@ import ecs;
 import collision;
 
 const ANIMATION_FPS = 40;
-const MAX_FPS = 60;
+const MAX_FPS = 90;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 alias Vec2f @private = float[<2>];
@@ -115,7 +115,7 @@ struct Animation {
 
 typedef SkinAnimation = Animation;
 typedef WorldAnimation = Animation;
-typedef SceneLight @tag("BUFFER", 2) = Light;
+typedef SceneLight @tag("BUFFER", 2) = gltf::Light;
 
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
@@ -515,14 +515,29 @@ fn void main()
         }
     }
 
+	gltf::Light light = {
+		.position = {2, 12, 5},
+		.color = {1, 1, 1},
+		.intensity = 3.0,
+		.type = DIRECTIONAL
+	};
+
     // Build GPU draw commands for Vulkan
     foreach (node : gltf.nodes) {
         Entity node_entity = manager.@create_entity()!!;
+		Matrix4f global = node.global_matrix();
+
+		if (node.has_light()) {
+			light = gltf.lights[node.light];
+			
+			// Get position from node's global transform
+	
+			light.position = { global.m03, global.m13, global.m23 };
+			light.intensity = light.intensity / 300.0;	
+		};
 
         if (node.has_camera()) {
 			gltf::Camera camera_data = gltf.cameras[node.camera];
-            Matrix4f global = node.global_matrix();
-
             // Extract global translation from matrix
             Vec3f global_translation = { global.m03, global.m13, global.m23 };
 
@@ -713,12 +728,7 @@ fn void main()
 
     Entity scene = manager.@create_entity(
         camera.data(),
-        (SceneLight) {
-            .position = {2, 12.0, 5},
-            .color = {1, 1, 1},
-            .intensity = 54351,
-            .type = DIRECTIONAL
-        },
+		(SceneLight)light,
         (SceneData) {
             .draw_cmds = draw_memory.address,
             .vertices = ecs::@get_address(manager, draw_buffer),
@@ -999,11 +1009,11 @@ fn void main()
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
 
-            constant_data.collided = true;
+            // constant_data.collided = true;
 
-            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+            // vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+            // vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            // vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
         };
 
         vk::cmdEndRendering(command_buffer);
