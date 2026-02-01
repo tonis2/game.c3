@@ -181,9 +181,8 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
         ecs::Node* node = nodes[collider.node_index];
-        Rigidbody*? rigid_body = physics_world.find_body(collider.node_index);
 
-        if (try rigid_body) {
+        if (try rigid_body = physics_world.find_body(collider.node_index)) {
             if (collider.is_player) {
                 foreach (event: MOVE_EVENTS) {
                     if (key_map.is_pressed(event.key)) {
