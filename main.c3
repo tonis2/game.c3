@@ -535,7 +535,7 @@ fn void main()
 		if (node.has_light()) {
 			light = gltf.lights[node.light];
 			light.position = global_position;
-			light.intensity = light.intensity / 300.0;	
+			light.intensity = light.intensity / 200.0;	
 		};
 
         if (node.has_camera()) {
@@ -870,7 +870,7 @@ fn void main()
     });
 
     bool running = true;
-    bool pause = true;
+    bool pause = false;
     Vec2f prev_mouse = {window_size.x / 4, window_size.y / 4};
     
     Clock animation_time = clock::now();
@@ -882,20 +882,14 @@ fn void main()
 
         double frame_time = animation_time.mark().to_sec();
 
-        // Clamp frame_time to prevent spiral of death after long pauses
-        if (frame_time > MAX_PHYSICS_ACCUMULATOR) {
-            frame_time = MAX_PHYSICS_ACCUMULATOR;
-        }
-        physics_accumulator += frame_time;
-
         EventMap event = win.getEvent();
        
-        if (event.is_pressed(LEFT_MOUSE)) {
-            Vec2f mouse_pos = win.getMousePos();
-            camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
-            ecs::@upload(manager, scene, &&camera.data());
-            prev_mouse = mouse_pos;
-        }
+        // if (event.is_pressed(LEFT_MOUSE)) {
+        //     Vec2f mouse_pos = win.getMousePos();
+        //     camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
+        //     ecs::@upload(manager, scene, &&camera.data());
+        //     prev_mouse = mouse_pos;
+        // }
 
         if (event.is_pressed(P)) {
             pause = !pause;
@@ -915,11 +909,19 @@ fn void main()
             running = false;
         }
 
-        // Fixed timestep physics loop
-        while (physics_accumulator >= PHYSICS_TIMESTEP) {
-            physics_system(manager, event, PHYSICS_TIMESTEP);
-            physics_accumulator -= PHYSICS_TIMESTEP;
-        }
+		if (pause == false) {
+			// Clamp frame_time to prevent spiral of death after long pauses
+			if (frame_time > MAX_PHYSICS_ACCUMULATOR) {
+				frame_time = MAX_PHYSICS_ACCUMULATOR;
+			}
+			physics_accumulator += frame_time;
+
+			// Fixed timestep physics loop
+			while (physics_accumulator >= PHYSICS_TIMESTEP) {
+				physics_system(manager, event, PHYSICS_TIMESTEP);
+				physics_accumulator -= PHYSICS_TIMESTEP;
+			}
+		}
 
         uint next_image = context.next_image()!!;
     
