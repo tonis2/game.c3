@@ -526,26 +526,21 @@ fn void main()
     foreach (node : gltf.nodes) {
         Entity node_entity = manager.@create_entity()!!;
 		Matrix4f global = node.global_matrix();
+		Vec3 global_position = { global.m03, global.m13, global.m23 };
 
 		if (node.has_light()) {
 			light = gltf.lights[node.light];
-			
-			// Get position from node's global transform
-	
-			light.position = { global.m03, global.m13, global.m23 };
+			light.position = global_position;
 			light.intensity = light.intensity / 300.0;	
 		};
 
         if (node.has_camera()) {
 			gltf::Camera camera_data = gltf.cameras[node.camera];
-            // Extract global translation from matrix
-            Vec3f global_translation = { global.m03, global.m13, global.m23 };
-
             // Extract global rotation from matrix (assuming no scale)
             Quaternionf global_rotation = helpers::quaternion_from_matrix(global);
 
             camera = {
-                .translation = global_translation,
+                .translation = global_position,
                 .rotation = global_rotation,
                 .aspect_ratio = camera_data.perspective.aspectRatio,
                 .view = global.inverse()!!,
