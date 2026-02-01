@@ -16,6 +16,10 @@ import collision;
 
 const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
+const PHYSICS_FPS = 60;
+const double PHYSICS_TIMESTEP = 1.0 / PHYSICS_FPS;
+const double MAX_PHYSICS_ACCUMULATOR = 0.25;  // Prevent spiral of death
+
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 alias Vec2f @private = float[<2>];
@@ -526,7 +530,7 @@ fn void main()
     foreach (node : gltf.nodes) {
         Entity node_entity = manager.@create_entity()!!;
 		Matrix4f global = node.global_matrix();
-		Vec3 global_position = { global.m03, global.m13, global.m23 };
+		Vec3f global_position = { global.m03, global.m13, global.m23 };
 
 		if (node.has_light()) {
 			light = gltf.lights[node.light];
@@ -871,11 +875,18 @@ fn void main()
     
     Clock animation_time = clock::now();
     Clock render_time = clock::now();
+    double physics_accumulator = 0.0;
 
     while (running) {
         NanoDuration start_time = render_time.mark();
 
         double frame_time = animation_time.mark().to_sec();
+
+        // Clamp frame_time to prevent spiral of death after long pauses
+        if (frame_time > MAX_PHYSICS_ACCUMULATOR) {
+            frame_time = MAX_PHYSICS_ACCUMULATOR;
+        }
+        physics_accumulator += frame_time;
 
         EventMap event = win.getEvent();
        
@@ -904,12 +915,12 @@ fn void main()
             running = false;
         }
 
-        // if (!pause) {
-           
-        // };
+        // Fixed timestep physics loop
+        while (physics_accumulator >= PHYSICS_TIMESTEP) {
+            physics_system(manager, event, PHYSICS_TIMESTEP);
+            physics_accumulator -= PHYSICS_TIMESTEP;
+        }
 
-        physics_system(manager, event, frame_time);
-        
         uint next_image = context.next_image()!!;
     
         ImageMemoryBarrier2 begin_barrier = {
@@ -997,8 +1008,7 @@ fn void main()
                 constant_data.collided = state.collided;
                 state.collided = false;
             }
-
-            //vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+			
             vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
