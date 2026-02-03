@@ -176,7 +176,17 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
-    physics_world.run_step((float)time);
+    if (!physics_world.bodies.is_empty()) physics_world.run_step((float)time);
+
+    // Handle trigger events
+    physics_world.@get_trigger_events(;TriggerEvent event) {
+        switch (event.type) {
+            case ENTER:
+                io::printfn("Trigger %d: body %d entered", event.trigger_id, event.other_id);
+            case EXIT:
+                io::printfn("Trigger %d: body %d exited", event.trigger_id, event.other_id);
+        }
+    };
 
     manager.@query("CollisionData"; Entity entity) {
         CollisionData collider = ecs::@get(manager, entity, CollisionData);
@@ -201,7 +211,7 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
             node.dirty = true;
         }
     };
-    
+
     nodes.recalculate();
 }
 
@@ -518,6 +528,47 @@ fn void main()
         }
     }
 
+	// Load physics triggers
+	CollisionShapes trigger_shapes;
+	defer trigger_shapes.release();
+
+    foreach (usz j, trigger: gltf.triggers) {
+		gltf::Node node = gltf.nodes[trigger.base_node];
+
+        if (trigger.has_shape()) {
+            gltf::Shape shape = gltf.shapes[trigger.shape];
+            switch (shape.type) {
+                case BOX: trigger_shapes.push(@clone(collision::aabb_from_half(shape.size)));
+                case SPHERE: trigger_shapes.push(@clone((Sphere){.radius = shape.radius}));
+                case CYLINDER: trigger_shapes.push(@clone((Cylinder){shape.height, shape.radius_top, shape.radius_bottom}));
+                case CAPSULE: trigger_shapes.push(@clone((Capsule){shape.height, shape.radius_top, shape.radius_bottom}));
+                default: {}
+            }
+        }
+
+        if (trigger.has_mesh()) {
+			gltf::Mesh mesh = gltf.meshes[trigger.mesh];
+
+			List{Vec3f} vertices;
+			List{uint} indices;
+
+			defer {
+				vertices.free();
+				indices.free();
+			}
+
+            gltf.@get_positions(mesh, Vec3f; Vec3f position, usz index) {
+                vertices.push(position);
+				indices.push((ushort)index);
+            }!!;
+
+			// For triggers, always use convex hull for simpler overlap detection
+			collision::Mesh hull = collision::quickhull(vertices.array_view());
+			defer hull.free();
+			trigger_shapes.push(@clone(hull));
+        }
+    }
+
 	gltf::Light light = {
 		.position = {2, 12, 5},
 		.color = {1, 1, 1},
@@ -595,16 +646,14 @@ fn void main()
                 // If node has instance data, build transform matrices for it
                 if (node.attributes.len() > 0) {
                     Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
                     render_data.instanceCount = translation_accessor.count;
                     render_data.firstInstance = 1;
-
+                    
                     for (uint i = 0; i < translation_accessor.count; i++) {
                         Matrix4f instance_matrix = gltf::to_matrix(
                             gltf.@cast_buffer(translation_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(rotation_accessor, i, QuaternionValue)
+                            gltf.@cast_buffer(gltf.accessors[node.attributes["SCALE"]!!], i, Vec3f), 
+                            gltf.@cast_buffer(gltf.accessors[node.attributes["ROTATION"]!!], i, QuaternionValue)
                         );
                         instances.@push(instance_matrix);
                     }
@@ -655,6 +704,23 @@ fn void main()
 
             physics_world.add_body(body: body)!!;
             node_entity.@add(collision_data, &manager)!!;
+        }
+
+        if (node.has_trigger()) {
+            gltf::Trigger trigger = gltf.triggers[node.trigger];
+            CollisionShape shape = trigger_shapes.get(node.trigger);
+
+            Rigidbody trigger_body = {
+                .id = node.index,
+                .collider = {
+                    .shape = shape,
+                    .translation = node.translation,
+                    .scale = node.scale,
+                    .rotation = node.rotation,
+                },
+            };
+
+            physics_world.add_trigger(body: trigger_body)!!;
         }
 
         if (node.has_joint()) {

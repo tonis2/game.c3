@@ -134,9 +134,9 @@ FragmentData vertexMain(VertexInput input)
     row_major float4x4 node_matrix = nodes[draw.node_index].matrix;
     node_matrix = mul(node_matrix, skin_matrix);
 
-    // if (input.instanceID > 0) {
-    //     node_matrix = mul(node_matrix, (instances + draw.instance_offset)[input.instanceID]);
-    // }
+    if (input.instanceID > 0) {
+        node_matrix = mul(node_matrix, instances[draw.instance_offset + input.instanceID]);
+    }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
