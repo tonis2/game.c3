@@ -178,13 +178,23 @@ const MoveEvent[] MOVE_EVENTS = {
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     if (!physics_world.bodies.is_empty()) physics_world.run_step((float)time);
 
-    // Handle trigger events
+    // Handle trigger events (no physics response, just overlap detection)
     physics_world.@get_trigger_events(;TriggerEvent event) {
         switch (event.type) {
             case ENTER:
                 io::printfn("Trigger %d: body %d entered", event.trigger_id, event.other_id);
             case EXIT:
                 io::printfn("Trigger %d: body %d exited", event.trigger_id, event.other_id);
+        }
+    };
+
+    // Handle contact events (physics response + event notification)
+    physics_world.@get_contact_events(;ContactEvent event) {
+        switch (event.type) {
+            case START:
+                // io::printfn("Contact START: body %d hit body %d", event.body_a, event.body_b);
+            case END:
+                // io::printfn("Contact END: body %d separated from body %d", event.body_a, event.body_b);
         }
     };
 
