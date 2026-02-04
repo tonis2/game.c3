@@ -6,7 +6,6 @@
 	"dependency-search-paths": [ "./dependencies"],
 	"dependencies": ["c3w", "vk", "stb", "collision", "gltf"],
 	"features": ["WAYLAND", "ECS_EXTRA"],
-	"linked-libraries": ["vulkan"],
 	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
 	"script-dir": "./",
 	"targets": {
@@ -16,13 +15,16 @@
 				"slangc ./shaders/shader.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o ./shaders/shader.spv"
 			]
 		},
-		"game": {	
+		"game": {
 			"type": "executable",
+			"linked-libraries": ["vulkan"],
 			"sources": ["./main.c3"]
 		},
-		"game-win": {	
+		"game-win": {
 			"target": "windows-x64",
 			"winsdk": "/home/tonis/.xwin/lib",
+			"linker-search-paths": ["./libs/windows"],
+			"linked-libraries": ["vulkan-1"],
 			"type": "executable",
 			"sources": ["./main.c3"]
 		}
