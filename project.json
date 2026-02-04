@@ -20,8 +20,11 @@
 			"type": "executable",
 			"sources": ["./main.c3"]
 		},
-		"ecs": {	
-			"type": "executable"
+		"game-win": {	
+			"target": "windows-x64",
+			"winsdk": "/home/tonis/.xwin/lib",
+			"type": "executable",
+			"sources": ["./main.c3"]
 		}
 	},
 	"output": "./build"

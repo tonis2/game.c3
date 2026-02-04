@@ -197,7 +197,7 @@ fn DeviceContext? createContext(c3w::Window win) {
                 null,
                 0,
                 win.src.instance,
-                win.src.window
+                win.src.hwnd
             };
             vk::createWin32SurfaceKHR(instance, &createInfo, null, &surface)!!;
         }

@@ -191,9 +191,9 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     // Handle contact events (physics response + event notification)
     physics_world.@get_contact_events(;ContactEvent event) {
         switch (event.type) {
-            case START:
+            case START: {}
                 // io::printfn("Contact START: body %d hit body %d", event.body_a, event.body_b);
-            case END:
+            case END: {}
                 // io::printfn("Contact END: body %d separated from body %d", event.body_a, event.body_b);
         }
     };
