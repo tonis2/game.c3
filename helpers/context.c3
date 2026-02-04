@@ -1,15 +1,12 @@
 module helpers;
 
-import vk;
-import stb;
-import c3w;
+import vk, c3w, gltf, image::png;
 
 import std::math;
 import std::io;
 import std::collections::list;
 import std::collections::map;
 import std::encoding::json;
-import gltf;
 
 alias Vec2f = float[<2>];
 alias Vec3f = float[<3>];
@@ -109,7 +106,12 @@ fn DeviceContext? createContext(c3w::Window win) {
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
-    device_extensions.push_all({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
+    device_extensions.push_all({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
+
+    // VK_EXT_extended_dynamic_state3 is not supported by Wine
+    if (env::OS_TYPE != WIN32) {
+        device_extensions.push("VK_EXT_extended_dynamic_state3");
+    }
     extensions.push_all({"VK_KHR_surface"});
 
     Instance instance;
@@ -251,23 +253,29 @@ fn DeviceContext? createContext(c3w::Window win) {
     //     .dynamicRenderingUnusedAttachments = vk::TRUE
     // };
 
-    PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
-        .pNext = null,
-        .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
-    };
-
-    PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-        .pNext = &dynamicProperties,
-        .extendedDynamicState3ColorBlendEnable = vk::TRUE,
-    };
-
-
     PhysicalDeviceVulkan13Features vulkan13Features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = &dynamicState,
+        .pNext = null,
     };
+
+    // VK_EXT_extended_dynamic_state3 is not supported by Wine
+    PhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicProperties;
+    PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState;
+    if (env::OS_TYPE != WIN32) {
+        dynamicProperties = {
+            .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_PROPERTIES_EXT,
+            .pNext = null,
+            .dynamicPrimitiveTopologyUnrestricted = vk::TRUE
+        };
+
+        dynamicState = {
+            .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+            .pNext = &dynamicProperties,
+            .extendedDynamicState3ColorBlendEnable = vk::TRUE,
+        };
+
+        vulkan13Features.pNext = &dynamicState;
+    }
 
     PhysicalDeviceVulkan12Features vulkan12Features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -397,7 +405,7 @@ fn DeviceContext? createContext(c3w::Window win) {
     };
 }
 
-fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceContext* context) {
+fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, DeviceContext* context) {
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
@@ -458,7 +466,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
 	Memory stage_buffer = vk::new_buffer(
 		allocator: allocator,
         usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
         data: image_data.pixels,
         data_size: (usz)image_data.width * image_data.height * 4
     )!!;
@@ -502,7 +510,7 @@ fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
     };
 
     device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        
+
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ transfer_barrier }));
 
@@ -695,7 +703,7 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 
      vk::Allocator* allocator = &context.allocator;
 
-    stb::Image cube_map_image = stb::loadImage(path, stb::Channel.STBI_RGB_ALPHA)!;
+    image::Image cube_map_image = png::load_file(path)!;
     defer cube_map_image.free();
     
     // uint cube_map_height = cube_map_image.height / 6;
@@ -756,7 +764,7 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 	Memory stage_buffer = vk::new_buffer(
 		allocator: allocator,
         usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
         data: cube_map_image.pixels,
         data_size: (usz)cube_map_image.width * cube_map_image.height * 4
     )!!;

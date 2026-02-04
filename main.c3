@@ -6,13 +6,7 @@ import std::thread;
 import std::collections::map;
 import std::os;
 
-import vk;
-import stb;
-import gltf;
-import c3w;
-import helpers;
-import ecs;
-import collision;
+import vk, image::png, gltf, c3w, helpers, ecs, collision;
 
 const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
@@ -146,7 +140,7 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
 	Memory stage_buffer = vk::new_buffer(
 		allocator: &context.allocator,
         usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
         data: data,
         data_size: size
     )!!;
@@ -356,7 +350,7 @@ fn void main()
 	Memory draw_memory = vk::new_buffer(
 		allocator: &context.allocator,
         usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
         data: null,
         data_size: 5_000_000
     )!!;
@@ -364,7 +358,7 @@ fn void main()
 	Memory cpu_and_gpu = vk::new_buffer(
 		allocator: &context.allocator,
         usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
         data: null,
         data_size: 20_000_000
     )!!;
@@ -768,28 +762,27 @@ fn void main()
     }
 
     foreach (image : gltf.images) {
-        stb::Image image_data;
+		image::Image img;
+		defer img.free();
 
         switch (image.type) {
             case ENCODED_BASE64: {
-                image_data = stb::loadFromBuffer(image.data, image.data.len, stb::Channel.STBI_RGB_ALPHA)!!;
+                img = png::load_bytes(image.data)!!;
             };
             case ENCODED_BIN: {
                 gltf::BufferView buffer_view = gltf.bufferViews[image.view];
-                image_data = stb::loadFromBuffer(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..], (uint)buffer_view.byteLength, stb::Channel.STBI_RGB_ALPHA)!!;
+				img = png::load_bytes(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..])!!;
             };
-            case EXTERNAL_BIN: image_data = stb::loadImage(image.uri, stb::Channel.STBI_RGB_ALPHA)!!;
+            case EXTERNAL_BIN: img = png::load_file((String)image.uri)!!;
             default: {}
         }
 
-        io::printfn("image size %s MB", (usz)(image_data.width * image_data.height * 4) / 1_000_000);
+        io::printfn("image size %s MB", (usz)(img.width * img.height * 4) / 1_000_000);
         // Create vulkan texture image
-        if (catch err = descriptor_images.addImageTexture(image_data, &context)) {
+        if (catch err = descriptor_images.addImageTexture(img, &context)) {
             io::printfn("GPU allocator is too small for textures %s", err);
             return;
         };
-
-        image_data.free();
     }
 
     descriptor_images.addDepthTexture(&context.allocator, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
@@ -844,7 +837,6 @@ fn void main()
     )!!;
 
     defer pipeline_layout.free(context.device);
-
 
     ShaderModule shader_module = vk::shaderModuleCreateInfo()
     .setCodeSize(shader.len)
