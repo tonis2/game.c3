@@ -11,6 +11,8 @@ import vk, image::png, gltf, c3w, helpers, ecs, collision;
 const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
 const PHYSICS_FPS = 60;
+
+const SOLVER_ITERATIONS = 4;
 const double PHYSICS_TIMESTEP = 1.0 / PHYSICS_FPS;
 const double MAX_PHYSICS_ACCUMULATOR = 0.25;  // Prevent spiral of death
 
@@ -170,7 +172,9 @@ const MoveEvent[] MOVE_EVENTS = {
 };
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
-    if (!physics_world.bodies.is_empty()) physics_world.run_step((float)time);
+    if (!physics_world.bodies.is_empty()) {
+        physics_world.run_step((float)time, step_count: SOLVER_ITERATIONS);
+    }
 
     // Handle trigger events (no physics response, just overlap detection)
     physics_world.@get_trigger_events(;TriggerEvent event) {
@@ -701,8 +705,8 @@ fn void main()
                     .mass_center = motion.mass_center,
                     .linear_velocity = motion.linear_velocity,
                     .angular_velocity = motion.angular_velocity,
-                    .linear_dampening = 0.95,
-                    .angular_dampening = 0.8
+                    .linear_dampening = motion.linear_dampening,
+                    .angular_dampening = motion.angular_dampening
                 };
             }
 
