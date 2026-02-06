@@ -12,8 +12,8 @@ const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
 const PHYSICS_FPS = 60;
 
-const NUM_SUBSTEPS = 4;
-const ITERS_PER_SUBSTEP = 1;
+const NUM_SUBSTEPS = 4;  // XPBD: more substeps = smaller dt = better stacking stability
+const ITERS_PER_SUBSTEP = 4;   // 4 substeps × 4 iters = 16 total per frame
 const double PHYSICS_TIMESTEP = 1.0 / PHYSICS_FPS;
 const double MAX_PHYSICS_ACCUMULATOR = 0.25;  // Prevent spiral of death
 
@@ -174,7 +174,10 @@ const MoveEvent[] MOVE_EVENTS = {
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     if (!physics_world.bodies.is_empty()) {
-        physics_world.run_step((float)time, step_count: ITERS_PER_SUBSTEP);
+        float sub_dt = (float)time / NUM_SUBSTEPS;
+        for (int i = 0; i < NUM_SUBSTEPS; i++) {
+            physics_world.run_step(sub_dt, step_count: ITERS_PER_SUBSTEP);
+        }
     }
 
     // Handle trigger events (no physics response, just overlap detection)
@@ -982,17 +985,7 @@ fn void main()
         }
 
 		if (pause == false) {
-			// Clamp frame_time to prevent spiral of death after long pauses
-			if (frame_time > MAX_PHYSICS_ACCUMULATOR) {
-				frame_time = MAX_PHYSICS_ACCUMULATOR;
-			}
-			physics_accumulator += frame_time;
-
-			// Fixed timestep physics loop
-			while (physics_accumulator >= PHYSICS_TIMESTEP) {
-				physics_system(manager, event, PHYSICS_TIMESTEP);
-				physics_accumulator -= PHYSICS_TIMESTEP;
-			}
+			physics_system(manager, event, frame_time);
 		}
 
         uint next_image = context.next_image()!!;
