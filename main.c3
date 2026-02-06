@@ -12,7 +12,8 @@ const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
 const PHYSICS_FPS = 60;
 
-const SOLVER_ITERATIONS = 4;
+const NUM_SUBSTEPS = 4;
+const ITERS_PER_SUBSTEP = 1;
 const double PHYSICS_TIMESTEP = 1.0 / PHYSICS_FPS;
 const double MAX_PHYSICS_ACCUMULATOR = 0.25;  // Prevent spiral of death
 
@@ -173,7 +174,7 @@ const MoveEvent[] MOVE_EVENTS = {
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     if (!physics_world.bodies.is_empty()) {
-        physics_world.run_step((float)time, step_count: SOLVER_ITERATIONS);
+        physics_world.run_step((float)time, step_count: ITERS_PER_SUBSTEP, sub_steps: NUM_SUBSTEPS);
     }
 
     // Handle trigger events (no physics response, just overlap detection)
@@ -339,7 +340,7 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
+    gltf = gltf::loadFile("assets/game.gltf")!!;
     defer gltf.free();
 
     defer {
