@@ -174,7 +174,7 @@ const MoveEvent[] MOVE_EVENTS = {
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     if (!physics_world.bodies.is_empty()) {
-        physics_world.run_step((float)time, step_count: ITERS_PER_SUBSTEP, sub_steps: NUM_SUBSTEPS);
+        physics_world.run_step((float)time, step_count: ITERS_PER_SUBSTEP);
     }
 
     // Handle trigger events (no physics response, just overlap detection)
@@ -340,7 +340,7 @@ fn void main()
     context = helpers::createContext(win)!!;
     defer context.free();
 
-    gltf = gltf::loadFile("assets/game.gltf")!!;
+    gltf = gltf::loadFile("assets/game.glb")!!;
     defer gltf.free();
 
     defer {
