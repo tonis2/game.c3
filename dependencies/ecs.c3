@@ -29,9 +29,149 @@ interface Allocator
     fn uint get_type();
     fn void* get_buffer();
     fn void free();
+    fn void mark_deleted();
+    fn bool is_deleted();
 }
 
 faultdef NO_KEY_FOUND, COMPONENT_BUFFER_OVERFLOW;
+
+struct Region {
+    uint size;
+    usz used_size;
+    usz offset;
+    uint buffer;
+    BufferManager* bm;
+}
+
+fn ulong Region.get_address(&self) => self.bm.buffers[self.buffer].get_address() + self.offset;
+fn void* Region.get_ref(&self) => (void*)(self.bm.buffers[self.buffer].data() + self.offset);
+fn char* Region.data(&self) => self.bm.buffers[self.buffer].data() + self.offset;
+fn void Region.reset(&self) => self.used_size = 0;
+
+<*
+ @require self.size > (self.used_size + size) : "Region total size is too small"
+*>
+macro void Region.@push(&self, #data, usz size = 0, usz offset = 0, bool auto_increase = true) {
+    usz data_size = size;
+    Allocator buffer = self.bm.buffers[self.buffer];
+    usz data_offset = self.offset + offset + (self.used_size * (auto_increase ? 1 : 0));
+
+    $if $kindof(#data) == POINTER: {
+        if (size == 0) data_size = $typeof(*#data).sizeof;
+    }
+    $else {
+        if (size == 0) data_size = $typeof(#data).sizeof;
+    }
+    $endif
+
+    $if $kindof(#data) == POINTER: {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            self.bm.uploadFN(buffer, #data, data_size, data_offset);
+        } else  {
+            buffer.upload(#data, data_size, data_offset);
+        }
+    }
+    $else {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            self.bm.uploadFN(buffer, &&#data, data_size, data_offset);
+        } else  {
+            buffer.upload(&&#data, data_size, data_offset);
+        }
+    }
+    $endif
+
+    self.used_size += data_size;
+}
+
+macro void @region_upload(Region region, #data, usz size = 0, usz offset = 0) {
+    usz data_size = size;
+    Allocator buffer = region.bm.buffers[region.buffer];
+    usz data_offset = region.offset + offset;
+
+    $if $kindof(#data) == POINTER: {
+        if (size == 0) data_size = $typeof(*#data).sizeof;
+    }
+    $else {
+        if (size == 0) data_size = $typeof(#data).sizeof;
+    }
+    $endif
+
+    $if $kindof(#data) == POINTER: {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            region.bm.uploadFN(buffer, #data, data_size, data_offset);
+        } else  {
+            buffer.upload(#data, data_size, data_offset);
+        }
+    }
+    $else {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
+            region.bm.uploadFN(buffer, &&#data, data_size, data_offset);
+        } else  {
+            buffer.upload(&&#data, data_size, data_offset);
+        }
+    }
+    $endif
+}
+
+struct BufferManager {
+    List{Allocator} buffers;
+    List{Allocator} pending_deletes;
+    UploadFN uploadFN;
+}
+
+fn BufferManager create_buffer_manager(Allocator[] buffers, UploadFN uploadFN = null) {
+    BufferManager bm = {
+        .uploadFN = uploadFN,
+    };
+    foreach (buffer: buffers) bm.buffers.push(buffer);
+    return bm;
+}
+
+fn Region? BufferManager.alloc(&self, uint buffer_index, uint size, void* data = null) {
+    Allocator buffer = self.buffers[buffer_index];
+
+    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW~;
+
+    Region region = {
+        .size = size,
+        .buffer = buffer_index,
+        .offset = buffer.get_used_size(),
+        .bm = self,
+    };
+
+    if (data != null) {
+        if (buffer.get_type() == GpuType.DEVICE_ONLY) {
+            self.uploadFN(buffer, data, size, region.offset);
+        } else {
+            buffer.upload(data, size, region.offset);
+        }
+    }
+
+    buffer.set_used_size(buffer.get_used_size() + size);
+    return region;
+}
+
+fn void BufferManager.free(&self) {
+    self.sync();
+    foreach (buffer: self.buffers) {
+        buffer.free();
+    };
+    self.buffers.free();
+    self.pending_deletes.free();
+}
+
+fn void BufferManager.sync(&self) {
+    foreach (buffer: self.pending_deletes) {
+        buffer.free();
+    }
+    self.pending_deletes.clear();
+}
+
+fn void BufferManager.mark_deleted(&self, Allocator buffer) {
+    if (buffer.is_deleted()) return;
+    buffer.mark_deleted();
+    self.pending_deletes.push(buffer);
+}
 
 struct Component {
     uint id;
@@ -66,16 +206,14 @@ struct EntityManager {
     ComponentMap keys;
     ViewMap views;
     List{Component} components;
-    List{Allocator} buffers;
     List{Entity} entities;
-    UploadFN uploadFN;
+    BufferManager* bm;
 }
 
-fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
+fn EntityManager create_manager(BufferManager* bm) {
     EntityManager manager = {
-        .uploadFN = uploadFN,
+        .bm = bm,
     };
-    foreach (buffer: buffers) manager.buffers.push(buffer);
     return manager;
 }
 
@@ -84,10 +222,6 @@ macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
 fn void Component.reset(&self) => self.used_size = 0;
 
 fn void EntityManager.free(&self) {
-    foreach (buffer: self.buffers) {
-        buffer.free();
-    };
-    self.buffers.free();
     self.keys.free();
     self.views.free();
     self.entities.free();
@@ -120,7 +254,7 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
 }  
 
 fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
-    Allocator buffer = self.buffers[buffer_index];
+    Allocator buffer = self.bm.buffers[buffer_index];
 
     if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW~;
 
@@ -133,10 +267,10 @@ fn Component? EntityManager.new_component(&self, void* data = null, uint size = 
     };
 
     self.components.push(component);
- 
+
     if (data != null) {
         if (buffer.get_type() == GpuType.DEVICE_ONLY) {
-            self.uploadFN(buffer, data, size, component.offset);
+            self.bm.uploadFN(buffer, data, size, component.offset);
         } else {
             buffer.upload(data, size, component.offset);
         }
@@ -287,7 +421,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
 *>
 macro void Component.@push(&self, #data, usz size = 0, usz offset = 0, bool auto_increase = true) {
     usz data_size = size;
-    Allocator buffer = self.manager.buffers[self.buffer];
+    Allocator buffer = self.manager.bm.buffers[self.buffer];
     usz data_offset = self.offset + offset + (self.used_size * (auto_increase ? 1 : 0));
 
     $if $kindof(#data) == POINTER: {
@@ -295,19 +429,19 @@ macro void Component.@push(&self, #data, usz size = 0, usz offset = 0, bool auto
     }
     $else {
         if (size == 0) data_size = $typeof(#data).sizeof;
-    }   
+    }
     $endif
 
     $if $kindof(#data) == POINTER: {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            self.manager.uploadFN(buffer, #data, data_size, data_offset);
+            self.manager.bm.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
             buffer.upload(#data, data_size, data_offset);
         }
     }
     $else {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            self.manager.uploadFN(buffer, &&#data, data_size, data_offset);
+            self.manager.bm.uploadFN(buffer, &&#data, data_size, data_offset);
         } else  {
             buffer.upload(&&#data, data_size, data_offset);
         }
@@ -338,13 +472,8 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif
 
     $if $typeof(#target).nameof == "Component":
-        buffer = manager.buffers[#target.buffer];
+        buffer = manager.bm.buffers[#target.buffer];
         data_offset = #target.offset + offset;
-        
-        // if (update_size) {
-        //     Component* component = manager.components.get_ref(#target.id);
-        //     component.used_size += size;
-        // };
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -355,24 +484,19 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         };
 
         data_offset = (uint)manager.components[manager.views[index]!!.component].offset + offset;
-        buffer = manager.buffers[component_info.buffer];
-
-        // if (update_size) {
-        //     Component* component = manager.components.get_ref(component_info.id);
-        //     component.used_size += size;
-        // };
+        buffer = manager.bm.buffers[component_info.buffer];
     $endif;
 
     $if $kindof(#data) == POINTER: {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, #data, data_size, data_offset);
+            manager.bm.uploadFN(buffer, #data, data_size, data_offset);
         } else  {
             buffer.upload(#data, data_size, data_offset);
         }
     }
     $else {
         if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, &&#data, data_size, data_offset);
+            manager.bm.uploadFN(buffer, &&#data, data_size, data_offset);
         } else  {
             buffer.upload(&&#data, data_size, data_offset);
         }
@@ -387,11 +511,11 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     usz $type_size = #type.sizeof;
     $if $typeof(#target).nameof == "Component":
-        Allocator buffer = manager.buffers[#target.buffer];
+        Allocator buffer = manager.bm.buffers[#target.buffer];
         usz type_offset = #target.offset;
         return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
     $endif;
-   
+
     $if $typeof(#target).nameof == "Entity":
         Component component = manager.keys[#type.nameof]!!;
         BufferID index = {
@@ -399,7 +523,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
             .entity = #target.id,
         };
 
-        Allocator buffer = manager.buffers[component.buffer];
+        Allocator buffer = manager.bm.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
         return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
     $endif;
@@ -412,7 +536,7 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
         usz type_offset = #target.offset;
-        Allocator buffer = manager.buffers[#target.buffer];
+        Allocator buffer = manager.bm.buffers[#target.buffer];
         return (void*)buffer.data() + type_offset;
     $endif;
 
@@ -424,11 +548,13 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
         };
 
         uint type_offset = (uint)manager.components[manager.views[index]!.component].offset;
-        return (void*)manager.buffers[component.buffer].data() + type_offset;
+        return (void*)manager.bm.buffers[component.buffer].data() + type_offset;
     $endif;
 }
 
-fn void* Component.get_ref(&self) => (void*)(self.manager.buffers[self.buffer].data() + self.offset);
+fn void* Component.get_ref(&self) => (void*)(self.manager.bm.buffers[self.buffer].data() + self.offset);
+fn ulong Component.get_address(&self) => self.manager.bm.buffers[self.buffer].get_address() + self.offset;
+fn char* Component.data(&self) => self.manager.bm.buffers[self.buffer].data() + self.offset;
 
 // <*
 //  @require self.size != 0 && self.used_size != 0 : `Component is empty`
@@ -440,7 +566,7 @@ fn void* Component.get_ref(&self) => (void*)(self.manager.buffers[self.buffer].d
 
 macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
-        return manager.buffers[#target.buffer].get_address() + #target.offset + offset;
+        return manager.bm.buffers[#target.buffer].get_address() + #target.offset + offset;
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -450,9 +576,9 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
             .entity = #target.id,
         };
 
-        Allocator buffer = manager.buffers[component.buffer];
+        Allocator buffer = manager.bm.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
-        return manager.buffers[component.buffer].get_address() + type_offset + offset;
+        return manager.bm.buffers[component.buffer].get_address() + type_offset + offset;
     $endif;
 }
 
@@ -488,6 +614,7 @@ struct Buffer (Allocator) {
     usz size;
     usz used_size;
     char* mapped;
+    bool deleted;
 }
 
 fn void Buffer.push(&self, void* data, usz size) @dynamic {
@@ -516,7 +643,14 @@ fn void Buffer.free(&self) @dynamic {
     }
     self.size = 0;
     self.used_size = 0;
+    self.deleted = true;
 }
+
+fn void Buffer.mark_deleted(&self) @dynamic {
+    self.deleted = true;
+}
+
+fn bool Buffer.is_deleted(&self) @dynamic => self.deleted;
 
 fn char* Buffer.data(&self) @dynamic => self.mapped;
 fn usz Buffer.total_size(&self) @dynamic => uint.max;
@@ -555,7 +689,7 @@ alias NodeComponent = Component;
 *>
 fn Node* NodeComponent.get(&self, usz index) @operator([]) @inline
 {
-	return (void*)self.manager.buffers[self.buffer].data() + self.offset + (index * Node.sizeof);
+	return (void*)self.manager.bm.buffers[self.buffer].data() + self.offset + (index * Node.sizeof);
 }
 
 <*
@@ -621,9 +755,11 @@ fn void test_ecs() @test {
     Buffer buffer;
     defer buffer.free();
 
-    EntityManager manager = create_manager({
+    BufferManager bm = create_buffer_manager({
         &buffer,
     });
+
+    EntityManager manager = create_manager(&bm);
 
     defer manager.free();
 

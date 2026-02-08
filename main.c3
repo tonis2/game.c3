@@ -382,7 +382,7 @@ fn void main()
     ecs::Buffer cpu_only;
     defer cpu_only.free();
 
-    EntityManager manager = ecs::create_manager(
+    ecs::BufferManager buffer_manager = ecs::create_buffer_manager(
         buffers: {
             (ecs::Allocator)&cpu_only,
             (ecs::Allocator)&draw_memory,
@@ -392,14 +392,18 @@ fn void main()
         uploadFN: &stageToGPU,
     );
 
+    defer buffer_manager.free();
+
+    ecs::Region skin_animations = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+    ecs::Region draw_buffer = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+    ecs::Region instances = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+    ecs::Region materials = buffer_manager.alloc(Buffers.GPU, 1_000_000)!!;
+
+    EntityManager manager = ecs::create_manager(&buffer_manager);
+
     defer manager.free();
 
     nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * ecs::Node.sizeof), buffer_index: Buffers.CPU_GPU)!!;
-
-    Component skin_animations = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
-    Component draw_buffer = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
-    Component instances = manager.@create_component(size: 5_000_000, buffer_index: Buffers.GPU)!!;
-    Component materials = manager.@create_component(size: 1_000_000, buffer_index: Buffers.GPU)!!;
 
     // Load meshes from gltf
     foreach (mesh: gltf.meshes) {
@@ -805,11 +809,11 @@ fn void main()
 		(SceneLight)light,
         (SceneData) {
             .draw_cmds = draw_memory.address,
-            .vertices = ecs::@get_address(manager, draw_buffer),
-            .materials = ecs::@get_address(manager, materials),
-            .nodes = ecs::@get_address(manager, nodes),
-            .animations = ecs::@get_address(manager, skin_animations),
-            .instances = ecs::@get_address(manager, instances),
+            .vertices = draw_buffer.get_address(),
+            .materials = materials.get_address(),
+            .nodes = nodes.get_address(),
+            .animations = skin_animations.get_address(),
+            .instances = instances.get_address(),
         },
     )!!;
 
@@ -1056,7 +1060,7 @@ fn void main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, ecs::@get_offset(manager, draw_buffer), vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, draw_buffer.offset, vk::INDEX_TYPE_UINT16);
  
         rendering_info.setColorAttachments({ main_render_target });
         rendering_info.setDepthAttachment(&main_depth_target);
