@@ -6,172 +6,11 @@ import std::collections::list;
 import std::collections::map;
 import std::encoding::json;
 import std::core::builtin;
+import vk;
 
 alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
-
-enum GpuType : inline uint
-{
-    HOST_VISIBLE,
-    DEVICE_ONLY,
-    CPU_ONLY
-}
-
-interface Allocator
-{
-    fn usz total_size();
-    fn void set_used_size(usz size);
-    fn char* data();
-    fn void upload(void* data, usz size, usz offset);
-    fn ulong get_address();
-    fn usz get_used_size();
-    fn uint get_type();
-    fn void* get_buffer();
-    fn void free();
-    fn void mark_deleted();
-    fn bool is_deleted();
-}
-
-faultdef NO_KEY_FOUND, COMPONENT_BUFFER_OVERFLOW;
-
-struct Region {
-    uint size;
-    usz used_size;
-    usz offset;
-    uint buffer;
-    BufferManager* bm;
-}
-
-fn ulong Region.get_address(&self) => self.bm.buffers[self.buffer].get_address() + self.offset;
-fn void* Region.get_ref(&self) => (void*)(self.bm.buffers[self.buffer].data() + self.offset);
-fn char* Region.data(&self) => self.bm.buffers[self.buffer].data() + self.offset;
-fn void Region.reset(&self) => self.used_size = 0;
-
-<*
- @require self.size > (self.used_size + size) : "Region total size is too small"
-*>
-macro void Region.@push(&self, #data, usz size = 0, usz offset = 0, bool auto_increase = true) {
-    usz data_size = size;
-    Allocator buffer = self.bm.buffers[self.buffer];
-    usz data_offset = self.offset + offset + (self.used_size * (auto_increase ? 1 : 0));
-
-    $if $kindof(#data) == POINTER: {
-        if (size == 0) data_size = $typeof(*#data).sizeof;
-    }
-    $else {
-        if (size == 0) data_size = $typeof(#data).sizeof;
-    }
-    $endif
-
-    $if $kindof(#data) == POINTER: {
-        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            self.bm.uploadFN(buffer, #data, data_size, data_offset);
-        } else  {
-            buffer.upload(#data, data_size, data_offset);
-        }
-    }
-    $else {
-        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            self.bm.uploadFN(buffer, &&#data, data_size, data_offset);
-        } else  {
-            buffer.upload(&&#data, data_size, data_offset);
-        }
-    }
-    $endif
-
-    self.used_size += data_size;
-}
-
-macro void @region_upload(Region region, #data, usz size = 0, usz offset = 0) {
-    usz data_size = size;
-    Allocator buffer = region.bm.buffers[region.buffer];
-    usz data_offset = region.offset + offset;
-
-    $if $kindof(#data) == POINTER: {
-        if (size == 0) data_size = $typeof(*#data).sizeof;
-    }
-    $else {
-        if (size == 0) data_size = $typeof(#data).sizeof;
-    }
-    $endif
-
-    $if $kindof(#data) == POINTER: {
-        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            region.bm.uploadFN(buffer, #data, data_size, data_offset);
-        } else  {
-            buffer.upload(#data, data_size, data_offset);
-        }
-    }
-    $else {
-        if (buffer.get_type() == GpuType.DEVICE_ONLY.ordinal) {
-            region.bm.uploadFN(buffer, &&#data, data_size, data_offset);
-        } else  {
-            buffer.upload(&&#data, data_size, data_offset);
-        }
-    }
-    $endif
-}
-
-struct BufferManager {
-    List{Allocator} buffers;
-    List{Allocator} pending_deletes;
-    UploadFN uploadFN;
-}
-
-fn BufferManager create_buffer_manager(Allocator[] buffers, UploadFN uploadFN = null) {
-    BufferManager bm = {
-        .uploadFN = uploadFN,
-    };
-    foreach (buffer: buffers) bm.buffers.push(buffer);
-    return bm;
-}
-
-fn Region? BufferManager.alloc(&self, uint buffer_index, uint size, void* data = null) {
-    Allocator buffer = self.buffers[buffer_index];
-
-    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW~;
-
-    Region region = {
-        .size = size,
-        .buffer = buffer_index,
-        .offset = buffer.get_used_size(),
-        .bm = self,
-    };
-
-    if (data != null) {
-        if (buffer.get_type() == GpuType.DEVICE_ONLY) {
-            self.uploadFN(buffer, data, size, region.offset);
-        } else {
-            buffer.upload(data, size, region.offset);
-        }
-    }
-
-    buffer.set_used_size(buffer.get_used_size() + size);
-    return region;
-}
-
-fn void BufferManager.free(&self) {
-    self.sync();
-    foreach (buffer: self.buffers) {
-        buffer.free();
-    };
-    self.buffers.free();
-    self.pending_deletes.free();
-}
-
-fn void BufferManager.sync(&self) {
-    foreach (buffer: self.pending_deletes) {
-        buffer.free();
-    }
-    self.pending_deletes.clear();
-}
-
-fn void BufferManager.mark_deleted(&self, Allocator buffer) {
-    if (buffer.is_deleted()) return;
-    buffer.mark_deleted();
-    self.pending_deletes.push(buffer);
-}
 
 struct Component {
     uint id;
@@ -198,7 +37,6 @@ bitstruct BufferID : ulong {
 
 alias ComponentMap = HashMap{String, Component};
 alias ViewMap = HashMap{BufferID, BufferView};
-alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
 fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 
@@ -207,10 +45,10 @@ struct EntityManager {
     ViewMap views;
     List{Component} components;
     List{Entity} entities;
-    BufferManager* bm;
+    vk::BufferManager* bm;
 }
 
-fn EntityManager create_manager(BufferManager* bm) {
+fn EntityManager create_manager(vk::BufferManager* bm) {
     EntityManager manager = {
         .bm = bm,
     };
@@ -254,9 +92,9 @@ fn void EntityManager.create_view(&self, BufferID buffer, Component component) {
 }  
 
 fn Component? EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
-    Allocator buffer = self.bm.buffers[buffer_index];
+    vk::Allocator buffer = self.bm.buffers[buffer_index];
 
-    if (!(buffer.total_size() > buffer.get_used_size() + size)) return COMPONENT_BUFFER_OVERFLOW~;
+    if (!(buffer.total_size() > buffer.get_used_size() + size)) return vk::COMPONENT_BUFFER_OVERFLOW~;
 
     Component component = {
         .id = (uint)self.components.len(),
@@ -421,7 +259,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
 *>
 macro void Component.@push(&self, #data, usz size = 0, usz offset = 0, bool auto_increase = true) {
     usz data_size = size;
-    Allocator buffer = self.manager.bm.buffers[self.buffer];
+    vk::Allocator buffer = self.manager.bm.buffers[self.buffer];
     usz data_offset = self.offset + offset + (self.used_size * (auto_increase ? 1 : 0));
 
     $if $kindof(#data) == POINTER: {
@@ -457,7 +295,7 @@ macro void Component.@push(&self, #data, usz size = 0, usz offset = 0, bool auto
 *>
 macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0, bool update_size = false) {
     usz data_size = size;
-    Allocator buffer;
+    vk::Allocator buffer;
     usz data_offset = 0;
     String type_name;
 
@@ -511,7 +349,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     usz $type_size = #type.sizeof;
     $if $typeof(#target).nameof == "Component":
-        Allocator buffer = manager.bm.buffers[#target.buffer];
+        vk::Allocator buffer = manager.bm.buffers[#target.buffer];
         usz type_offset = #target.offset;
         return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
     $endif;
@@ -523,7 +361,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
             .entity = #target.id,
         };
 
-        Allocator buffer = manager.bm.buffers[component.buffer];
+        vk::Allocator buffer = manager.bm.buffers[component.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!.component].offset;
         return bitcast(*(char[$type_size]*)buffer.data()[type_offset..(type_offset + $type_size)], #type);
     $endif;
@@ -536,7 +374,7 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
         usz type_offset = #target.offset;
-        Allocator buffer = manager.bm.buffers[#target.buffer];
+        vk::Allocator buffer = manager.bm.buffers[#target.buffer];
         return (void*)buffer.data() + type_offset;
     $endif;
 
@@ -606,72 +444,18 @@ macro @get_offset(EntityManager manager, #target, String type = "") {
         };
     $endif;
 
-    return NO_KEY_FOUND~;
+    return vk::NO_KEY_FOUND~;
 }
 
-
-struct Buffer (Allocator) {
-    usz size;
-    usz used_size;
-    char* mapped;
-    bool deleted;
-}
-
-fn void Buffer.push(&self, void* data, usz size) @dynamic {
-    self.ensure_size(self.used_size + size);
-    mem::copy(self.mapped + self.used_size, data, size);
-    self.used_size += size;
-}
-
-fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
-    if (new_size > self.size) {
-        usz grow_size = new_size > self.size * 2 ? new_size : self.size * 2;
-        self.mapped = mem::realloc(self.mapped, grow_size);
-        self.size = grow_size;
-    }
-}
-
-fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
-    self.ensure_size(offset + size);
-    mem::copy(self.mapped + offset, data, size);
-}
-
-fn void Buffer.free(&self) @dynamic {
-    if (self.mapped != null) {
-        mem::free(self.mapped);
-        self.mapped = null;
-    }
-    self.size = 0;
-    self.used_size = 0;
-    self.deleted = true;
-}
-
-fn void Buffer.mark_deleted(&self) @dynamic {
-    self.deleted = true;
-}
-
-fn bool Buffer.is_deleted(&self) @dynamic => self.deleted;
-
-fn char* Buffer.data(&self) @dynamic => self.mapped;
-fn usz Buffer.total_size(&self) @dynamic => uint.max;
-fn usz Buffer.get_used_size(&self) @dynamic => self.used_size;
-fn ulong Buffer.get_address(&self) @dynamic => 0;
-fn uint Buffer.get_type(&self) @dynamic => 2;
-fn void* Buffer.get_buffer(&self) @dynamic => null;
-fn void Buffer.set_used_size(&self, usz size) @dynamic {
-    if (size > self.size) self.ensure_size(size);
-    self.used_size = size;
-}
 
 module ecs @if($feature(ECS_EXTRA));
-import gltf;
 import std::math;
 import std::io;
 import std::collections::list;
 import std::collections::map;
 import std::time;
 import collision;
-import c3w;
+import gltf;
 
 struct Node {
     bool dirty;

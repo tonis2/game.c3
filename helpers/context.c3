@@ -35,7 +35,7 @@ struct DeviceContext {
     Extent2D extent;
     SurfaceKHR surface;
 
-    vk::Allocator allocator;
+    vk::MemoryAllocator allocator;
     SemaphoreList wait_semaphores;
     SemaphoreList signal_semaphores;
     FenceList frame_fences;
@@ -377,7 +377,7 @@ fn DeviceContext? createContext(c3w::Window win) {
     }
 
 	// Single allocator manages everything
-    vk::Allocator allocator = (vk::Allocator){
+    vk::MemoryAllocator allocator = (vk::MemoryAllocator){
         .device = device,
         .pdevice = physical_device,
         .queue = &graphics_queue,
@@ -411,7 +411,7 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 
     DeviceQueue graphics_queue = context.graphics_queue;
 
-     vk::Allocator* allocator = &context.allocator;
+    vk::MemoryAllocator* allocator = &context.allocator;
 
     Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
     DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
@@ -544,7 +544,7 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
     self.push(texture);
 }
 
-fn vk::Image? DescriptorImages.addDepthTexture(&self, vk::Allocator* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
+fn vk::Image? DescriptorImages.addDepthTexture(&self, vk::MemoryAllocator* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
     DescriptorImageInfo texture;
 
     vk::Device device = allocator.device;
@@ -701,7 +701,7 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
-     vk::Allocator* allocator = &context.allocator;
+    vk::MemoryAllocator* allocator = &context.allocator;
 
     image::Image cube_map_image = png::load_file(path)!;
     defer cube_map_image.free();

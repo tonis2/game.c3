@@ -137,7 +137,7 @@ NodeComponent nodes;
 
 PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
 
-fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
+fn void stageToGPU(vk::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
 
 	Memory stage_buffer = vk::new_buffer(
@@ -379,25 +379,25 @@ fn void main()
         data_size: 30_000_000
     )!!;
 
-    ecs::Buffer cpu_only;
+    vk::LocalBuffer cpu_only;
     defer cpu_only.free();
 
-    ecs::BufferManager buffer_manager = ecs::create_buffer_manager(
+    vk::BufferManager buffer_manager = vk::create_buffer_manager(
         buffers: {
-            (ecs::Allocator)&cpu_only,
-            (ecs::Allocator)&draw_memory,
-            (ecs::Allocator)&cpu_and_gpu,
-            (ecs::Allocator)&gpu_only_memory,
+            (vk::Allocator)&cpu_only,
+            (vk::Allocator)&draw_memory,
+            (vk::Allocator)&cpu_and_gpu,
+            (vk::Allocator)&gpu_only_memory,
         },
         uploadFN: &stageToGPU,
     );
 
     defer buffer_manager.free();
 
-    ecs::Region skin_animations = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
-    ecs::Region draw_buffer = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
-    ecs::Region instances = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
-    ecs::Region materials = buffer_manager.alloc(Buffers.GPU, 1_000_000)!!;
+    vk::Region skin_animations = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+    vk::Region draw_buffer = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+    vk::Region instances = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+    vk::Region materials = buffer_manager.alloc(Buffers.GPU, 1_000_000)!!;
 
     EntityManager manager = ecs::create_manager(&buffer_manager);
 
