@@ -84,9 +84,9 @@ macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
 fn void Component.reset(&self) => self.used_size = 0;
 
 fn void EntityManager.free(&self) {
-    // foreach (buffer: self.buffers) {
-    //     buffer.free();
-    // };
+    foreach (buffer: self.buffers) {
+        buffer.free();
+    };
     self.buffers.free();
     self.keys.free();
     self.views.free();
@@ -241,7 +241,7 @@ macro void? Entity.@add(&self, #type, EntityManager* manager, int buffer_index =
     );
 }
 
-fn void Entity.add_component(&self, String type_name, Component component, EntityManager manager) {
+fn void Entity.add_component(&self, String type_name, Component component, EntityManager* manager) {
     if (!manager.keys.has_key(type_name)) {
         manager.keys[type_name] = {
             .id = (uint)manager.keys.len(),
@@ -249,11 +249,12 @@ fn void Entity.add_component(&self, String type_name, Component component, Entit
         };
     }
 
-    self.bitmask |= 1 << manager.keys[type_name]!!.id;
-    manager.entities[self.id].bitmask = self.bitmask;
+    uint type_id = manager.keys[type_name]!!.id;
+    Entity* target = manager.entities.get_ref(self.id);
+    target.bitmask |= 1 << type_id;
 
     manager.create_view(
-        (BufferID) { .component = manager.keys[type_name]!!.id, .entity = self.id },
+        (BufferID) { .component = type_id, .entity = self.id },
         component
     );
 }
@@ -411,9 +412,10 @@ macro @get_ref(EntityManager manager, #target, #type = null, usz offset = 0) {
 
     $if $typeof(#target).nameof == "Component":
         usz type_offset = #target.offset;
+        Allocator buffer = manager.buffers[#target.buffer];
         return (void*)buffer.data() + type_offset;
     $endif;
-   
+
     $if $typeof(#target).nameof == "Entity":
         Component component = manager.keys[#type.nameof]!;
         BufferID index = {
@@ -489,32 +491,29 @@ struct Buffer (Allocator) {
 }
 
 fn void Buffer.push(&self, void* data, usz size) @dynamic {
-    if (self.used_size + size > self.size) {
-        self.ensure_size(self.used_size + size);
-        mem::copy(self.mapped + self.used_size, data, size);
-        self.used_size += size;
-    } else {
-        mem::copy(self.mapped + self.used_size, data, size);
-        self.used_size += size;
-    }
+    self.ensure_size(self.used_size + size);
+    mem::copy(self.mapped + self.used_size, data, size);
+    self.used_size += size;
 }
 
-// usz size = alignUp(new_size, 256);
 fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
-    // new_size = alignUp(new_size, 16);
-    if (self.used_size + new_size > self.size) {
-        self.mapped = mem::realloc(self.mapped, new_size);
-        self.size = new_size;
+    if (new_size > self.size) {
+        usz grow_size = new_size > self.size * 2 ? new_size : self.size * 2;
+        self.mapped = mem::realloc(self.mapped, grow_size);
+        self.size = grow_size;
     }
 }
 
 fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
-    if (self.used_size + size > self.size) self.ensure_size(self.used_size + size);
+    self.ensure_size(offset + size);
     mem::copy(self.mapped + offset, data, size);
 }
 
 fn void Buffer.free(&self) @dynamic {
-    // mem::free(self.mapped);
+    if (self.mapped != null) {
+        mem::free(self.mapped);
+        self.mapped = null;
+    }
     self.size = 0;
     self.used_size = 0;
 }
@@ -526,7 +525,7 @@ fn ulong Buffer.get_address(&self) @dynamic => 0;
 fn uint Buffer.get_type(&self) @dynamic => 2;
 fn void* Buffer.get_buffer(&self) @dynamic => null;
 fn void Buffer.set_used_size(&self, usz size) @dynamic {
-    self.ensure_size(size);
+    if (size > self.size) self.ensure_size(size);
     self.used_size = size;
 }
 
@@ -645,7 +644,7 @@ fn void test_ecs() @test {
         velocity_comp,
     )!!;
 
-    player.add_component("Velocity", velocity_comp, manager);
+    player.add_component("Velocity", velocity_comp, &manager);
     // player2.add("Animation", animation_comp, manager);
 
     @upload(manager, animation_comp, &&(Position) {
