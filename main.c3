@@ -486,7 +486,7 @@ fn void main()
 
     defer animation_list.free();
 
-	// load physics colliders
+	// load physics colliders and triggers
     foreach (usz j, collider: gltf.colliders) {
 		gltf::Node node = gltf.nodes[collider.base_node];
 
@@ -518,14 +518,15 @@ fn void main()
 				indices.push((ushort)index);
             }!!;
 
-			collision::Mesh collision_mesh = collision::create_mesh(vertices.array_view(), indices.array_view());
-			defer collision_mesh.free();
-			
-			if (collider.convex_hull) {
+			// For triggers, always use convex hull for simpler overlap detection
+			if (collider.is_trigger || collider.convex_hull) {
 				collision::Mesh hull = collision::quickhull(vertices.array_view());
 				defer hull.free();
 				collision_shapes.push(@clone(hull));
 			} else {
+				collision::Mesh collision_mesh = collision::create_mesh(vertices.array_view(), indices.array_view());
+				defer collision_mesh.free();
+
 				if (node.extras.has_key("physics") && node.extras["physics"]!! == "bvh") {
 					// Build BVH tree, more precision but slower
 					collision::Mesh* clone_mesh = @clone(collision_mesh);
@@ -541,47 +542,6 @@ fn void main()
 					collision_shapes.push(@clone(compound));
 				}
 			}
-        }
-    }
-
-	// Load physics triggers
-	CollisionShapes trigger_shapes;
-	defer trigger_shapes.release();
-
-    foreach (usz j, trigger: gltf.triggers) {
-		gltf::Node node = gltf.nodes[trigger.base_node];
-
-        if (trigger.has_shape()) {
-            gltf::Shape shape = gltf.shapes[trigger.shape];
-            switch (shape.type) {
-                case BOX: trigger_shapes.push(@clone(collision::aabb_from_half(shape.size)));
-                case SPHERE: trigger_shapes.push(@clone((Sphere){.radius = shape.radius}));
-                case CYLINDER: trigger_shapes.push(@clone((Cylinder){shape.height, shape.radius_top, shape.radius_bottom}));
-                case CAPSULE: trigger_shapes.push(@clone((Capsule){shape.height, shape.radius_top, shape.radius_bottom}));
-                default: {}
-            }
-        }
-
-        if (trigger.has_mesh()) {
-			gltf::Mesh mesh = gltf.meshes[trigger.mesh];
-
-			List{Vec3f} vertices;
-			List{uint} indices;
-
-			defer {
-				vertices.free();
-				indices.free();
-			}
-
-            gltf.@get_positions(mesh, Vec3f; Vec3f position, usz index) {
-                vertices.push(position);
-				indices.push((ushort)index);
-            }!!;
-
-			// For triggers, always use convex hull for simpler overlap detection
-			collision::Mesh hull = collision::quickhull(vertices.array_view());
-			defer hull.free();
-			trigger_shapes.push(@clone(hull));
         }
     }
 
@@ -681,62 +641,59 @@ fn void main()
 
         if (node.has_collider()) {
             gltf::Collider collider = gltf.colliders[node.collider];
-            PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
-          
-            CollisionData collision_data = {
-                .collided = false,
-                .node_index = node.index,
-                .is_player = node.name == "player"
-            };
-
 			CollisionShape shape = collision_shapes.get(node.collider);
 
-            Rigidbody body = {
-                .id = node.index,
-                .material = {...physics_material},
-                .can_sleep = true,
-                .collider = {
-                    .shape = shape,
-                    .translation = node.translation,
-                    .scale = node.scale,
-                    .rotation = node.rotation,
-                },
-                .gravity_factor = 1
-            };
-
-            if (node.has_motion()) {
-                gltf::Motion motion = gltf.motions[node.motion];
-                body = {
-                    ...body,
-                    .mass = motion.mass,
-                    .gravity_factor = motion.gravity_factor,
-                    .mass_center = motion.mass_center,
-                    .linear_velocity = motion.linear_velocity,
-                    .angular_velocity = motion.angular_velocity,
-                    .linear_dampening = motion.linear_dampening,
-                    .angular_dampening = motion.angular_dampening
+            if (collider.is_trigger) {
+                Rigidbody trigger_body = {
+                    .id = node.index,
+                    .collider = {
+                        .shape = shape,
+                        .translation = node.translation,
+                        .scale = node.scale,
+                        .rotation = node.rotation,
+                    },
                 };
+
+                physics_world.add_trigger(body: trigger_body)!!;
+            } else {
+                PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
+
+                CollisionData collision_data = {
+                    .collided = false,
+                    .node_index = node.index,
+                    .is_player = node.name == "player"
+                };
+
+                Rigidbody body = {
+                    .id = node.index,
+                    .material = {...physics_material},
+                    .can_sleep = true,
+                    .collider = {
+                        .shape = shape,
+                        .translation = node.translation,
+                        .scale = node.scale,
+                        .rotation = node.rotation,
+                    },
+                    .gravity_factor = 1
+                };
+
+                if (node.has_motion()) {
+                    gltf::Motion motion = gltf.motions[node.motion];
+                    body = {
+                        ...body,
+                        .mass = motion.mass,
+                        .gravity_factor = motion.gravity_factor,
+                        .mass_center = motion.mass_center,
+                        .linear_velocity = motion.linear_velocity,
+                        .angular_velocity = motion.angular_velocity,
+                        .linear_dampening = motion.linear_dampening,
+                        .angular_dampening = motion.angular_dampening
+                    };
+                }
+
+                physics_world.add_body(body: body)!!;
+                node_entity.@add(collision_data, &manager)!!;
             }
-
-            physics_world.add_body(body: body)!!;
-            node_entity.@add(collision_data, &manager)!!;
-        }
-
-        if (node.has_trigger()) {
-            gltf::Trigger trigger = gltf.triggers[node.trigger];
-            CollisionShape shape = trigger_shapes.get(node.trigger);
-
-            Rigidbody trigger_body = {
-                .id = node.index,
-                .collider = {
-                    .shape = shape,
-                    .translation = node.translation,
-                    .scale = node.scale,
-                    .rotation = node.rotation,
-                },
-            };
-
-            physics_world.add_trigger(body: trigger_body)!!;
         }
 
         if (node.has_joint()) {
