@@ -2,7 +2,7 @@
 *.d
 CLAUDE.md
 tasks.md
-
+.vscode
 task_images/*
 notes.md
 build/*

@@ -174,6 +174,17 @@ const MoveEvent[] MOVE_EVENTS = {
 
 fn void physics_system(EntityManager manager, EventMap key_map, double time) {
     if (!physics_world.bodies.is_empty()) {
+        // Sync kinematic body transforms from nodes before solving
+        manager.@query("CollisionData"; Entity entity) {
+            CollisionData collider = ecs::@get(manager, entity, CollisionData);
+            ecs::Node* node = nodes[collider.node_index];
+            if (try rigid_body = physics_world.find_body(collider.node_index)) {
+                if (rigid_body.is_kinematic) {
+                    physics_world.set_kinematic_target(collider.node_index, node.translation, node.rotation);
+                }
+            }
+        };
+
         float sub_dt = (float)time / NUM_SUBSTEPS;
         for (int i = 0; i < NUM_SUBSTEPS; i++) {
             physics_world.run_step(sub_dt, step_count: ITERS_PER_SUBSTEP);
@@ -218,9 +229,11 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time) {
                 }
             }
 
-            node.translation = rigid_body.collider.translation;
-            node.rotation = rigid_body.collider.rotation;
-            node.dirty = true;
+            if (!rigid_body.is_kinematic) {
+                node.translation = rigid_body.collider.translation;
+                node.rotation = rigid_body.collider.rotation;
+                node.dirty = true;
+            }
         }
     };
 
@@ -681,6 +694,7 @@ fn void main()
                     gltf::Motion motion = gltf.motions[node.motion];
                     body = {
                         ...body,
+                        .is_kinematic = motion.is_kinematic,
                         .mass = motion.mass,
                         .gravity_factor = motion.gravity_factor,
                         .mass_center = motion.mass_center,
