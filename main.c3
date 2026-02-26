@@ -12,10 +12,10 @@ const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
 const PHYSICS_FPS = 60;
 
-const NUM_SUBSTEPS = 4;  // XPBD: more substeps = smaller dt = better stacking stability
-const ITERS_PER_SUBSTEP = 4;   // 4 substeps × 4 iters = 16 total per frame
+const NUM_SUBSTEPS = 4; // XPBD: more substeps = smaller dt = better stacking stability
+const ITERS_PER_SUBSTEP = 4; // 4 substeps × 4 iters = 16 total per frame
 const double PHYSICS_TIMESTEP = 1.0 / PHYSICS_FPS;
-const double MAX_PHYSICS_ACCUMULATOR = 0.25;  // Prevent spiral of death
+const double MAX_PHYSICS_ACCUMULATOR = 0.25; // Prevent spiral of death
 
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
@@ -23,96 +23,106 @@ alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
 alias Vec4f @private = float[<4>];
 
-alias MeshMap = HashMap{usz, Render};
+alias MeshMap = HashMap {usz, Render};
 
-enum Buffers: inline uint {
-    CPU,
-    DRAW,
-    CPU_GPU,
-    GPU
+enum Buffers : inline uint
+{
+	CPU,
+	DRAW,
+	CPU_GPU,
+	GPU
 }
 
-struct Vertex {
-    Vec2f tex_cord;
-    Vec3f normal;
-    Vec3f position;
-    Vec4f tangent;
-    uint[4] skin_pos;
-    Vec4f weights;
+struct Vertex
+{
+	Vec2f tex_cord;
+	Vec3f normal;
+	Vec3f position;
+	Vec4f tangent;
+	uint[4] skin_pos;
+	Vec4f weights;
 }
 
-struct MoveEvent {
-    EventKey key;
-    Vec3f move;
+struct MoveEvent
+{
+	EventKey key;
+	Vec3f move;
 }
 
-struct PushConstantData {
-    uint draw_index;
-    bool collided;
+struct PushConstantData
+{
+	uint draw_index;
+	bool collided;
 }
 
-struct Material @tag("BUFFER", Buffers.GPU) {
-    float emissiveStrength;
-    float metallicFactor;
-    float roughnessFactor;
-    int normalTexture;
-    int occlusionTexture;
-    int emissiveTexture;
-    int baseColorTexture;
-    int metallicRoughnessTexture;
+struct Material @tag("BUFFER", Buffers.GPU)
+{
+	float emissiveStrength;
+	float metallicFactor;
+	float roughnessFactor;
+	int normalTexture;
+	int occlusionTexture;
+	int emissiveTexture;
+	int baseColorTexture;
+	int metallicRoughnessTexture;
 
-    Vec4f emissiveFactor;
-    Vec4f baseColorFactor;
+	Vec4f emissiveFactor;
+	Vec4f baseColorFactor;
 }
 
-struct Render @tag("BUFFER", Buffers.DRAW) {
-    uint indexCount;
-    uint instanceCount;
-    uint firstIndex;
-    int vertexOffset;
-    uint firstInstance;
-    uint instance_offset;
-    int skin_offset;
-    int material;
-    uint node_index;
+struct Render @tag("BUFFER", Buffers.DRAW)
+{
+	uint indexCount;
+	uint instanceCount;
+	uint firstIndex;
+	int vertexOffset;
+	uint firstInstance;
+	uint instance_offset;
+	int skin_offset;
+	int material;
+	uint node_index;
 }
 
 
 typedef Collider @tag("BUFFER", Buffers.DRAW) = Render;
 
-struct SceneData @tag("BUFFER", Buffers.CPU_GPU) {
-    vk::DeviceAddress vertices;
-    vk::DeviceAddress draw_cmds;
-    vk::DeviceAddress materials;
-    vk::DeviceAddress nodes;
-    vk::DeviceAddress animations;
-    vk::DeviceAddress instances;
+struct SceneData @tag("BUFFER", Buffers.CPU_GPU)
+{
+	vk::DeviceAddress vertices;
+	vk::DeviceAddress draw_cmds;
+	vk::DeviceAddress materials;
+	vk::DeviceAddress nodes;
+	vk::DeviceAddress animations;
+	vk::DeviceAddress instances;
 }
 
-struct CollisionData @tag("BUFFER", Buffers.CPU) {
-    uint node_index;
-    bool collided;
-    bool is_player;
+struct CollisionData @tag("BUFFER", Buffers.CPU)
+{
+	uint node_index;
+	bool collided;
+	bool is_player;
 }
 
-struct AnimationData {
-    int skin_index;
-    uint animation_index;
-    usz buffer_offset;
-    uint joints_len;
-    uint frames;
-    double max_time;
-    double min_time;
-    Component data;
+struct AnimationData
+{
+	int skin_index;
+	uint animation_index;
+	usz buffer_offset;
+	uint joints_len;
+	uint frames;
+	double max_time;
+	double min_time;
+	Component data;
 }
 
 macro bool AnimationData.equals(self, AnimationData b) @operator(==) => self.animation_index == b.animation_index;
 
-struct Animation {
-   uint animation_index;
-   double active_time;
-   bool repeat;
-} 
+struct Animation
+{
+	uint animation_index;
+	double active_time;
+	bool repeat;
+}
 
 typedef SkinAnimation = Animation;
 typedef WorldAnimation = Animation;
@@ -121,431 +131,490 @@ typedef SceneLight @tag("BUFFER", 2) = gltf::Light;
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
 
-Vec2f window_size = {1280, 620};
+Vec2f window_size = { 1280, 620 };
 
-char[*] shader = $embed("./shaders/shader.spv");
+char[*] shader = $embed ( "./shaders/shader.spv" );
 
 DeviceContext context;
 
 Entity player;
 Gltf gltf;
 
-List{AnimationData} animation_list;
+List {AnimationData} animation_list;
 NodeComponent nodes;
 
 // BVHNode terrain_map;
 
 PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
 
-fn void stageToGPU(vk::Allocator target_buffer, void* data, usz size, usz offset) {
-    vk::Device device = context.device;
+fn void stageToGPU(vk::Allocator target_buffer, void* data, usz size, usz offset)
+{
+	vk::Device device = context.device;
 
 	Memory stage_buffer = vk::new_buffer(
 		allocator: &context.allocator,
-        usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        data: data,
-        data_size: size
-    )!!;
+		usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		data: data,
+		data_size: size
+	)!!;
 
-    device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, (vk::Buffer)target_buffer.get_buffer(), 1, &&(BufferCopy){
-            .srcOffset = 0,
-            .dstOffset = offset,
-            .size = size
-        });
-    }!!;
+	device.@single_time_command(queue: context.graphics_queue ; CommandBuffer command_buffer)
+	{
+		vk::cmdCopyBuffer(
+			command_buffer,
+			stage_buffer.buffer,
+			(vk::Buffer)target_buffer.get_buffer(),
+			1,
+			&&(BufferCopy) { .srcOffset = 0, .dstOffset = offset, .size = size }
+		);
+	}!!;
 
-    stage_buffer.free();
+	stage_buffer.free();
 }
 
 const float SPEED = 0.4f;
 
 const MoveEvent[] MOVE_EVENTS = {
-    {W, {0, SPEED, 0}},
-    {S, {0, -SPEED, 0}},
-    {A, {-SPEED, 0, 0}},
-    {D, {SPEED, 0, 0}},
-    {UP_ARROW, {0, 0, SPEED * 6}},
-    {DOWN_ARROW, {0, 0, -SPEED}},
-    {T, {0, 0, -SPEED}},
-    {G, {0, 0, SPEED}},
+	{ W, { 0, SPEED, 0 } },
+	{ S, { 0, -SPEED, 0 } },
+	{ A, { -SPEED, 0, 0 } },
+	{ D, { SPEED, 0, 0 } },
+	{ UP_ARROW, { 0, 0, SPEED * 6 } },
+	{ DOWN_ARROW, { 0, 0, -SPEED } },
+	{ T, { 0, 0, -SPEED } },
+	{ G, { 0, 0, SPEED } },
 };
 
-fn void physics_system(EntityManager manager, EventMap key_map, double time) {
-    if (!physics_world.bodies.is_empty()) {
-        // Sync kinematic body transforms from nodes before solving
-        manager.@query("CollisionData"; Entity entity) {
-            CollisionData collider = ecs::@get(manager, entity, CollisionData);
-            ecs::Node* node = nodes[collider.node_index];
-            if (try rigid_body = physics_world.find_body(collider.node_index)) {
-                if (rigid_body.is_kinematic) {
-                    physics_world.set_kinematic_target(collider.node_index, node.translation, node.rotation);
-                }
-            }
-        };
+fn void physics_system(EntityManager manager, EventMap key_map, double time)
+{
+	if (!physics_world.bodies.is_empty())
+	{
+		// Sync kinematic body transforms from nodes before solving
+		manager.@query("CollisionData" ; Entity entity)
+		{
+			CollisionData collider = ecs::@get(manager, entity, CollisionData);
+			ecs::Node* node = nodes[collider.node_index];
+			if (try rigid_body = physics_world.find_body(collider.node_index))
+			{
+				if (rigid_body.is_kinematic)
+				{
+					physics_world.set_kinematic_target(collider.node_index, node.translation, node.rotation);
+				}
+			}
+		};
 
-        float sub_dt = (float)time / NUM_SUBSTEPS;
-        for (int i = 0; i < NUM_SUBSTEPS; i++) {
-            physics_world.run_step(sub_dt, step_count: ITERS_PER_SUBSTEP);
-        }
-    }
+		float sub_dt = (float)time / NUM_SUBSTEPS;
+		for (int i = 0; i < NUM_SUBSTEPS; i++)
+		{
+			physics_world.run_step(sub_dt, step_count: ITERS_PER_SUBSTEP);
+		}
+	}
 
-    // Handle trigger events (no physics response, just overlap detection)
-    physics_world.@get_trigger_events(;TriggerEvent event) {
-        switch (event.type) {
-            case ENTER:
-                io::printfn("Trigger %d: body %d entered", event.trigger_id, event.other_id);
-            case EXIT:
-                io::printfn("Trigger %d: body %d exited", event.trigger_id, event.other_id);
-        }
-    };
+	// Handle trigger events (no physics response, just overlap detection)
+	physics_world.@get_trigger_events(; TriggerEvent event)
+	{
+		switch (event.type)
+		{
+			case ENTER:
+				io::printfn("Trigger %d: body %d entered", event.trigger_id, event.other_id);
+			case EXIT:
+				io::printfn("Trigger %d: body %d exited", event.trigger_id, event.other_id);
+		}
+	};
 
-    // Handle contact events (physics response + event notification)
-    physics_world.@get_contact_events(;ContactEvent event) {
-        switch (event.type) {
-            case START: {}
-                // io::printfn("Contact START: body %d hit body %d", event.body_a, event.body_b);
-            case END: {}
-                // io::printfn("Contact END: body %d separated from body %d", event.body_a, event.body_b);
-        }
-    };
+	// Handle contact events (physics response + event notification)
+	physics_world.@get_contact_events(; ContactEvent event)
+	{
+		switch (event.type)
+		{
+			case START:
+				{
+				}
+				// io::printfn("Contact START: body %d hit body %d", event.body_a, event.body_b);
+			case END:
+				{
+				}
+				// io::printfn("Contact END: body %d separated from body %d", event.body_a, event.body_b);
+		}
+	};
 
-    manager.@query("CollisionData"; Entity entity) {
-        CollisionData collider = ecs::@get(manager, entity, CollisionData);
-        ecs::Node* node = nodes[collider.node_index];
+	manager.@query("CollisionData" ; Entity entity)
+	{
+		CollisionData collider = ecs::@get(manager, entity, CollisionData);
+		ecs::Node* node = nodes[collider.node_index];
 
-        if (try rigid_body = physics_world.find_body(collider.node_index)) {
-            if (collider.is_player) {
-                foreach (event: MOVE_EVENTS) {
-                    if (key_map.is_pressed(event.key)) {
-                        if (event.key == T || event.key == G) {
-                            rigid_body.apply_angular_impulse(event.move);
-                        } else {
-                            rigid_body.apply_linear_impulse(event.move);
-                            //rigid_body.collider.translation += event.move;
-                        }
-                    };
-                }
-            }
+		if (try rigid_body = physics_world.find_body(collider.node_index))
+		{
+			if (collider.is_player)
+			{
+				foreach (event : MOVE_EVENTS)
+				{
+					if (key_map.is_pressed(event.key))
+					{
+						if (event.key == T || event.key == G)
+						{
+							rigid_body.apply_angular_impulse(event.move);
+						}
+						else
+						{
+							rigid_body.apply_linear_impulse(event.move);
+							// rigid_body.collider.translation += event.move;
+						}
+					}
+				}
+			}
 
-            if (!rigid_body.is_kinematic) {
-                node.translation = rigid_body.collider.translation;
-                node.rotation = rigid_body.collider.rotation;
-                node.dirty = true;
-            }
-        }
-    };
+			if (!rigid_body.is_kinematic)
+			{
+				node.translation = rigid_body.collider.translation;
+				node.rotation = rigid_body.collider.rotation;
+				node.dirty = true;
+			}
+		}
+	};
 
-    nodes.recalculate();
+	nodes.recalculate();
 }
 
 // fn void skin_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-//     Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
-//     SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
+// Render* entity_render = ecs::@get_ref(manager, entity, Render)!!;
+// SkinAnimation* animation = ecs::@get_ref(manager, entity, SkinAnimation)!!;
 
-//     AnimationData data = animation_list[animation.animation_index];
-//     assert(data.data.size != 0, "Please initialize animation component");
+// AnimationData data = animation_list[animation.animation_index];
+// assert(data.data.size != 0, "Please initialize animation component");
 
-//     double new_time = animation.active_time + time;
-//     animation.active_time = new_time < data.max_time ? new_time : 0;
+// double new_time = animation.active_time + time;
+// animation.active_time = new_time < data.max_time ? new_time : 0;
 
-//     double frame_index = animation.active_time * ANIMATION_FPS;
-//     entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
+// double frame_index = animation.active_time * ANIMATION_FPS;
+// entity_render.skin_offset = (uint)data.buffer_offset + (uint)data.joints_len * (uint)frame_index;
 // }
 
 // fn void world_animation_player(EntityManager manager, Entity entity, EventMap key_map, double time) {
-//     WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
-//     gltf::Animation data = gltf.animations[animation.animation_index];
+// WorldAnimation* animation = ecs::@get_ref(manager, entity, WorldAnimation)!!;
+// gltf::Animation data = gltf.animations[animation.animation_index];
 
-//     double new_time = animation.active_time + (time);
-//     animation.active_time = new_time < data.max_time ? new_time : 0;
-    
-//     gltf.@run_animation_channels(
-//         frame_time: animation.active_time,
-//         animation: data;
-//         uint node_index,
-//         AnimationProperty property,
-//         Vec4f value
-//     ) {
-//             ecs::Node* node = nodes[node_index];
-//             node.dirty = true;
+// double new_time = animation.active_time + (time);
+// animation.active_time = new_time < data.max_time ? new_time : 0;
 
-//             switch (property) {
-//                 case TRANSLATION: node.translation = value.xyz;
-//                 case ROTATION: node.rotation = (QuaternionValue){.v = value };
-//                 case SCALE: node.scale = value.xyz;
-//                 default: {}
-//             }
-//     };
+// gltf.@run_animation_channels(
+// frame_time: animation.active_time,
+// animation: data;
+// uint node_index,
+// AnimationProperty property,
+// Vec4f value
+// ) {
+// ecs::Node* node = nodes[node_index];
+// node.dirty = true;
 
-//     nodes.recalculate();
+// switch (property) {
+// case TRANSLATION: node.translation = value.xyz;
+// case ROTATION: node.rotation = (QuaternionValue){.v = value };
+// case SCALE: node.scale = value.xyz;
+// default: {}
+// }
+// };
+
+// nodes.recalculate();
 // }
 
 // Bake skin animations
 // fn void bake_skin_animations(Component animations, uint skin_index) {
-//     gltf::Skin skin = gltf.skins[skin_index];
+// gltf::Skin skin = gltf.skins[skin_index];
 
-//     List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
-//     defer animation_indexes.free();
+// List{uint} animation_indexes = gltf.find_skin_animations(skin_index);
+// defer animation_indexes.free();
 
-//     foreach (index: animation_indexes) {
-//         gltf::Animation animation = gltf.animations[index];
-//         io::printfn("animation loaded: %s", animation.name);
-        
-//         List{Matrix4f} skin_matrixes;
-//         defer skin_matrixes.free();
+// foreach (index: animation_indexes) {
+// gltf::Animation animation = gltf.animations[index];
+// io::printfn("animation loaded: %s", animation.name);
 
-//         uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
-//         AnimationData data = {
-//             .joints_len = (uint)skin.joints.len(),
-//             .buffer_offset = animations.used_size / Matrix4f.sizeof,
-//             .data = animations,
-//             .max_time = animation.max_time,
-//             .min_time =  animation.min_time,
-//             .frames = frame_count,
-//             .skin_index = skin_index,
-//         };
+// List{Matrix4f} skin_matrixes;
+// defer skin_matrixes.free();
 
-//         for (usz i = 0; i < frame_count; i++) {
-//             double time = i / (double)ANIMATION_FPS;
-//             gltf.@run_animation_channels(
-//                 frame_time: time,
-//                 animation: animation;
-//                 uint node_index,
-//                 AnimationProperty property,
-//                 Vec4f value
-//             ) {
-//                 gltf::Node* node = gltf.nodes.get_ref(node_index);
-//                 switch (property) {
-//                     case TRANSLATION: node.translation = value.xyz;
-//                     case ROTATION: node.rotation = (QuaternionValue){.v = value };
-//                     case SCALE: node.scale = value.xyz;
-//                     default: {}
-//                 }
-//             };
+// uint frame_count = (uint)(ANIMATION_FPS * animation.max_time);
+// AnimationData data = {
+// .joints_len = (uint)skin.joints.len(),
+// .buffer_offset = animations.used_size / Matrix4f.sizeof,
+// .data = animations,
+// .max_time = animation.max_time,
+// .min_time =  animation.min_time,
+// .frames = frame_count,
+// .skin_index = skin_index,
+// };
 
-//             gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
-//                 skin_matrixes.push(matrix);
-//             };
-//         }
+// for (usz i = 0; i < frame_count; i++) {
+// double time = i / (double)ANIMATION_FPS;
+// gltf.@run_animation_channels(
+// frame_time: time,
+// animation: animation;
+// uint node_index,
+// AnimationProperty property,
+// Vec4f value
+// ) {
+// gltf::Node* node = gltf.nodes.get_ref(node_index);
+// switch (property) {
+// case TRANSLATION: node.translation = value.xyz;
+// case ROTATION: node.rotation = (QuaternionValue){.v = value };
+// case SCALE: node.scale = value.xyz;
+// default: {}
+// }
+// };
 
-//         animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());        
-//         animation_list.push(data);
-//     };
+// gltf.@build_skin_matrixes(skin; uint j, Matrix4f matrix) {
+// skin_matrixes.push(matrix);
+// };
+// }
+
+// animations.@push(skin_matrixes.entries, size: skin_matrixes.byte_size());
+// animation_list.push(data);
+// };
 // }
 
 fn void main()
 {
-    c3w::Window win = c3w::new(
-        params: {
-            .width = (int)window_size.x,
-            .height = (int)window_size.y,
-            .x = 0,
-            .y = 0
-        },
-        name: "GLTF animation"
-    )!!;
+	c3w::Window win = c3w::new(
+		params: { .width = (int)window_size.x, .height = (int)window_size.y, .x = 0, .y = 0 },
+		name: "GLTF animation"
+	)!!;
 
-    defer win.free();
+	defer win.free();
 
-    MeshMap meshes;
-    CollisionShapes collision_shapes;
-    
-    // Vulkan context
-    context = helpers::createContext(win)!!;
-    defer context.free();
+	MeshMap meshes;
+	CollisionShapes collision_shapes;
 
-    gltf = gltf::loadFile("assets/game.glb")!!;
-    defer gltf.free();
+	// Vulkan context
+	context = helpers::createContext(win)!!;
+	defer context.free();
 
-    defer {
-        physics_world.free();
-        collision_shapes.release();
-        meshes.free();
-    };
+	gltf = gltf::loadFile("assets/game.glb")!!;
+	defer gltf.free();
 
-    // Create default camera
-    helpers::Camera camera = {};
+	defer
+	{
+		physics_world.free();
+		collision_shapes.release();
+		meshes.free();
+	}
+
+	// Create default camera
+	helpers::Camera camera = { };
 
 	Memory draw_memory = vk::new_buffer(
 		allocator: &context.allocator,
-        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        data: null,
-        data_size: 5_000_000
-    )!!;
+		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		data: null,
+		data_size: 5_000_000
+	)!!;
 
 	Memory cpu_and_gpu = vk::new_buffer(
 		allocator: &context.allocator,
-        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        data: null,
-        data_size: 20_000_000
-    )!!;
+		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		data: null,
+		data_size: 20_000_000
+	)!!;
 
 	Memory gpu_only_memory = vk::new_buffer(
 		allocator: &context.allocator,
-        usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
-        properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        data: null,
-        data_size: 30_000_000
-    )!!;
+		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT
+			| vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
+		properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		data: null,
+		data_size: 30_000_000
+	)!!;
 
-    vk::LocalBuffer cpu_only;
-    defer cpu_only.free();
+	vk::LocalBuffer cpu_only;
+	defer cpu_only.free();
 
-    vk::BufferManager buffer_manager = vk::create_buffer_manager(
-        buffers: {
-            (vk::Allocator)&cpu_only,
-            (vk::Allocator)&draw_memory,
-            (vk::Allocator)&cpu_and_gpu,
-            (vk::Allocator)&gpu_only_memory,
-        },
-        uploadFN: &stageToGPU,
-    );
+	vk::BufferManager buffer_manager = vk::create_buffer_manager(
+		buffers: {
+			(vk::Allocator)&cpu_only,
+			(vk::Allocator)&draw_memory,
+			(vk::Allocator)&cpu_and_gpu,
+			(vk::Allocator)&gpu_only_memory,
+		},
+		uploadFN: &stageToGPU,
+	);
 
-    defer buffer_manager.free();
+	defer buffer_manager.free();
 
-    vk::Region skin_animations = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
-    vk::Region draw_buffer = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
-    vk::Region instances = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
-    vk::Region materials = buffer_manager.alloc(Buffers.GPU, 1_000_000)!!;
+	vk::Region skin_animations = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+	vk::Region draw_buffer = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+	vk::Region instances = buffer_manager.alloc(Buffers.GPU, 5_000_000)!!;
+	vk::Region materials = buffer_manager.alloc(Buffers.GPU, 1_000_000)!!;
 
-    EntityManager manager = ecs::create_manager(&buffer_manager);
+	EntityManager manager = ecs::create_manager(&buffer_manager);
 
-    defer manager.free();
+	defer manager.free();
 
-    nodes = manager.@create_component(size: (uint)(gltf.nodes.len() * ecs::Node.sizeof), buffer_index: Buffers.CPU_GPU)!!;
+	nodes = manager.@create_component(
+		size: (uint)(gltf.nodes.len() * ecs::Node.sizeof),
+		buffer_index: Buffers.CPU_GPU
+	)!!;
 
-    // Load meshes from gltf
-    foreach (mesh: gltf.meshes) {
-        usz mesh_index = mesh.name.hash();
+	// Load meshes from gltf
+	foreach (mesh : gltf.meshes)
+	{
+		usz mesh_index = mesh.name.hash();
 
-        foreach (usz prim_index, primitive: mesh.primitives) {
-            Render mesh_info;
+		foreach (usz prim_index, primitive : mesh.primitives)
+		{
+			Render mesh_info;
 
-            gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-            gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+			gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+			gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
 
-            gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
+			gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
-            int vertex_offset = (int)draw_buffer.used_size;
-            
-            for (usz i; i < pos_accessor.count; i++) {
-                // Cast data or use default value
-                Vertex data = {
-                    .position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
-                    .tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? {0, 0},
-                    .normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? {0, 0, 0},
-                    .tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? {0, 0, 0, 0},
-                    .weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? {0, 0, 0, 0},
-                };
+			int vertex_offset = (int)draw_buffer.used_size;
 
-                {
-                    usz? attribute = primitive.attributes["JOINTS_0"];
-                    // Joint data can be in different types on gltf files
-                    if (try attribute) {
-                        Accessor accessor = gltf.accessors[attribute];
-                        if (accessor.data_type == DataType.USHORT) data.skin_pos = (uint[4]){...gltf.@cast_buffer(accessor, i, short[4])};
-                        if (accessor.data_type == DataType.CHAR) data.skin_pos = (uint[4]){...gltf.@cast_buffer(accessor, i, char[4])};
-                    }
-                }
+			for (usz i; i < pos_accessor.count; i++)
+			{
+				// Cast data or use default value
+				Vertex data = {
+					.position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
+					.tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? { 0, 0 },
+					.normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? { 0, 0, 0 },
+					.tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? { 0, 0, 0, 0 },
+					.weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? { 0, 0, 0, 0 },
+				};
 
-                draw_buffer.@push(data);
-            }
+				{
+					usz? attribute = primitive.attributes["JOINTS_0"];
+					// Joint data can be in different types on gltf files
+					if (try attribute)
+					{
+						Accessor accessor = gltf.accessors[attribute];
+						if (accessor.data_type
+							== DataType.USHORT) data.skin_pos = (uint[4]) {
+								... gltf.@cast_buffer(accessor, i, short[4])
+							};
+						if (accessor.data_type
+							== DataType.CHAR) data.skin_pos = (uint[4]) { ... gltf.@cast_buffer(accessor, i, char[4]) };
+					}
+				}
 
-            mesh_info = {
-                .vertexOffset = vertex_offset,
-                .firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
-                .indexCount = index_accessor.count
-            };
-          
-            draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
-            meshes.set(mesh_index + prim_index, mesh_info);
-        }
-    }
-    
-    // Push mesh translation nodes to GPU/CPU buffer
-    foreach (index, node: gltf.nodes) {
-        // io::printfn("%s %s %s %s", node.translation, node.rotation.v, node.name, node.index);
-        nodes.@push((ecs::Node) {
-            .matrix = node.global_matrix(),
-            .translation = node.translation,
-            .scale = node.scale,
-            .rotation = node.rotation,
-            .dirty = false,
-            .parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
-        });
-    }
-        
-    // foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
+				draw_buffer.@push(data);
+			}
 
-    // Push materials info to GPU buffer
-    foreach (index, material: gltf.materials) {
-        materials.@push((Material) {
-            .emissiveStrength = material.emissiveStrength,
-            .metallicFactor = material.metallicFactor,
-            .roughnessFactor = material.roughnessFactor,
-            .emissiveFactor = material.emissiveFactor,
-            .baseColorFactor = material.baseColorFactor,
-            .normalTexture = material.normalTexture.source,
-            .occlusionTexture = material.occlusionTexture.source,
-            .emissiveTexture = material.emissiveTexture.source,
-            .baseColorTexture = material.baseColorTexture.source,
-            .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
-        });
-    };
+			mesh_info = {
+				.vertexOffset = vertex_offset,
+				.firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
+				.indexCount = index_accessor.count
+			};
 
-    defer animation_list.free();
+			draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
+			meshes.set(mesh_index + prim_index, mesh_info);
+		}
+	}
+
+	// Push mesh translation nodes to GPU/CPU buffer
+	foreach (index, node : gltf.nodes)
+	{
+		// io::printfn("%s %s %s %s", node.translation, node.rotation.v, node.name, node.index);
+		nodes.@push(
+			(ecs::Node) {
+				.matrix = node.global_matrix(),
+				.translation = node.translation,
+				.scale = node.scale,
+				.rotation = node.rotation,
+				.dirty = false,
+				.parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
+			}
+		);
+	}
+
+	// foreach (skin_index, skin: gltf.skins) bake_skin_animations(skin_animations, (uint)skin_index);
+
+	// Push materials info to GPU buffer
+	foreach (index, material : gltf.materials)
+	{
+		materials.@push(
+			(Material) {
+				.emissiveStrength = material.emissiveStrength,
+				.metallicFactor = material.metallicFactor,
+				.roughnessFactor = material.roughnessFactor,
+				.emissiveFactor = material.emissiveFactor,
+				.baseColorFactor = material.baseColorFactor,
+				.normalTexture = material.normalTexture.source,
+				.occlusionTexture = material.occlusionTexture.source,
+				.emissiveTexture = material.emissiveTexture.source,
+				.baseColorTexture = material.baseColorTexture.source,
+				.metallicRoughnessTexture = material.metallicRoughnessTexture.source,
+			}
+		);
+	}
+
+	defer animation_list.free();
 
 	// load physics colliders and triggers
-    foreach (usz j, collider: gltf.colliders) {
+	foreach (usz j, collider : gltf.colliders)
+	{
 		gltf::Node node = gltf.nodes[collider.base_node];
 
-        if (collider.has_shape()) {
-            Shape shape = gltf.shapes[collider.shape];
-            switch (shape.type) {
-                case BOX: collision_shapes.push(@clone(collision::aabb_from_half(shape.size)));
-                case SPHERE: collision_shapes.push(@clone((Sphere){.radius = shape.radius}));
-                case CYLINDER: collision_shapes.push(@clone((Cylinder){shape.height, shape.radius_top, shape.radius_bottom}));
-                case CAPSULE: collision_shapes.push(@clone((Capsule){shape.height, shape.radius_top, shape.radius_bottom}));
-                default: {}
-            }
-        }
+		if (collider.has_shape())
+		{
+			Shape shape = gltf.shapes[collider.shape];
+			switch (shape.type)
+			{
+				case BOX:
+					collision_shapes.push(@clone(collision::aabb_from_half(shape.size)));
+				case SPHERE:
+					collision_shapes.push(@clone((Sphere) { .radius = shape.radius }));
+				case CYLINDER:
+					collision_shapes.push(@clone((Cylinder) { shape.height, shape.radius_top, shape.radius_bottom }));
+				case CAPSULE:
+					collision_shapes.push(@clone((Capsule) { shape.height, shape.radius_top, shape.radius_bottom }));
+				default:
+					{
+					}
+			}
+		}
 
-        if (collider.has_mesh()) {
+		if (collider.has_mesh())
+		{
 			gltf::Mesh mesh = gltf.meshes[collider.mesh];
 
-			List{Vec3f} vertices;
-			List{uint} indices;
+			List {Vec3f} vertices;
+			List {uint} indices;
 
-			defer {
+			defer
+			{
 				vertices.free();
 				indices.free();
 			}
 
 			// Collect vertices in triangle order - each 3 vertices form a triangle
-            gltf.@get_positions(mesh, Vec3f; Vec3f position, usz index) {
-                vertices.push(position);
+			gltf.@get_positions(mesh, Vec3f ; Vec3f position, usz index)
+			{
+				vertices.push(position);
 				indices.push((ushort)index);
-            }!!;
+			}!!;
 
 			// For triggers, always use convex hull for simpler overlap detection
-			if (collider.is_trigger || collider.convex_hull) {
+			if (collider.is_trigger || collider.convex_hull)
+			{
 				collision::Mesh hull = collision::quickhull(vertices.array_view());
 				defer hull.free();
 				collision_shapes.push(@clone(hull));
-			} else {
+			}
+			else
+			{
 				collision::Mesh collision_mesh = collision::create_mesh(vertices.array_view(), indices.array_view());
 				defer collision_mesh.free();
 
-				if (node.extras.has_key("physics") && node.extras["physics"]!! == "bvh") {
+				if (node.extras.has_key("physics") && node.extras["physics"]!! == "bvh")
+				{
 					// Build BVH tree, more precision but slower
 					collision::Mesh* clone_mesh = @clone(collision_mesh);
 					clone_mesh.build_bvh();
 					collision_shapes.push(clone_mesh);
-				} else {
+				}
+				else
+				{
 					// Create compound mesh from concave mesh pieces.
 					MeshList pieces = collision_mesh.decompose(collision::COACD_FAST);
 					defer pieces.release();
@@ -555,523 +624,596 @@ fn void main()
 					collision_shapes.push(@clone(compound));
 				}
 			}
-        }
-    }
+		}
+	}
 
-	gltf::Light light = {
-		.position = {2, 12, 5},
-		.color = {1, 1, 1},
-		.intensity = 3.0,
-		.type = DIRECTIONAL
-	};
+	gltf::Light light = { .position = { 2, 12, 5 }, .color = { 1, 1, 1 }, .intensity = 3.0, .type = DIRECTIONAL };
 
-    // Build GPU draw commands for Vulkan
-    foreach (node : gltf.nodes) {
-        Entity node_entity = manager.@create_entity()!!;
+	// Build GPU draw commands for Vulkan
+	foreach (node : gltf.nodes)
+	{
+		Entity node_entity = manager.@create_entity()!!;
 		Matrix4f global = node.global_matrix();
 		Vec3f global_position = { global.m03, global.m13, global.m23 };
 
-		if (node.has_light()) {
+		if (node.has_light())
+		{
 			light = gltf.lights[node.light];
 			light.position = global_position;
-			light.intensity = light.intensity / 200.0;	
-		};
+			light.intensity = light.intensity / 200.0;
+		}
 
-        if (node.has_camera()) {
+		if (node.has_camera())
+		{
 			gltf::Camera camera_data = gltf.cameras[node.camera];
-            // Extract global rotation from matrix (assuming no scale)
-            Quaternionf global_rotation = helpers::quaternion_from_matrix(global);
+			// Extract global rotation from matrix (assuming no scale)
+			Quaternionf global_rotation = helpers::quaternion_from_matrix(global);
 
-            camera = {
-                .translation = global_position,
-                .rotation = global_rotation,
-                .aspect_ratio = camera_data.perspective.aspectRatio,
-                .view = global.inverse()!!,
-                .z_near = camera_data.perspective.znear,
-                .z_far = camera_data.perspective.zfar,
-                .y_fov = camera_data.perspective.yfov
-            };
-        }
+			camera = {
+				.translation = global_position,
+				.rotation = global_rotation,
+				.aspect_ratio = camera_data.perspective.aspectRatio,
+				.view = global.inverse()!!,
+				.z_near = camera_data.perspective.znear,
+				.z_far = camera_data.perspective.zfar,
+				.y_fov = camera_data.perspective.yfov
+			};
+		}
 
-        if (node.has_mesh() && node.name != "physicsMeshDataNode") {
-            gltf::Mesh mesh = gltf.meshes[node.mesh];
-        
-            // if (node.extras.has_key("animation")) {
-            //     node_entity.@add((WorldAnimation) {
-            //         .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
-            //         .active_time = 0,
-            //         .repeat = true
-            //     }, &manager)!!;
-            // }
-                
-            // if (node.extras.has_key("skin_clone")) {
-            //     node_entity.@add((SkinAnimation) {
-            //         .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
-            //         .active_time = node.index * 0.05,
-            //         .repeat = true
-            //     }, &manager)!!;
-            // }
+		if (node.has_mesh() && node.name != "physicsMeshDataNode")
+		{
+			gltf::Mesh mesh = gltf.meshes[node.mesh];
 
-            // if (node.extras.has_key("skin_animation")) {
-            //     node_entity.@add((SkinAnimation) {
-            //         .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
-            //         .active_time = 0.0,
-            //         .repeat = true
-            //     }, &manager)!!;
-            // }
+			// if (node.extras.has_key("animation")) {
+			// node_entity.@add((WorldAnimation) {
+			// .animation_index = gltf.find_animation_index(node.extras.get("animation")!!)!!,
+			// .active_time = 0,
+			// .repeat = true
+			// }, &manager)!!;
+			// }
 
-            foreach (usz prim_index, primitive: mesh.primitives) {
-                usz mesh_index = mesh.name.hash() + prim_index;
-                Render render_data = {
-                    ...meshes[mesh_index]!!,
-                    .instanceCount = 1,
-                    .firstInstance = 0,
-                    .instance_offset = (uint)instances.used_size,
-                    .skin_offset = -1,
-                    .material = (int)primitive.attributes["material"] ?? -1,
-                    .node_index = node.index,
-                };
+			// if (node.extras.has_key("skin_clone")) {
+			// node_entity.@add((SkinAnimation) {
+			// .animation_index = gltf.find_animation_index(node.extras.get("skin_clone")!!)!!,
+			// .active_time = node.index * 0.05,
+			// .repeat = true
+			// }, &manager)!!;
+			// }
 
-                // If node has instance data, build transform matrices for it
-                if (node.attributes.len() > 0) {
-                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    render_data.instanceCount = translation_accessor.count;
-                    render_data.firstInstance = 1;
-                    
-                    for (uint i = 0; i < translation_accessor.count; i++) {
-                        Matrix4f instance_matrix = gltf::to_matrix(
-                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
-                            gltf.@cast_buffer(gltf.accessors[node.attributes["SCALE"]!!], i, Vec3f), 
-                            gltf.@cast_buffer(gltf.accessors[node.attributes["ROTATION"]!!], i, QuaternionValue)
-                        );
-                        instances.@push(instance_matrix);
-                    }
-                }
+			// if (node.extras.has_key("skin_animation")) {
+			// node_entity.@add((SkinAnimation) {
+			// .animation_index = gltf.find_animation_index(node.extras.get("skin_animation")!!)!!,
+			// .active_time = 0.0,
+			// .repeat = true
+			// }, &manager)!!;
+			// }
 
-                node_entity.@add(render_data, &manager)!!;
-            }
-        };
+			foreach (usz prim_index, primitive : mesh.primitives)
+			{
+				usz mesh_index = mesh.name.hash() + prim_index;
+				Render render_data = {
+					... meshes[mesh_index]!!,
+					.instanceCount = 1,
+					.firstInstance = 0,
+					.instance_offset = (uint)instances.used_size,
+					.skin_offset = -1,
+					.material = (int)primitive.attributes["material"] ?? -1,
+					.node_index = node.index,
+				};
 
-        if (node.has_collider()) {
-            gltf::Collider collider = gltf.colliders[node.collider];
+				// If node has instance data, build transform matrices for it
+				if (node.attributes.len() > 0)
+				{
+					Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+					render_data.instanceCount = translation_accessor.count;
+					render_data.firstInstance = 1;
+
+					for (uint i = 0; i < translation_accessor.count; i++)
+					{
+						Matrix4f instance_matrix = gltf::to_matrix(
+							gltf.@cast_buffer(translation_accessor, i, Vec3f),
+							gltf.@cast_buffer(gltf.accessors[node.attributes["SCALE"]!!], i, Vec3f),
+							gltf.@cast_buffer(gltf.accessors[node.attributes["ROTATION"]!!], i, QuaternionValue)
+						);
+						instances.@push(instance_matrix);
+					}
+				}
+
+				node_entity.@add(render_data, &manager)!!;
+			}
+		}
+
+		if (node.has_collider())
+		{
+			gltf::Collider collider = gltf.colliders[node.collider];
 			CollisionShape shape = collision_shapes.get(node.collider);
 
-            if (collider.is_trigger) {
-                Rigidbody trigger_body = {
-                    .id = node.index,
-                    .collider = {
-                        .shape = shape,
-                        .translation = node.translation,
-                        .scale = node.scale,
-                        .rotation = node.rotation,
-                    },
-                };
+			if (collider.is_trigger)
+			{
+				Rigidbody trigger_body = {
+					.id = node.index,
+					.collider = {
+						.shape = shape,
+						.translation = node.translation,
+						.scale = node.scale,
+						.rotation = node.rotation,
+					},
+				};
 
-                physics_world.add_trigger(body: trigger_body)!!;
-            } else {
-                PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
+				physics_world.add_trigger(body: trigger_body)!!;
+			}
+			else
+			{
+				PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
 
-                CollisionData collision_data = {
-                    .collided = false,
-                    .node_index = node.index,
-                    .is_player = node.name == "player"
-                };
+				CollisionData collision_data = {
+					.collided = false,
+					.node_index = node.index,
+					.is_player = node.name == "player"
+				};
 
-                Rigidbody body = {
-                    .id = node.index,
-                    .material = {...physics_material},
-                    .can_sleep = true,
-                    .collider = {
-                        .shape = shape,
-                        .translation = node.translation,
-                        .scale = node.scale,
-                        .rotation = node.rotation,
-                    },
-                    .gravity_factor = 1
-                };
+				Rigidbody body = {
+					.id = node.index,
+					.material = { ... physics_material },
+					.can_sleep = true,
+					.collider = {
+						.shape = shape,
+						.translation = node.translation,
+						.scale = node.scale,
+						.rotation = node.rotation,
+					},
+					.gravity_factor = 1
+				};
 
-                if (node.has_motion()) {
-                    gltf::Motion motion = gltf.motions[node.motion];
-                    body = {
-                        ...body,
-                        .is_kinematic = motion.is_kinematic,
-                        .mass = motion.mass,
-                        .gravity_factor = motion.gravity_factor,
-                        .mass_center = motion.mass_center,
-                        .linear_velocity = motion.linear_velocity,
-                        .angular_velocity = motion.angular_velocity,
-                        .linear_dampening = motion.linear_dampening,
-                        .angular_dampening = motion.angular_dampening
-                    };
-                }
+				if (node.has_motion())
+				{
+					gltf::Motion motion = gltf.motions[node.motion];
+					body = {
+						... body,
+						.is_kinematic = motion.is_kinematic,
+						.mass = motion.mass,
+						.gravity_factor = motion.gravity_factor,
+						.mass_center = motion.mass_center,
+						.linear_velocity = motion.linear_velocity,
+						.angular_velocity = motion.angular_velocity,
+						.linear_dampening = motion.linear_dampening,
+						.angular_dampening = motion.angular_dampening
+					};
+				}
 
-                physics_world.add_body(body: body)!!;
-                node_entity.@add(collision_data, &manager)!!;
-            }
-        }
+				physics_world.add_body(body: body)!!;
+				node_entity.@add(collision_data, &manager)!!;
+			}
+		}
 
-        if (node.has_joint()) {
-            gltf::Node connected_node = gltf.nodes[node.connected_node];
-            gltf::Node body_a = *node.parent;
-            gltf::Node body_b = *connected_node.parent;
+		if (node.has_joint())
+		{
+			gltf::Node connected_node = gltf.nodes[node.connected_node];
+			gltf::Node body_a = *node.parent;
+			gltf::Node body_b = *connected_node.parent;
 
-            gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
+			gltf::PhysicsJoint joint = gltf.physics_joints[node.joint];
 
-            GenericJoint3D generic_joint = {
-                .anchor_a = gltf::decompose_joint(body: body_a, joint: node),
-                .anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node),
-                .relative_orientation = body_a.rotation.conjugate() * body_b.rotation,
-                .body_a = body_a.index,
-                .body_b = body_b.index,
-                .collides = false
-            };
+			GenericJoint3D generic_joint = {
+				.anchor_a = gltf::decompose_joint(body: body_a, joint: node),
+				.anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node),
+				.relative_orientation = body_a.rotation.conjugate() * body_b.rotation,
+				.body_a = body_a.index,
+				.body_b = body_b.index,
+				.collides = false
+			};
 
-			foreach (limit: joint.linear_limits) {
-                generic_joint.linear_limits.push({...limit});
-            }
+			foreach (limit : joint.linear_limits)
+			{
+				generic_joint.linear_limits.push({ ... limit });
+			}
 
-            foreach (limit: joint.angular_limits) {
-                generic_joint.angular_limits.push({
-                    .min = limit.min,
-                    .max = limit.max,
-                    .axes = connected_node.rotation * limit.axes,
-                    .stiffness = limit.stiffness,
-                    .damping = limit.damping
-                });
-            }
-			
-            physics_world.add_constraint(generic_joint)!!;
-        }
-    }
+			foreach (limit : joint.angular_limits)
+			{
+				generic_joint.angular_limits.push(
+					{
+						.min = limit.min,
+						.max = limit.max,
+						.axes = connected_node.rotation * limit.axes,
+						.stiffness = limit.stiffness,
+						.damping = limit.damping
+					}
+				);
+			}
 
-    foreach (image : gltf.images) {
+			physics_world.add_constraint(generic_joint)!!;
+		}
+	}
+
+	foreach (image : gltf.images)
+	{
 		image::Image img;
 		defer img.free();
 
-        switch (image.type) {
-            case ENCODED_BASE64: {
-                img = png::load_bytes(image.data)!!;
-            };
-            case ENCODED_BIN: {
-                gltf::BufferView buffer_view = gltf.bufferViews[image.view];
-				img = png::load_bytes(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..])!!;
-            };
-            case EXTERNAL_BIN: img = png::load_file((String)image.uri)!!;
-            default: {}
-        }
+		switch (image.type)
+		{
+			case ENCODED_BASE64:
+				{
+					img = png::load_bytes(image.data)!!;
+				};
+			case ENCODED_BIN:
+				{
+					gltf::BufferView buffer_view = gltf.bufferViews[image.view];
+					img = png::load_bytes(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..])!!;
+				};
+			case EXTERNAL_BIN:
+				img = png::load_file((String)image.uri)!!;
+			default:
+				{
+				}
+		}
 
-        io::printfn("image size %s MB", (usz)(img.width * img.height * 4) / 1_000_000);
-        // Create vulkan texture image
-        if (catch err = descriptor_images.addImageTexture(img, &context)) {
-            io::printfn("GPU allocator is too small for textures %s", err);
-            return;
-        };
-    }
+		io::printfn("image size %s MB", (usz)(img.width * img.height * 4) / 1_000_000);
+		// Create vulkan texture image
+		if (catch err = descriptor_images.addImageTexture(img, &context))
+		{
+			io::printfn("GPU allocator is too small for textures %s", err);
+			return;
+		}
+	}
 
-    descriptor_images.addDepthTexture(&context.allocator, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
+	descriptor_images.addDepthTexture(
+		&context.allocator,
+		context.graphics_queue,
+		{ win.width, win.height },
+		context.depth_format
+	)!!;
 
-    defer {
-        foreach (texture: descriptor_images) texture.free(context.device);
-        descriptor_images.free();
-    }
+	defer
+	{
+		foreach (texture : descriptor_images) texture.free(context.device);
+		descriptor_images.free();
+	}
 
-    Entity scene = manager.@create_entity(
-        camera.data(),
+	Entity scene = manager.@create_entity(
+		camera.data(),
 		(SceneLight)light,
-        (SceneData) {
-            .draw_cmds = draw_memory.address,
-            .vertices = draw_buffer.get_address(),
-            .materials = materials.get_address(),
-            .nodes = nodes.get_address(),
-            .animations = skin_animations.get_address(),
-            .instances = instances.get_address(),
-        },
-    )!!;
+		(SceneData) {
+			.draw_cmds = draw_memory.address,
+			.vertices = draw_buffer.get_address(),
+			.materials = materials.get_address(),
+			.nodes = nodes.get_address(),
+			.animations = skin_animations.get_address(),
+			.instances = instances.get_address(),
+		},
+	)!!;
 
-    PipelineLayer pipeline_layout = helpers::createPipelineLayout(
-        {
-            vk::writeDescriptorSet()
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-            .setDstBinding(0)
-            .setBufferInfo({
-                {
-                    .buffer = cpu_and_gpu.buffer,
-                    .offset = ecs::@get_offset(manager, scene, "CameraData")!!, // Todo: Add CameraData offset here
-                    .range = ecs::get_size(scene, manager),
-                },
-            }),
-            vk::writeDescriptorSet()
-            .setDstBinding(1)
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-            .setImageInfo(descriptor_images.array_view())
-        },
-        (ShaderStageFlags[]){
-            vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
-            vk::SHADER_STAGE_FRAGMENT_BIT,
-        },
-        (PushConstantRange[]){
-            {
-                .offset = 0,
-                .size = PushConstantData.sizeof,
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
-            },
-        },
-        context.device
-    )!!;
+	PipelineLayer pipeline_layout = helpers::createPipelineLayout(
+		{
+			vk::writeDescriptorSet().setDescriptorType(
+				vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER
+			).setDstBinding(
+				0
+			).setBufferInfo(
+				{
+					{
+						.buffer = cpu_and_gpu.buffer,
+						.offset = ecs::@get_offset(manager, scene, "CameraData")!!, // Todo: Add CameraData offset here
+						.range = ecs::get_size(scene, manager),
+					},
+				}
+			),
+			vk::writeDescriptorSet().setDstBinding(
+				1
+			).setDescriptorType(
+				vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+			).setImageInfo(descriptor_images.array_view())
+		},
+		(ShaderStageFlags[]) {
+			vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+			vk::SHADER_STAGE_FRAGMENT_BIT,
+		},
+		(PushConstantRange[]) {
+			{
+				.offset = 0,
+				.size = PushConstantData.sizeof,
+				.stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+			},
+		},
+		context.device
+	)!!;
 
-    defer pipeline_layout.free(context.device);
+	defer pipeline_layout.free(context.device);
 
-    ShaderModule shader_module = vk::shaderModuleCreateInfo()
-    .setCodeSize(shader.len)
-    .setCode((uint*)&shader[0])
-    .build(context.device)!!;
+	ShaderModule shader_module = vk::shaderModuleCreateInfo().setCodeSize(
+		shader.len
+	).setCode((uint*)&shader[0]).build(context.device)!!;
 
-    defer shader_module.free(context.device);
+	defer shader_module.free(context.device);
 
-    PipelineRenderingCreateInfo p_rendering_info = vk::pipelineRenderingCreateInfo()
-    .setColorAttachmentFormats({context.surface_format.format})
-    .setDepthAttachmentFormat(context.depth_format);
+	PipelineRenderingCreateInfo p_rendering_info = vk::pipelineRenderingCreateInfo().setColorAttachmentFormats(
+		{ context.surface_format.format }
+	).setDepthAttachmentFormat(context.depth_format);
 
-    PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfo()
-    .setSampleShadingEnable(vk::FALSE)
-    .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
-    .setMinSampleShading(1.0)
-    .setAlphaToCoverageEnable(vk::FALSE)
-    .setAlphaToOneEnable(vk::FALSE);
+	PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfo()
+		.setSampleShadingEnable(
+		vk::FALSE
+	).setRasterizationSamples(
+		vk::SAMPLE_COUNT_1_BIT
+	).setMinSampleShading(1.0).setAlphaToCoverageEnable(vk::FALSE).setAlphaToOneEnable(vk::FALSE);
 
-    PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfo()
-    .setBlendConstants({ 1.0, 1.0, 1.0, 1.0 })
-    .setLogicOp(vk::LOGIC_OP_COPY)
-    .setLogicOpEnable(vk::FALSE)
-    .setAttachments({
-    {
-        .colorWriteMask =
-            vk::COLOR_COMPONENT_R_BIT |
-            vk::COLOR_COMPONENT_G_BIT |
-            vk::COLOR_COMPONENT_B_BIT |
-            vk::COLOR_COMPONENT_A_BIT,  
-        .blendEnable = vk::TRUE,
-        .srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = vk::BLEND_FACTOR_ZERO,
-        .srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
-        .dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        .colorBlendOp = vk::BLEND_OP_ADD,
-        .alphaBlendOp = vk::BLEND_OP_ADD,
-    }});
+	PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfo().setBlendConstants(
+		{ 1.0, 1.0, 1.0, 1.0 }
+	).setLogicOp(
+		vk::LOGIC_OP_COPY
+	).setLogicOpEnable(
+		vk::FALSE
+	).setAttachments(
+		{
+			{
+				.colorWriteMask = vk::COLOR_COMPONENT_R_BIT | vk::COLOR_COMPONENT_G_BIT | vk::COLOR_COMPONENT_B_BIT
+					| vk::COLOR_COMPONENT_A_BIT,
+				.blendEnable = vk::TRUE,
+				.srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
+				.dstAlphaBlendFactor = vk::BLEND_FACTOR_ZERO,
+				.srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
+				.dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+				.colorBlendOp = vk::BLEND_OP_ADD,
+				.alphaBlendOp = vk::BLEND_OP_ADD,
+			}
+		}
+	);
 
-    PipelineRasterizationStateCreateInfo rasterisation_state = vk::pipelineRasterizationStateCreateInfo()
-    .setDepthClampEnable(vk::FALSE)
-    .setRasterizerDiscardEnable(vk::FALSE)
-    .setPolygonMode(vk::POLYGON_MODE_FILL)
-    .setLineWidth(1.0)
-    .setCullMode(vk::CULL_MODE_NONE)
-    .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
-    .setDepthBiasEnable(vk::FALSE);
+	PipelineRasterizationStateCreateInfo rasterisation_state = vk::pipelineRasterizationStateCreateInfo()
+		.setDepthClampEnable(
+		vk::FALSE
+	).setRasterizerDiscardEnable(
+		vk::FALSE
+	).setPolygonMode(
+		vk::POLYGON_MODE_FILL
+	).setLineWidth(
+		1.0
+	).setCullMode(vk::CULL_MODE_NONE).setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE).setDepthBiasEnable(vk::FALSE);
 
-    PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfo()
-    .setViewports({{}})
-    .setScissors({{}});
+	PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfo().setViewports(
+		{ { } }
+	).setScissors({ { } });
 
-    PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
-    .setDynamicStates(
-    {
-        vk::DYNAMIC_STATE_VIEWPORT,
-        vk::DYNAMIC_STATE_LINE_WIDTH,
-        vk::DYNAMIC_STATE_SCISSOR,
-        vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
-    });
+	PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo().setDynamicStates(
+		{
+			vk::DYNAMIC_STATE_VIEWPORT,
+			vk::DYNAMIC_STATE_LINE_WIDTH,
+			vk::DYNAMIC_STATE_SCISSOR,
+			vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY
+		}
+	);
 
-    PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo()
-    .setDepthTestEnable(vk::TRUE)
-    .setDepthWriteEnable(vk::TRUE)
-    .setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL)
-    .setBack({.compareOp = vk::COMPARE_OP_ALWAYS});
+	PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo().setDepthTestEnable(
+		vk::TRUE
+	).setDepthWriteEnable(
+		vk::TRUE
+	).setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL).setBack({ .compareOp = vk::COMPARE_OP_ALWAYS });
 
-    Pipeline pipeline = vk::graphicsPipelineCreateInfo()
-    .setStages({
-        vk::pipelineShaderStageCreateInfo()
-        .setStage(vk::SHADER_STAGE_VERTEX_BIT)
-        .setMod(shader_module)
-        .setName("vertexMain"),
-        vk::pipelineShaderStageCreateInfo()
-        .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
-        .setMod(shader_module)
-        .setName("fragmentMain")
-    })
-    .setLayout(pipeline_layout.layout)
-    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
-    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
-    .setDynamicState(&dynamic_state)
-    .setRasterizationState(&rasterisation_state)
-    .setMultisampleState(&multi_sample_state)
-    .setColorBlendState(&color_blend_state)
-    .setDepthStencilState(&stencil_state)
-    .setViewportState(&view_port_state)
-    .setNext(&p_rendering_info)
-    .build(context.device)!!;
+	Pipeline pipeline = vk::graphicsPipelineCreateInfo().setStages(
+		{
+			vk::pipelineShaderStageCreateInfo().setStage(
+				vk::SHADER_STAGE_VERTEX_BIT
+			).setMod(shader_module).setName("vertexMain"),
+			vk::pipelineShaderStageCreateInfo().setStage(
+				vk::SHADER_STAGE_FRAGMENT_BIT
+			).setMod(shader_module).setName("fragmentMain")
+		}
+	).setLayout(
+		pipeline_layout.layout
+	).setInputAssemblyState(
+		&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+	).setVertexInputState(
+		&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0)
+	).setDynamicState(
+		&dynamic_state
+	).setRasterizationState(
+		&rasterisation_state
+	).setMultisampleState(
+		&multi_sample_state
+	).setColorBlendState(
+		&color_blend_state
+	).setDepthStencilState(
+		&stencil_state
+	).setViewportState(&view_port_state).setNext(&p_rendering_info).build(context.device)!!;
 
-    defer pipeline.free(context.device);
+	defer pipeline.free(context.device);
 
-    RenderingInfo rendering_info = vk::renderingInfo()
-    .setLayerCount(1)
-    .setRenderArea({
-        .offset = { .x = 0, .y = 0 },
-        .extent = context.extent,
-    });
+	RenderingInfo rendering_info = vk::renderingInfo().setLayerCount(
+		1
+	).setRenderArea({ .offset = { .x = 0, .y = 0 }, .extent = context.extent, });
 
-    bool running = true;
-    bool pause = false;
-    Vec2f prev_mouse = {window_size.x / 4, window_size.y / 4};
-    
-    Clock animation_time = clock::now();
-    Clock render_time = clock::now();
-    double physics_accumulator = 0.0;
+	bool running = true;
+	bool pause = false;
+	Vec2f prev_mouse = { window_size.x / 4, window_size.y / 4 };
 
-    while (running) {
-        NanoDuration start_time = render_time.mark();
+	Clock animation_time = clock::now();
+	Clock render_time = clock::now();
+	double physics_accumulator = 0.0;
 
-        double frame_time = animation_time.mark().to_sec();
+	while (running)
+	{
+		NanoDuration start_time = render_time.mark();
 
-        EventMap event = win.getEvent();
-       
-        // if (event.is_pressed(LEFT_MOUSE)) {
-        //     Vec2f mouse_pos = win.getMousePos();
-        //     camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
-        //     ecs::@upload(manager, scene, &&camera.data());
-        //     prev_mouse = mouse_pos;
-        // }
+		double frame_time = animation_time.mark().to_sec();
 
-        if (event.is_pressed(P)) {
-            pause = !pause;
-        }
+		EventMap event = win.getEvent();
 
-        if (event.is_pressed(MOUSE_SCROLL_DOWN)) {
-            camera.zoom(-2);
-            ecs::@upload(manager, scene, &&camera.data());
-        }
+		// if (event.is_pressed(LEFT_MOUSE)) {
+		// Vec2f mouse_pos = win.getMousePos();
+		// camera.rotate(mouse_pos.x - prev_mouse.x, mouse_pos.y - prev_mouse.y);
+		// ecs::@upload(manager, scene, &&camera.data());
+		// prev_mouse = mouse_pos;
+		// }
 
-        if (event.is_pressed(MOUSE_SCROLL_UP)) {
-            camera.zoom(2);
-            ecs::@upload(manager, scene, &&camera.data());
-        }
+		if (event.is_pressed(P))
+		{
+			pause = !pause;
+		}
 
-        if (event.is_pressed(ESCAPE)) {
-            running = false;
-        }
+		if (event.is_pressed(MOUSE_SCROLL_DOWN))
+		{
+			camera.zoom(-2);
+			ecs::@upload(manager, scene, &&camera.data());
+		}
 
-		if (pause == false) {
+		if (event.is_pressed(MOUSE_SCROLL_UP))
+		{
+			camera.zoom(2);
+			ecs::@upload(manager, scene, &&camera.data());
+		}
+
+		if (event.is_pressed(ESCAPE))
+		{
+			running = false;
+		}
+
+		if (pause == false)
+		{
 			physics_system(manager, event, frame_time);
 		}
 
-        uint next_image = context.next_image()!!;
-    
-        ImageMemoryBarrier2 begin_barrier = {
-            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .image = context.swapchain_images[next_image],
-            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask = 0,
-            .dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .subresourceRange = {
-                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            }
-        };
+		uint next_image = context.next_image()!!;
 
-        ImageMemoryBarrier2 end_barrier = {
-            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .image = context.swapchain_images[next_image],
-            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstStageMask = vk::PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-            .srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .dstAccessMask = 0,
-            .oldLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .newLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            .subresourceRange = {
-                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            }
-        };
+		ImageMemoryBarrier2 begin_barrier = {
+			.sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.image = context.swapchain_images[next_image],
+			.srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.srcAccessMask = 0,
+			.dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+			.oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+			.newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.subresourceRange = {
+				.aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			}
+		};
 
-       RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
-        .setImageView(context.swapchain_views[next_image])
-        .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({
-            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        });
+		ImageMemoryBarrier2 end_barrier = {
+			.sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.image = context.swapchain_images[next_image],
+			.srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask = vk::PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+			.srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+			.dstAccessMask = 0,
+			.oldLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.newLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			.subresourceRange = {
+				.aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			}
+		};
 
-        RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
-        .setImageView(descriptor_images.last()!!.imageView)
-        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({ .depthStencil = { 1.0, 0 } });
+		RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo().setImageView(
+			context.swapchain_views[next_image]
+		).setImageLayout(
+			vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		).setStoreOp(
+			vk::ATTACHMENT_STORE_OP_STORE
+		).setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR).setClearValue({ .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 } } });
 
-        CommandBuffer command_buffer = context.command_buffers[next_image];
-        vk::resetCommandBuffer(command_buffer, 0)!!;
-        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
- 
-        vk::cmdSetLineWidth(command_buffer, 1.0);
-        vk::cmdSetViewport(command_buffer, 0, 1, (Viewport[]){{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y}});
-        vk::cmdSetScissor(command_buffer, 0, 1, (Rect2D[]){{.extent = context.extent, .offset = { .x = 0, .y = 0 }}});
+		RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo().setImageView(
+			descriptor_images.last()!!.imageView
+		).setImageLayout(
+			vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+		).setStoreOp(
+			vk::ATTACHMENT_STORE_OP_STORE
+		).setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR).setClearValue({ .depthStencil = { 1.0, 0 } });
 
-        // Begin dynamic rendering
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
-        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
+		CommandBuffer command_buffer = context.command_buffers[next_image];
+		vk::resetCommandBuffer(command_buffer, 0)!!;
+		vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
 
-        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		vk::cmdSetLineWidth(command_buffer, 1.0);
+		vk::cmdSetViewport(
+			command_buffer,
+			0,
+			1,
+			(Viewport[]) {
+				{
+					.width = window_size.x,
+					.height = -window_size.y,
+					.minDepth = 0.0,
+					.maxDepth = 1.0,
+					.y = window_size.y
+				}
+			}
+		);
+		vk::cmdSetScissor(
+			command_buffer,
+			0,
+			1,
+			(Rect2D[]) { { .extent = context.extent, .offset = { .x = 0, .y = 0 } } }
+		);
 
-        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, draw_buffer.offset, vk::INDEX_TYPE_UINT16);
- 
-        rendering_info.setColorAttachments({ main_render_target });
-        rendering_info.setDepthAttachment(&main_depth_target);
+		// Begin dynamic rendering
+		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
+		vk::cmdPushDescriptorSetKHR(
+			command_buffer,
+			vk::PIPELINE_BIND_POINT_GRAPHICS,
+			pipeline_layout.layout,
+			0,
+			(uint)pipeline_layout.sets.len(),
+			pipeline_layout.sets.entries
+		);
 
-        vk::cmdBeginRendering(command_buffer, &rendering_info);
+		vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        manager.@query("Render"; Entity entity) {
-            uint offset = (uint)ecs::@get_offset(manager, entity, "Render")!!;
+		vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, draw_buffer.offset, vk::INDEX_TYPE_UINT16);
 
-            CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
-            PushConstantData constant_data = {
-                .draw_index = offset / Render.sizeof,
-            };
+		rendering_info.setColorAttachments({ main_render_target });
+		rendering_info.setDepthAttachment(&main_depth_target);
 
-            if (try state) {
-                constant_data.collided = state.collided;
-                state.collided = false;
-            }
-			
-            vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+		vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-            // constant_data.collided = true;
+		manager.@query("Render" ; Entity entity)
+		{
+			uint offset = (uint)ecs::@get_offset(manager, entity, "Render")!!;
 
-            // vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
-            // vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            // vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
-        };
+			CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
+			PushConstantData constant_data = { .draw_index = offset / Render.sizeof, };
 
-        vk::cmdEndRendering(command_buffer);
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
-        vk::endCommandBuffer(command_buffer)!!;
-         
-        context.present_image(next_image, command_buffer)!!;
+			if (try state)
+			{
+				constant_data.collided = state.collided;
+				state.collided = false;
+			}
 
-        NanoDuration time_delta = (start_time - render_time.mark());
-        if (time_delta <= min_frame_time) {
-            std::thread::sleep_ns(min_frame_time - time_delta)!!;
-            time_delta = (start_time - render_time.mark());
-        }
-    }
+			vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+			vk::cmdPushConstants(
+				command_buffer,
+				pipeline_layout.layout,
+				vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+				0,
+				PushConstantData.sizeof,
+				&constant_data
+			);
+			vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+
+			// constant_data.collided = true;
+
+			// vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_LINE_LIST);
+			// vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+			// vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+		};
+
+		vk::cmdEndRendering(command_buffer);
+		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
+		vk::endCommandBuffer(command_buffer)!!;
+
+		context.present_image(next_image, command_buffer)!!;
+
+		NanoDuration time_delta = (start_time - render_time.mark());
+		if (time_delta <= min_frame_time)
+		{
+			std::thread::sleep_ns(min_frame_time - time_delta)!!;
+			time_delta = (start_time - render_time.mark());
+		}
+	}
 }
