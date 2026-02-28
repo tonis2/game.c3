@@ -17,7 +17,7 @@ const ITERS_PER_SUBSTEP = 4; // 4 substeps × 4 iters = 16 total per frame
 const double PHYSICS_TIMESTEP = 1.0 / PHYSICS_FPS;
 const double MAX_PHYSICS_ACCUMULATOR = 0.25; // Prevent spiral of death
 
-NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
+NanoDuration min_frame_time = (NanoDuration)(100_000_00_00 / MAX_FPS);
 
 alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
