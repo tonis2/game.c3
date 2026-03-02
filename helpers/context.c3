@@ -196,33 +196,33 @@ fn DeviceContext? createContext(c3w::Window win)
 				switch (backend)
 				{
 					case WAYLAND:
-					{
-						WaylandWindow* wl = (WaylandWindow*)win.src.backend_data;
-						WaylandSurfaceCreateInfoKHR createInfo = {
-							vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-							null,
-							0,
-							wl.display,
-							wl.surface,
-						};
-						vk::createWaylandSurfaceKHR(instance, &createInfo, null, &surface)!!;
-					}
+						{
+							WaylandWindow* wl = (WaylandWindow*)win.src.backend_data;
+							WaylandSurfaceCreateInfoKHR createInfo = {
+								vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
+								null,
+								0,
+								wl.display,
+								wl.surface,
+							};
+							vk::createWaylandSurfaceKHR(instance, &createInfo, null, &surface)!!;
+						}
 					case X11:
-					{
-						X11Window* x11 = (X11Window*)win.src.backend_data;
-						XcbSurfaceCreateInfoKHR createInfo = {
-							vk::STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
-							null,
-							0,
-							x11.connection,
-							(vk::Window)x11.window,
-						};
-						vk::createXcbSurfaceKHR(instance, &createInfo, null, &surface)!!;
-					}
+						{
+							X11Window* x11 = (X11Window*)win.src.backend_data;
+							XcbSurfaceCreateInfoKHR createInfo = {
+								vk::STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
+								null,
+								0,
+								x11.connection,
+								(vk::Window)x11.window,
+							};
+							vk::createXcbSurfaceKHR(instance, &createInfo, null, &surface)!!;
+						}
 					default:
-					{
-						// No backend available
-					}
+						{
+							// No backend available
+						}
 				}
 			}
 		$case WIN32:
