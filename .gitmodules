@@ -4,3 +4,6 @@
 [submodule "dependencies/gltf.c3l"]
 	path = dependencies/gltf.c3l
 	url = git@github.com:tonis2/gltf.c3.git
+[submodule "dependencies/window.c3l"]
+	path = dependencies/window.c3l
+	url = git@github.com:tonis2/Window.c3.git
