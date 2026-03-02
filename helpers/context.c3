@@ -146,13 +146,15 @@ fn DeviceContext? createContext(c3w::Window win)
 
 	if (env::OS_TYPE == LINUX)
 	{
-		$if $feature(WAYLAND):
-			extensions.push_all({ "VK_KHR_wayland_surface" });
-		$endif
-
-		$if $feature(X11):
-			extensions.push_all({ "VK_KHR_xcb_surface" });
-		$endif
+		BackendType backend = win.getBackend();
+		switch (backend)
+		{
+			case WAYLAND:
+				extensions.push_all({ "VK_KHR_wayland_surface" });
+			case X11:
+				extensions.push_all({ "VK_KHR_xcb_surface" });
+			default:
+		}
 	}
 
 	vk::checkInstanceExtensionSupport(extensions)!!;
@@ -190,27 +192,38 @@ fn DeviceContext? createContext(c3w::Window win)
 			vk::createMetalSurfaceEXT(instance, &createInfo, null, &surface)!!;
 		$case LINUX:
 			{
-				$if $feature(WAYLAND):
-					WaylandSurfaceCreateInfoKHR createInfo = {
-						vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-						null,
-						0,
-						win.src.display,
-						win.src.surface,
-					};
-					vk::createWaylandSurfaceKHR(instance, &createInfo, null, &surface)!!;
-				$endif
-
-				$if $feature(X11):
-					XcbSurfaceCreateInfoKHR createInfo = {
-						vk::STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
-						null,
-						0,
-						win.src.connection,
-						(vk::Window)win.src.window,
-					};
-					vk::createXcbSurfaceKHR(instance, &createInfo, null, &surface)!!;
-				$endif
+				BackendType backend = win.getBackend();
+				switch (backend)
+				{
+					case WAYLAND:
+					{
+						WaylandWindow* wl = (WaylandWindow*)win.src.backend_data;
+						WaylandSurfaceCreateInfoKHR createInfo = {
+							vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
+							null,
+							0,
+							wl.display,
+							wl.surface,
+						};
+						vk::createWaylandSurfaceKHR(instance, &createInfo, null, &surface)!!;
+					}
+					case X11:
+					{
+						X11Window* x11 = (X11Window*)win.src.backend_data;
+						XcbSurfaceCreateInfoKHR createInfo = {
+							vk::STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
+							null,
+							0,
+							x11.connection,
+							(vk::Window)x11.window,
+						};
+						vk::createXcbSurfaceKHR(instance, &createInfo, null, &surface)!!;
+					}
+					default:
+					{
+						// No backend available
+					}
+				}
 			}
 		$case WIN32:
 			{
