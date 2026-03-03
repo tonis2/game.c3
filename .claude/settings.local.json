@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ldconfig:*)",
-      "Bash(c3c:*)",
-      "Bash(source:*)"
-    ]
-  }
-}
