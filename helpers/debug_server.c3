@@ -513,6 +513,29 @@ fn void capture_screenshot(DebugState* state, DeviceContext* ctx, uint image_ind
 
 // === JSON Serialization ===
 
+fn void append_float(DString* out, float v)
+{
+	if (v != v || v == float.inf || v == -float.inf)
+	{
+		out.appendf("null");
+	}
+	else
+	{
+		out.appendf("%f", v);
+	}
+}
+
+fn void append_vec3(DString* out, String name, float[<3>] v)
+{
+	out.appendf(`,"%s":[`, name);
+	append_float(out, v[0]);
+	out.appendf(",");
+	append_float(out, v[1]);
+	out.appendf(",");
+	append_float(out, v[2]);
+	out.appendf("]");
+}
+
 fn void serialize_bodies(PhysicsWorld* world, DString* out, int filter_id)
 {
 	out.appendf("[");
@@ -529,17 +552,21 @@ fn void serialize_bodies(PhysicsWorld* world, DString* out, int filter_id)
 
 		ShapeType shape_type = body.collider.shape.get_type();
 		out.appendf(`{"id":%d`, body.id);
-		out.appendf(`,"position":[%f,%f,%f]`,
-			body.collider.translation[0], body.collider.translation[1], body.collider.translation[2]);
-		out.appendf(`,"rotation":[%f,%f,%f,%f]`,
-			body.collider.rotation.v.x, body.collider.rotation.v.y,
-			body.collider.rotation.v.z, body.collider.rotation.v.w);
-		out.appendf(`,"linear_velocity":[%f,%f,%f]`,
-			body.linear_velocity[0], body.linear_velocity[1], body.linear_velocity[2]);
-		out.appendf(`,"angular_velocity":[%f,%f,%f]`,
-			body.angular_velocity[0], body.angular_velocity[1], body.angular_velocity[2]);
-		out.appendf(`,"mass":%f,"sleeping":%s,"is_static":%s,"is_kinematic":%s,"shape_type":%d}`,
-			body.mass,
+		append_vec3(out, "position", body.collider.translation);
+		out.appendf(`,"rotation":[`);
+		append_float(out, body.collider.rotation.v.x);
+		out.appendf(",");
+		append_float(out, body.collider.rotation.v.y);
+		out.appendf(",");
+		append_float(out, body.collider.rotation.v.z);
+		out.appendf(",");
+		append_float(out, body.collider.rotation.v.w);
+		out.appendf("]");
+		append_vec3(out, "linear_velocity", body.linear_velocity);
+		append_vec3(out, "angular_velocity", body.angular_velocity);
+		out.appendf(`,"mass":`);
+		append_float(out, body.mass);
+		out.appendf(`,"sleeping":%s,"is_static":%s,"is_kinematic":%s,"shape_type":%d}`,
 			body.sleeping ? "true" : "false",
 			body.is_static ? "true" : "false",
 			body.is_kinematic ? "true" : "false",
