@@ -82,7 +82,11 @@ fn uint? DeviceContext.next_image(self)
 	return self.swapchain.getNextImage(self.device, wait_semaphore);
 }
 
-fn void? DeviceContext.present_image(&self, uint next_image, CommandBuffer command_buffer)
+fn void? DeviceContext.present_image(
+	&self,
+	uint next_image,
+	CommandBuffer command_buffer
+)
 {
 	Semaphore wait_semaphore = self.wait_semaphores[self.frame];
 	Semaphore signal_semaphore = self.signal_semaphores[next_image];
@@ -92,7 +96,9 @@ fn void? DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
 		{ wait_semaphore }
 	).setCommandBuffers(
 		{ command_buffer }
-	).setSignalSemaphores({ signal_semaphore }).setWaitDstStageMask({ vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT });
+	).setSignalSemaphores(
+		{ signal_semaphore }
+	).setWaitDstStageMask({ vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT });
 
 	vk::queueSubmit(self.graphics_queue.handle, 1, &submit_info, frame_fence)!;
 
@@ -135,7 +141,9 @@ fn DeviceContext? createContext(c3w::Window win)
 
 	if (env::OS_TYPE == MACOS)
 	{
-		extensions.push_all({ "VK_EXT_metal_surface", "VK_KHR_portability_enumeration" });
+		extensions.push_all(
+			{ "VK_EXT_metal_surface", "VK_KHR_portability_enumeration" }
+		);
 		device_extensions.push("VK_KHR_portability_subset");
 	}
 
@@ -167,7 +175,8 @@ fn DeviceContext? createContext(c3w::Window win)
 		.apiVersion = vk::@makeApiVersion(0, 1, 3, 0)
 	};
 
-	InstanceCreateInfo instanceInfo = vk::instanceCreateInfo().setApplicationInfo(
+	InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
+		.setApplicationInfo(
 		&info
 	).setFlags(
 		env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0
@@ -197,7 +206,8 @@ fn DeviceContext? createContext(c3w::Window win)
 				{
 					case WAYLAND:
 						{
-							WaylandWindow* wl = (WaylandWindow*)win.src.backend_data;
+							WaylandWindow* wl = (WaylandWindow*)win.src
+								.backend_data;
 							WaylandSurfaceCreateInfoKHR createInfo = {
 								vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
 								null,
@@ -205,7 +215,12 @@ fn DeviceContext? createContext(c3w::Window win)
 								wl.display,
 								wl.surface,
 							};
-							vk::createWaylandSurfaceKHR(instance, &createInfo, null, &surface)!!;
+							vk::createWaylandSurfaceKHR(
+								instance,
+								&createInfo,
+								null,
+								&surface
+							)!!;
 						}
 					case X11:
 						{
@@ -217,7 +232,12 @@ fn DeviceContext? createContext(c3w::Window win)
 								x11.connection,
 								(vk::Window)x11.window,
 							};
-							vk::createXcbSurfaceKHR(instance, &createInfo, null, &surface)!!;
+							vk::createXcbSurfaceKHR(
+								instance,
+								&createInfo,
+								null,
+								&surface
+							)!!;
 						}
 					default:
 						{
@@ -234,7 +254,12 @@ fn DeviceContext? createContext(c3w::Window win)
 					win.src.instance,
 					win.src.hwnd
 				};
-				vk::createWin32SurfaceKHR(instance, &createInfo, null, &surface)!!;
+				vk::createWin32SurfaceKHR(
+					instance,
+					&createInfo,
+					null,
+					&surface
+				)!!;
 			}
 		$default:
 			{
@@ -250,7 +275,9 @@ fn DeviceContext? createContext(c3w::Window win)
 	{
 		int queue_index = -1;
 		// Check for device extension support
-		bool supports_extensions = entry.checkExtensionSupport(device_extensions)!!;
+		bool supports_extensions = entry.checkExtensionSupport(
+			device_extensions
+		)!!;
 		QueuePropertiesList queue_properties = entry.getQueueProperties()!!;
 
 		queue_index = queue_properties.find(
@@ -339,20 +366,25 @@ fn DeviceContext? createContext(c3w::Window win)
 
 	vk::getPhysicalDeviceFeatures2(physical_device, &device_features);
 
-	DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfo().setQueueFamilyIndex(
+	DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfo()
+		.setQueueFamilyIndex(
 		graphics_queue.index
 	).setQueuePriorities({ 1.0 });
 
 	device = vk::deviceCreateInfo().setQueueCreateInfos(
 		{ graphicsInfo }
-	).setEnabledExtensionNames(device_extensions.array_view()).setNext(&device_features).build(physical_device)!!;
+	).setEnabledExtensionNames(
+		device_extensions.array_view()
+	).setNext(&device_features).build(physical_device)!!;
 
 
 	graphics_queue.handle = device.getQueue(graphics_queue.index);
 
 	SurfaceFormatList surface_formats = surface.getFormats(physical_device)!!;
 	PresentModeList present_modes = surface.getPresentModes(physical_device)!!;
-	SurfaceCapabilitiesKHR capabilities = surface.deviceSurfaceCapabilities(physical_device)!!;
+	SurfaceCapabilitiesKHR capabilities = surface.deviceSurfaceCapabilities(
+		physical_device
+	)!!;
 
 	defer
 	{
@@ -364,12 +396,17 @@ fn DeviceContext? createContext(c3w::Window win)
 		features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
 		device: physical_device
 	);
-	SurfaceFormatKHR format = { .format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR };
+	SurfaceFormatKHR format = {
+		.format = vk::FORMAT_B8G8R8A8_UNORM,
+		.colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR
+	};
 
-	uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
+	uint min_images = capabilities.maxImageCount
+		!= 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
 	Extent2D extent = { (uint)win.width, (uint)win.height };
 
-	SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHR().setMinImageCount(
+	SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHR()
+		.setMinImageCount(
 		min_images
 	).setImageUsage(
 		vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT
@@ -383,10 +420,15 @@ fn DeviceContext? createContext(c3w::Window win)
 		capabilities.currentTransform
 	).setImageColorSpace(
 		format.colorSpace
-	).setImageFormat(format.format).setSurface(surface).setImageArrayLayers(1).setImageExtent(extent);
+	).setImageFormat(
+		format.format
+	).setSurface(surface).setImageArrayLayers(1).setImageExtent(extent);
 
 	SwapchainKHR swapchain = swapchain_info.build(device)!!;
-	vk::ImageList swapchain_images = swapchain.getImages(device, swapchain_info.minImageCount)!!;
+	vk::ImageList swapchain_images = swapchain.getImages(
+		device,
+		swapchain_info.minImageCount
+	)!!;
 
 	ImageViewList swapchain_views;
 
@@ -416,8 +458,13 @@ fn DeviceContext? createContext(c3w::Window win)
 		swapchain_views.push(view);
 	}
 
-	CommandPool command_pool = device.createCommandPool(queue: graphics_queue.index)!;
-	CommandBufferList command_buffers = device.createCommandBuffers(command_pool, swapchain_info.minImageCount)!;
+	CommandPool command_pool = device.createCommandPool(
+		queue: graphics_queue.index
+	)!;
+	CommandBufferList command_buffers = device.createCommandBuffers(
+		command_pool,
+		swapchain_info.minImageCount
+	)!;
 
 	SemaphoreList wait_semaphores;
 	SemaphoreList signal_semaphores;
@@ -427,7 +474,11 @@ fn DeviceContext? createContext(c3w::Window win)
 	{
 		wait_semaphores.push(vk::semaphoreCreateInfo().build(device))!;
 		signal_semaphores.push(vk::semaphoreCreateInfo().build(device))!;
-		frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
+		frame_fences.push(
+			vk::fenceCreateInfo().setFlags(
+				vk::FENCE_CREATE_SIGNALED_BIT
+			).build(device)
+		)!;
 	}
 
 	// Single allocator manages everything
@@ -435,7 +486,8 @@ fn DeviceContext? createContext(c3w::Window win)
 		.device = device,
 		.pdevice = physical_device,
 		.queue = &graphics_queue,
-		.flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
+		.flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT
+			| vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
 	}.init()!;
 
 	return (DeviceContext) {
@@ -459,7 +511,11 @@ fn DeviceContext? createContext(c3w::Window win)
 	};
 }
 
-fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, DeviceContext* context)
+fn void? DescriptorImages.addImageTexture(
+	&self,
+	image::Image image_data,
+	DeviceContext* context
+)
 {
 	vk::Device device = context.device;
 	vk::PhysicalDevice pdevice = context.pdevice;
@@ -469,7 +525,9 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 	vk::MemoryAllocator* allocator = &context.allocator;
 
 	Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
-	DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	DescriptorImageInfo texture = {
+		.imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	};
 
 	vk::Image texture_image = vk::imageCreateInfo().setImageType(
 		vk::IMAGE_TYPE_2D
@@ -485,9 +543,15 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 		vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT
 	).setInitialLayout(
 		vk::IMAGE_LAYOUT_UNDEFINED
-	).setTiling(vk::IMAGE_TILING_OPTIMAL).setFormat(image_format).build(device)!;
+	).setTiling(
+		vk::IMAGE_TILING_OPTIMAL
+	).setFormat(image_format).build(device)!;
 
-	vk::create_image_buffer(texture_image, allocator, properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT)!;
+	vk::create_image_buffer(
+		texture_image,
+		allocator,
+		properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+	)!;
 
 	texture.sampler = vk::samplerCreateInfo().setMagFilter(
 		vk::FILTER_NEAREST
@@ -507,7 +571,9 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 		1.0
 	).setMaxAnisotropy(
 		1.0
-	).setAnisotropyEnable(vk::FALSE).setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE).build(device)!;
+	).setAnisotropyEnable(
+		vk::FALSE
+	).setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE).build(device)!;
 
 	texture.imageView = vk::imageViewCreateInfo().setViewType(
 		vk::IMAGE_VIEW_TYPE_2D
@@ -533,7 +599,8 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 	Memory stage_buffer = vk::new_buffer(
 		allocator: allocator,
 		usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT
+			| vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		data: image_data.pixels,
 		data_size: (usz)image_data.width * image_data.height * 4
 	)!!;
@@ -576,9 +643,14 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 		}
 	};
 
-	device.@single_time_command(queue: context.graphics_queue ; CommandBuffer command_buffer)
+	device.@single_time_command(
+		queue: context.graphics_queue ; CommandBuffer command_buffer
+	)
 	{
-		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ transfer_barrier }));
+		vk::cmdPipelineBarrier2(
+			command_buffer,
+			&&vk::dependencyInfo().setImageMemoryBarriers({ transfer_barrier })
+		);
 
 		BufferImageCopy bufferCopyRegion = {
 			.bufferOffset = 0,
@@ -591,7 +663,11 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 				.layerCount = 1,
 			},
 			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { .width = image_data.width, .height = image_data.height, .depth = 1 }
+			.imageExtent = {
+				.width = image_data.width,
+				.height = image_data.height,
+				.depth = 1
+			}
 		};
 
 		vk::cmdCopyBufferToImage(
@@ -603,7 +679,10 @@ fn void? DescriptorImages.addImageTexture(&self, image::Image image_data, Device
 			&bufferCopyRegion
 		);
 
-		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ finalize_barrier }));
+		vk::cmdPipelineBarrier2(
+			command_buffer,
+			&&vk::dependencyInfo().setImageMemoryBarriers({ finalize_barrier })
+		);
 	}!;
 
 	self.push(texture);
@@ -635,10 +714,17 @@ fn vk::Image? DescriptorImages.addDepthTexture(
 	).setSamples(
 		vk::SAMPLE_COUNT_1_BIT
 	).setUsage(
-		vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT
-	).setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED).setTiling(vk::IMAGE_TILING_OPTIMAL).setFormat(format).build(device)!;
+		vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+			| vk::IMAGE_USAGE_SAMPLED_BIT
+	).setInitialLayout(
+		vk::IMAGE_LAYOUT_UNDEFINED
+	).setTiling(vk::IMAGE_TILING_OPTIMAL).setFormat(format).build(device)!;
 
-	vk::create_image_buffer(depth_image, allocator, properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT)!;
+	vk::create_image_buffer(
+		depth_image,
+		allocator,
+		properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+	)!;
 
 	texture.sampler = vk::samplerCreateInfo().setMagFilter(
 		vk::FILTER_LINEAR
@@ -660,7 +746,9 @@ fn vk::Image? DescriptorImages.addDepthTexture(
 		vk::SAMPLER_MIPMAP_MODE_LINEAR
 	).setMaxAnisotropy(
 		1.0
-	).setAnisotropyEnable(vk::FALSE).setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE).build(device)!;
+	).setAnisotropyEnable(
+		vk::FALSE
+	).setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE).build(device)!;
 
 	texture.imageView = vk::imageViewCreateInfo().setViewType(
 		vk::IMAGE_VIEW_TYPE_2D
@@ -685,7 +773,8 @@ fn vk::Image? DescriptorImages.addDepthTexture(
 
 	device.@single_time_command(queue: queue ; CommandBuffer command_buffer)
 	{
-		ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrier().setImage(
+		ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrier()
+			.setImage(
 			depth_image
 		).setSubresourceRange(
 			{
@@ -699,12 +788,16 @@ fn vk::Image? DescriptorImages.addDepthTexture(
 			0
 		).setDstAccessMask(
 			vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-		).setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED).setNewLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+		).setOldLayout(
+			vk::IMAGE_LAYOUT_UNDEFINED
+		).setNewLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
 		vk::cmdPipelineBarrier(
 			command_buffer,
-			vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-			vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+			vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+				| vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+			vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+				| vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
 			0,
 			0,
 			null,
@@ -719,9 +812,16 @@ fn vk::Image? DescriptorImages.addDepthTexture(
 	return depth_image;
 }
 
-fn DescriptorSetLayout? createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device)
+fn DescriptorSetLayout? createDescriptorLayout(
+	WriteDescriptorSet[] layouts,
+	ShaderStageFlags[] flags,
+	Device device
+)
 {
-	DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
+	DescriptorSetLayoutBinding* bindings = mem::new_array(
+		DescriptorSetLayoutBinding,
+		flags.len
+	);
 	defer mem::free(bindings);
 
 	foreach (uint i, set : layouts)
@@ -771,13 +871,19 @@ fn PipelineLayer? createPipelineLayout(
 	}
 
 	// Set-up descriptor info for uniform buffer usage
-	DescriptorSetLayout descriptor_layout = vk::descriptorSetLayoutCreateInfo().setFlags(
+	DescriptorSetLayout descriptor_layout = vk::descriptorSetLayoutCreateInfo()
+		.setFlags(
 		vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR
 	).setBindings(bindings.array_view()).build(device)!!;
 
-	PipelineLayoutCreateInfo pipeline_layout_info = vk::pipelineLayoutCreateInfo().setSetLayouts({ descriptor_layout });
+	PipelineLayoutCreateInfo pipeline_layout_info = vk::pipelineLayoutCreateInfo()
+		.setSetLayouts(
+		{ descriptor_layout }
+	);
 
-	if (push_ranges.len > 0) pipeline_layout_info.setPushConstantRanges(push_ranges);
+	if (push_ranges.len > 0) pipeline_layout_info.setPushConstantRanges(
+		push_ranges
+	);
 
 	layer.layout = pipeline_layout_info.build(device)!;
 	layer.descriptor_layout = descriptor_layout;
@@ -792,7 +898,11 @@ fn void PipelineLayer.free(&self, Device device)
 	self.sets.free();
 }
 
-fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* context)
+fn vk::Image? DescriptorImages.add_cube_map(
+	&self,
+	String path,
+	DeviceContext* context
+)
 {
 	vk::Device device = context.device;
 	vk::PhysicalDevice pdevice = context.pdevice;
@@ -805,7 +915,9 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 	// uint cube_map_height = cube_map_image.height / 6;
 	vk::Format cube_format = vk::FORMAT_R8G8B8A8_UNORM;
 
-	DescriptorImageInfo cube_texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	DescriptorImageInfo cube_texture = {
+		.imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	};
 
 	const uint LAYER_COUNT = 6;
 
@@ -829,7 +941,11 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 		vk::IMAGE_LAYOUT_UNDEFINED
 	).setTiling(vk::IMAGE_TILING_OPTIMAL).setFormat(cube_format).build(device)!;
 
-	vk::create_image_buffer(cube_image, allocator, properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT)!;
+	vk::create_image_buffer(
+		cube_image,
+		allocator,
+		properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+	)!;
 
 	cube_texture.sampler = vk::samplerCreateInfo().setMagFilter(
 		vk::FILTER_LINEAR
@@ -851,7 +967,9 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 		1.0
 	).setMaxAnisotropy(
 		1.0
-	).setAnisotropyEnable(vk::FALSE).setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE).build(device)!;
+	).setAnisotropyEnable(
+		vk::FALSE
+	).setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE).build(device)!;
 
 	cube_texture.imageView = vk::imageViewCreateInfo().setViewType(
 		vk::IMAGE_VIEW_TYPE_CUBE
@@ -870,14 +988,17 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 	Memory stage_buffer = vk::new_buffer(
 		allocator: allocator,
 		usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT
+			| vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		data: cube_map_image.pixels,
 		data_size: (usz)cube_map_image.width * cube_map_image.height * 4
 	)!!;
 
 	defer stage_buffer.free();
 
-	context.device.@single_time_command(queue: context.graphics_queue ; CommandBuffer command_buffer)
+	context.device.@single_time_command(
+		queue: context.graphics_queue ; CommandBuffer command_buffer
+	)
 	{
 		BufferImageCopy2[LAYER_COUNT] bufferCopyRegions;
 		ImageMemoryBarrier2[LAYER_COUNT] transfer_barriers;
@@ -942,15 +1063,25 @@ fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 					.layerCount = 1,
 				},
 				.imageOffset = { 0, 0, 0 },
-				.imageExtent = { .width = cube_map_image.width, .height = cube_map_image.height, .depth = 1 }
+				.imageExtent = {
+					.width = cube_map_image.width,
+					.height = cube_map_image.height,
+					.depth = 1
+				}
 			};
 		}
 
-		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers(&transfer_barriers));
+		vk::cmdPipelineBarrier2(
+			command_buffer,
+			&&vk::dependencyInfo().setImageMemoryBarriers(&transfer_barriers)
+		);
 
 		vk::cmdCopyBufferToImage2(command_buffer, &bufferCopyData);
 
-		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers(&finalize_barriers));
+		vk::cmdPipelineBarrier2(
+			command_buffer,
+			&&vk::dependencyInfo().setImageMemoryBarriers(&finalize_barriers)
+		);
 	}!;
 
 	self.push(cube_texture);

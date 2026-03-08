@@ -115,7 +115,10 @@ struct AnimationData
 	Component data;
 }
 
-macro bool AnimationData.equals(self, AnimationData b) @operator(==) => self.animation_index == b.animation_index;
+macro bool AnimationData.equals(
+	self,
+	AnimationData b
+) @operator(==) => self.animation_index == b.animation_index;
 
 struct Animation
 {
@@ -147,19 +150,27 @@ NodeComponent nodes;
 
 PhysicsWorld physics_world = collision::DEFAULT_PHYSICS_WORLD;
 
-fn void stageToGPU(vk::Allocator target_buffer, void* data, usz size, usz offset)
+fn void stageToGPU(
+	vk::Allocator target_buffer,
+	void* data,
+	usz size,
+	usz offset
+)
 {
 	vk::Device device = context.device;
 
 	Memory stage_buffer = vk::new_buffer(
 		allocator: &context.allocator,
 		usage: vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT
+			| vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		data: data,
 		data_size: size
 	)!!;
 
-	device.@single_time_command(queue: context.graphics_queue ; CommandBuffer command_buffer)
+	device.@single_time_command(
+		queue: context.graphics_queue ; CommandBuffer command_buffer
+	)
 	{
 		vk::cmdCopyBuffer(
 			command_buffer,
@@ -199,7 +210,11 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time)
 			{
 				if (rigid_body.is_kinematic)
 				{
-					physics_world.set_kinematic_target(collider.node_index, node.translation, node.rotation);
+					physics_world.set_kinematic_target(
+						collider.node_index,
+						node.translation,
+						node.rotation
+					);
 				}
 			}
 		};
@@ -217,9 +232,17 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time)
 		switch (event.type)
 		{
 			case ENTER:
-				io::printfn("Trigger %d: body %d entered", event.trigger_id, event.other_id);
+				io::printfn(
+					"Trigger %d: body %d entered",
+					event.trigger_id,
+					event.other_id
+				);
 			case EXIT:
-				io::printfn("Trigger %d: body %d exited", event.trigger_id, event.other_id);
+				io::printfn(
+					"Trigger %d: body %d exited",
+					event.trigger_id,
+					event.other_id
+				);
 		}
 	};
 
@@ -375,7 +398,12 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time)
 fn void main()
 {
 	c3w::Window win = c3w::new(
-		params: { .width = (int)window_size.x, .height = (int)window_size.y, .x = 0, .y = 0 },
+		params: {
+			.width = (int)window_size.x,
+			.height = (int)window_size.y,
+			.x = 0,
+			.y = 0
+		},
 		name: "GLTF animation"
 	)!!;
 
@@ -403,23 +431,28 @@ fn void main()
 
 	Memory draw_memory = vk::new_buffer(
 		allocator: &context.allocator,
-		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			| vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT
+			| vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		data: null,
 		data_size: 5_000_000
 	)!!;
 
 	Memory cpu_and_gpu = vk::new_buffer(
 		allocator: &context.allocator,
-		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			| vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		properties: vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT
+			| vk::MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		data: null,
 		data_size: 20_000_000
 	)!!;
 
 	Memory gpu_only_memory = vk::new_buffer(
 		allocator: &context.allocator,
-		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT
+		usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			| vk::BUFFER_USAGE_TRANSFER_DST_BIT
 			| vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
 		properties: vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 		data: null,
@@ -464,8 +497,10 @@ fn void main()
 		{
 			Render mesh_info;
 
-			gltf::Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-			gltf::Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+			gltf::Accessor pos_accessor = gltf
+				.accessors[primitive.attributes["POSITION"]!!];
+			gltf::Accessor index_accessor = gltf
+				.accessors[primitive.attributes["indices"]!!];
 
 			gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
@@ -476,10 +511,26 @@ fn void main()
 				// Cast data or use default value
 				Vertex data = {
 					.position = gltf.@cast_buffer(pos_accessor, i, Vec3f),
-					.tex_cord = gltf.@cast_buffer(primitive.attributes["TEXCOORD_0"], i, Vec2f) ?? { 0, 0 },
-					.normal = gltf.@cast_buffer(primitive.attributes["NORMAL"], i, Vec3f) ?? { 0, 0, 0 },
-					.tangent = gltf.@cast_buffer(primitive.attributes["TANGENT"], i, Vec4f) ?? { 0, 0, 0, 0 },
-					.weights = gltf.@cast_buffer(primitive.attributes["WEIGHTS_0"], i, Vec4f) ?? { 0, 0, 0, 0 },
+					.tex_cord = gltf.@cast_buffer(
+						primitive.attributes["TEXCOORD_0"],
+						i,
+						Vec2f
+					) ?? { 0, 0 },
+					.normal = gltf.@cast_buffer(
+						primitive.attributes["NORMAL"],
+						i,
+						Vec3f
+					) ?? { 0, 0, 0 },
+					.tangent = gltf.@cast_buffer(
+						primitive.attributes["TANGENT"],
+						i,
+						Vec4f
+					) ?? { 0, 0, 0, 0 },
+					.weights = gltf.@cast_buffer(
+						primitive.attributes["WEIGHTS_0"],
+						i,
+						Vec4f
+					) ?? { 0, 0, 0, 0 },
 				};
 
 				{
@@ -493,7 +544,9 @@ fn void main()
 								... gltf.@cast_buffer(accessor, i, short[4])
 							};
 						if (accessor.data_type
-							== DataType.CHAR) data.skin_pos = (uint[4]) { ... gltf.@cast_buffer(accessor, i, char[4]) };
+							== DataType.CHAR) data.skin_pos = (uint[4]) {
+								... gltf.@cast_buffer(accessor, i, char[4])
+							};
 					}
 				}
 
@@ -502,11 +555,15 @@ fn void main()
 
 			mesh_info = {
 				.vertexOffset = vertex_offset,
-				.firstIndex = (uint)(draw_buffer.used_size / index_accessor.stride()),
+				.firstIndex = (uint)(draw_buffer.used_size
+					/ index_accessor.stride()),
 				.indexCount = index_accessor.count
 			};
 
-			draw_buffer.@push(gltf.get_data(index_view), size: index_view.byteLength);
+			draw_buffer.@push(
+				gltf.get_data(index_view),
+				size: index_view.byteLength
+			);
 			meshes.set(mesh_index + prim_index, mesh_info);
 		}
 	}
@@ -522,7 +579,8 @@ fn void main()
 				.scale = node.scale,
 				.rotation = node.rotation,
 				.dirty = false,
-				.parent = node.parent != null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
+				.parent = node.parent
+					!= null ? (int)gltf.nodes.index_of(*node.parent)!! : -1,
 			}
 		);
 	}
@@ -543,7 +601,8 @@ fn void main()
 				.occlusionTexture = material.occlusionTexture.source,
 				.emissiveTexture = material.emissiveTexture.source,
 				.baseColorTexture = material.baseColorTexture.source,
-				.metallicRoughnessTexture = material.metallicRoughnessTexture.source,
+				.metallicRoughnessTexture = material.metallicRoughnessTexture
+					.source,
 			}
 		);
 	}
@@ -561,13 +620,33 @@ fn void main()
 			switch (shape.type)
 			{
 				case BOX:
-					collision_shapes.push(@clone(collision::aabb_from_half(shape.size)));
+					collision_shapes.push(
+						@clone(collision::aabb_from_half(shape.size))
+					);
 				case SPHERE:
-					collision_shapes.push(@clone((Sphere) { .radius = shape.radius }));
+					collision_shapes.push(
+						@clone((Sphere) { .radius = shape.radius })
+					);
 				case CYLINDER:
-					collision_shapes.push(@clone((Cylinder) { shape.height, shape.radius_top, shape.radius_bottom }));
+					collision_shapes.push(
+						@clone(
+							(Cylinder) {
+								shape.height,
+								shape.radius_top,
+								shape.radius_bottom
+							}
+						)
+					);
 				case CAPSULE:
-					collision_shapes.push(@clone((Capsule) { shape.height, shape.radius_top, shape.radius_bottom }));
+					collision_shapes.push(
+						@clone(
+							(Capsule) {
+								shape.height,
+								shape.radius_top,
+								shape.radius_bottom
+							}
+						)
+					);
 				default:
 					{
 					}
@@ -597,16 +676,22 @@ fn void main()
 			// For triggers, always use convex hull for simpler overlap detection
 			if (collider.is_trigger || collider.convex_hull)
 			{
-				collision::Mesh hull = collision::quickhull(vertices.array_view());
+				collision::Mesh hull = collision::quickhull(
+					vertices.array_view()
+				);
 				defer hull.free();
 				collision_shapes.push(@clone(hull));
 			}
 			else
 			{
-				collision::Mesh collision_mesh = collision::create_mesh(vertices.array_view(), indices.array_view());
+				collision::Mesh collision_mesh = collision::create_mesh(
+					vertices.array_view(),
+					indices.array_view()
+				);
 				defer collision_mesh.free();
 
-				if (node.extras.has_key("physics") && node.extras["physics"]!! == "bvh")
+				if (node.extras.has_key("physics")
+					&& node.extras["physics"]!! == "bvh")
 				{
 					// Build BVH tree, more precision but slower
 					collision::Mesh* clone_mesh = @clone(collision_mesh);
@@ -616,7 +701,9 @@ fn void main()
 				else
 				{
 					// Create compound mesh from concave mesh pieces.
-					MeshList pieces = collision_mesh.decompose(collision::COACD_FAST);
+					MeshList pieces = collision_mesh.decompose(
+						collision::COACD_FAST
+					);
 					defer pieces.release();
 
 					CompoundShape compound;
@@ -627,7 +714,12 @@ fn void main()
 		}
 	}
 
-	gltf::Light light = { .position = { 2, 12, 5 }, .color = { 1, 1, 1 }, .intensity = 3.0, .type = DIRECTIONAL };
+	gltf::Light light = {
+		.position = { 2, 12, 5 },
+		.color = { 1, 1, 1 },
+		.intensity = 3.0,
+		.type = DIRECTIONAL
+	};
 
 	// Build GPU draw commands for Vulkan
 	foreach (node : gltf.nodes)
@@ -647,7 +739,9 @@ fn void main()
 		{
 			gltf::Camera camera_data = gltf.cameras[node.camera];
 			// Extract global rotation from matrix (assuming no scale)
-			Quaternionf global_rotation = helpers::quaternion_from_matrix(global);
+			Quaternionf global_rotation = helpers::quaternion_from_matrix(
+				global
+			);
 
 			camera = {
 				.translation = global_position,
@@ -704,7 +798,8 @@ fn void main()
 				// If node has instance data, build transform matrices for it
 				if (node.attributes.len() > 0)
 				{
-					Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+					Accessor translation_accessor = gltf
+						.accessors[node.attributes["TRANSLATION"]!!];
 					render_data.instanceCount = translation_accessor.count;
 					render_data.firstInstance = 1;
 
@@ -712,8 +807,16 @@ fn void main()
 					{
 						Matrix4f instance_matrix = gltf::to_matrix(
 							gltf.@cast_buffer(translation_accessor, i, Vec3f),
-							gltf.@cast_buffer(gltf.accessors[node.attributes["SCALE"]!!], i, Vec3f),
-							gltf.@cast_buffer(gltf.accessors[node.attributes["ROTATION"]!!], i, QuaternionValue)
+							gltf.@cast_buffer(
+								gltf.accessors[node.attributes["SCALE"]!!],
+								i,
+								Vec3f
+							),
+							gltf.@cast_buffer(
+								gltf.accessors[node.attributes["ROTATION"]!!],
+								i,
+								QuaternionValue
+							)
 						);
 						instances.@push(instance_matrix);
 					}
@@ -744,7 +847,8 @@ fn void main()
 			}
 			else
 			{
-				PhysicsMaterial physics_material = gltf.physics_materials[collider.material];
+				PhysicsMaterial physics_material = gltf
+					.physics_materials[collider.material];
 
 				CollisionData collision_data = {
 					.collided = false,
@@ -796,8 +900,12 @@ fn void main()
 
 			GenericJoint3D generic_joint = {
 				.anchor_a = gltf::decompose_joint(body: body_a, joint: node),
-				.anchor_b = gltf::decompose_joint(body: body_b, joint: connected_node),
-				.relative_orientation = body_a.rotation.conjugate() * body_b.rotation,
+				.anchor_b = gltf::decompose_joint(
+					body: body_b,
+					joint: connected_node
+				),
+				.relative_orientation = body_a.rotation.conjugate()
+					* body_b.rotation,
 				.body_a = body_a.index,
 				.body_b = body_b.index,
 				.collides = false
@@ -839,7 +947,10 @@ fn void main()
 			case ENCODED_BIN:
 				{
 					gltf::BufferView buffer_view = gltf.bufferViews[image.view];
-					img = png::load_bytes(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..])!!;
+					img = png::load_bytes(
+						gltf.buffers[buffer_view.buffer]
+							.data[buffer_view.offset..]
+					)!!;
 				};
 			case EXTERNAL_BIN:
 				img = png::load_file((String)image.uri)!!;
@@ -848,7 +959,10 @@ fn void main()
 				}
 		}
 
-		io::printfn("image size %s MB", (usz)(img.width * img.height * 4) / 1_000_000);
+		io::printfn(
+			"image size %s MB",
+			(usz)(img.width * img.height * 4) / 1_000_000
+		);
 		// Create vulkan texture image
 		if (catch err = descriptor_images.addImageTexture(img, &context))
 		{
@@ -893,7 +1007,11 @@ fn void main()
 				{
 					{
 						.buffer = cpu_and_gpu.buffer,
-						.offset = ecs::@get_offset(manager, scene, "CameraData")!!, // Todo: Add CameraData offset here
+						.offset = ecs::@get_offset(
+							manager,
+							scene,
+							"CameraData"
+						)!!, // Todo: Add CameraData offset here
 						.range = ecs::get_size(scene, manager),
 					},
 				}
@@ -912,7 +1030,8 @@ fn void main()
 			{
 				.offset = 0,
 				.size = PushConstantData.sizeof,
-				.stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+				.stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+					| vk::SHADER_STAGE_FRAGMENT_BIT,
 			},
 		},
 		context.device
@@ -926,7 +1045,8 @@ fn void main()
 
 	defer shader_module.free(context.device);
 
-	PipelineRenderingCreateInfo p_rendering_info = vk::pipelineRenderingCreateInfo().setColorAttachmentFormats(
+	PipelineRenderingCreateInfo p_rendering_info = vk::pipelineRenderingCreateInfo()
+		.setColorAttachmentFormats(
 		{ context.surface_format.format }
 	).setDepthAttachmentFormat(context.depth_format);
 
@@ -935,9 +1055,12 @@ fn void main()
 		vk::FALSE
 	).setRasterizationSamples(
 		vk::SAMPLE_COUNT_1_BIT
-	).setMinSampleShading(1.0).setAlphaToCoverageEnable(vk::FALSE).setAlphaToOneEnable(vk::FALSE);
+	).setMinSampleShading(
+		1.0
+	).setAlphaToCoverageEnable(vk::FALSE).setAlphaToOneEnable(vk::FALSE);
 
-	PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfo().setBlendConstants(
+	PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfo()
+		.setBlendConstants(
 		{ 1.0, 1.0, 1.0, 1.0 }
 	).setLogicOp(
 		vk::LOGIC_OP_COPY
@@ -946,7 +1069,9 @@ fn void main()
 	).setAttachments(
 		{
 			{
-				.colorWriteMask = vk::COLOR_COMPONENT_R_BIT | vk::COLOR_COMPONENT_G_BIT | vk::COLOR_COMPONENT_B_BIT
+				.colorWriteMask = vk::COLOR_COMPONENT_R_BIT
+					| vk::COLOR_COMPONENT_G_BIT
+					| vk::COLOR_COMPONENT_B_BIT
 					| vk::COLOR_COMPONENT_A_BIT,
 				.blendEnable = vk::TRUE,
 				.srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
@@ -968,13 +1093,19 @@ fn void main()
 		vk::POLYGON_MODE_FILL
 	).setLineWidth(
 		1.0
-	).setCullMode(vk::CULL_MODE_NONE).setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE).setDepthBiasEnable(vk::FALSE);
+	).setCullMode(
+		vk::CULL_MODE_NONE
+	).setFrontFace(
+		vk::FRONT_FACE_COUNTER_CLOCKWISE
+	).setDepthBiasEnable(vk::FALSE);
 
-	PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfo().setViewports(
+	PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfo()
+		.setViewports(
 		{ { } }
 	).setScissors({ { } });
 
-	PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo().setDynamicStates(
+	PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
+		.setDynamicStates(
 		{
 			vk::DYNAMIC_STATE_VIEWPORT,
 			vk::DYNAMIC_STATE_LINE_WIDTH,
@@ -983,11 +1114,14 @@ fn void main()
 		}
 	);
 
-	PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo().setDepthTestEnable(
+	PipelineDepthStencilStateCreateInfo stencil_state = vk::pipelineDepthStencilStateCreateInfo()
+		.setDepthTestEnable(
 		vk::TRUE
 	).setDepthWriteEnable(
 		vk::TRUE
-	).setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL).setBack({ .compareOp = vk::COMPARE_OP_ALWAYS });
+	).setDepthCompareOp(
+		vk::COMPARE_OP_LESS_OR_EQUAL
+	).setBack({ .compareOp = vk::COMPARE_OP_ALWAYS });
 
 	Pipeline pipeline = vk::graphicsPipelineCreateInfo().setStages(
 		{
@@ -1001,9 +1135,14 @@ fn void main()
 	).setLayout(
 		pipeline_layout.layout
 	).setInputAssemblyState(
-		&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+		&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(
+			vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+		)
 	).setVertexInputState(
-		&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0)
+		&&vk::pipelineVertexInputStateCreateInfo()
+			.setVertexAttributeDescriptionCount(
+			0
+		)
 	).setDynamicState(
 		&dynamic_state
 	).setRasterizationState(
@@ -1014,13 +1153,17 @@ fn void main()
 		&color_blend_state
 	).setDepthStencilState(
 		&stencil_state
-	).setViewportState(&view_port_state).setNext(&p_rendering_info).build(context.device)!!;
+	).setViewportState(
+		&view_port_state
+	).setNext(&p_rendering_info).build(context.device)!!;
 
 	defer pipeline.free(context.device);
 
 	RenderingInfo rendering_info = vk::renderingInfo().setLayerCount(
 		1
-	).setRenderArea({ .offset = { .x = 0, .y = 0 }, .extent = context.extent, });
+	).setRenderArea(
+		{ .offset = { .x = 0, .y = 0 }, .extent = context.extent, }
+	);
 
 	bool running = true;
 	bool pause = false;
@@ -1110,25 +1253,34 @@ fn void main()
 			}
 		};
 
-		RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo().setImageView(
+		RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
+			.setImageView(
 			context.swapchain_views[next_image]
 		).setImageLayout(
 			vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 		).setStoreOp(
 			vk::ATTACHMENT_STORE_OP_STORE
-		).setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR).setClearValue({ .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 } } });
+		).setLoadOp(
+			vk::ATTACHMENT_LOAD_OP_CLEAR
+		).setClearValue({ .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 } } });
 
-		RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo().setImageView(
+		RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
+			.setImageView(
 			descriptor_images.last()!!.imageView
 		).setImageLayout(
 			vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
 		).setStoreOp(
 			vk::ATTACHMENT_STORE_OP_STORE
-		).setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR).setClearValue({ .depthStencil = { 1.0, 0 } });
+		).setLoadOp(
+			vk::ATTACHMENT_LOAD_OP_CLEAR
+		).setClearValue({ .depthStencil = { 1.0, 0 } });
 
 		CommandBuffer command_buffer = context.command_buffers[next_image];
 		vk::resetCommandBuffer(command_buffer, 0)!!;
-		vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
+		vk::beginCommandBuffer(
+			command_buffer,
+			&&vk::commandBufferBeginInfo()
+		)!!;
 
 		vk::cmdSetLineWidth(command_buffer, 1.0);
 		vk::cmdSetViewport(
@@ -1149,11 +1301,16 @@ fn void main()
 			command_buffer,
 			0,
 			1,
-			(Rect2D[]) { { .extent = context.extent, .offset = { .x = 0, .y = 0 } } }
+			(Rect2D[]) {
+				{ .extent = context.extent, .offset = { .x = 0, .y = 0 } }
+			}
 		);
 
 		// Begin dynamic rendering
-		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
+		vk::cmdPipelineBarrier2(
+			command_buffer,
+			&&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier })
+		);
 		vk::cmdPushDescriptorSetKHR(
 			command_buffer,
 			vk::PIPELINE_BIND_POINT_GRAPHICS,
@@ -1163,9 +1320,18 @@ fn void main()
 			pipeline_layout.sets.entries
 		);
 
-		vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		vk::cmdBindPipeline(
+			command_buffer,
+			vk::PIPELINE_BIND_POINT_GRAPHICS,
+			pipeline
+		);
 
-		vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, draw_buffer.offset, vk::INDEX_TYPE_UINT16);
+		vk::cmdBindIndexBuffer(
+			command_buffer,
+			gpu_only_memory.buffer,
+			draw_buffer.offset,
+			vk::INDEX_TYPE_UINT16
+		);
 
 		rendering_info.setColorAttachments({ main_render_target });
 		rendering_info.setDepthAttachment(&main_depth_target);
@@ -1176,8 +1342,14 @@ fn void main()
 		{
 			uint offset = (uint)ecs::@get_offset(manager, entity, "Render")!!;
 
-			CollisionData*? state = ecs::@get_ref(manager, entity, CollisionData);
-			PushConstantData constant_data = { .draw_index = offset / Render.sizeof, };
+			CollisionData*? state = ecs::@get_ref(
+				manager,
+				entity,
+				CollisionData
+			);
+			PushConstantData constant_data = {
+				.draw_index = offset / Render.sizeof,
+			};
 
 			if (try state)
 			{
@@ -1185,7 +1357,10 @@ fn void main()
 				state.collided = false;
 			}
 
-			vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+			vk::cmdSetPrimitiveTopology(
+				command_buffer,
+				vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+			);
 			vk::cmdPushConstants(
 				command_buffer,
 				pipeline_layout.layout,
@@ -1194,7 +1369,13 @@ fn void main()
 				PushConstantData.sizeof,
 				&constant_data
 			);
-			vk::cmdDrawIndexedIndirect(command_buffer, draw_memory.buffer, offset, 1, Render.sizeof);
+			vk::cmdDrawIndexedIndirect(
+				command_buffer,
+				draw_memory.buffer,
+				offset,
+				1,
+				Render.sizeof
+			);
 
 			// constant_data.collided = true;
 
@@ -1204,7 +1385,10 @@ fn void main()
 		};
 
 		vk::cmdEndRendering(command_buffer);
-		vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
+		vk::cmdPipelineBarrier2(
+			command_buffer,
+			&&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier })
+		);
 		vk::endCommandBuffer(command_buffer)!!;
 
 		context.present_image(next_image, command_buffer)!!;

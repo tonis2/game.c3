@@ -38,8 +38,14 @@ fn void Camera.rotate(&self, float x_offset, float y_offset)
 	float sensitivity = 0.005f;
 
 	// Create rotation quaternions for yaw (around Z axis) and pitch (around local X axis)
-	Quaternionf yaw_rot = quaternion::from_axis_angle({ 0, 0, 1 }, -x_offset * sensitivity);
-	Quaternionf pitch_rot = quaternion::from_axis_angle({ 1, 0, 0 }, -y_offset * sensitivity);
+	Quaternionf yaw_rot = quaternion::from_axis_angle(
+		{ 0, 0, 1 },
+		-x_offset * sensitivity
+	);
+	Quaternionf pitch_rot = quaternion::from_axis_angle(
+		{ 1, 0, 0 },
+		-y_offset * sensitivity
+	);
 
 	// Apply yaw globally, pitch locally
 	self.rotation = (yaw_rot * self.rotation * pitch_rot).normalize();
@@ -83,7 +89,12 @@ fn void Camera.update_view(&self)
 fn CameraData Camera.data(&self)
 {
 	return {
-		matrix::perspective {float}(self.y_fov, self.aspect_ratio, self.z_near, self.z_far),
+		matrix::perspective {float}(
+			self.y_fov,
+			self.aspect_ratio,
+			self.z_near,
+			self.z_far
+		),
 		self.view,
 		(Vec4f) { ... self.position, 1.0 }
 	};
