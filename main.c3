@@ -197,7 +197,7 @@ const MoveEvent[] MOVE_EVENTS = {
 	{ G, { 0, 0, SPEED } },
 };
 
-fn void physics_system(EntityManager manager, EventMap key_map, double time)
+fn void physics_system(EntityManager manager, EventMap key_map, double time, DebugState* debug_state)
 {
 	if (!physics_world.bodies.is_empty())
 	{
@@ -222,8 +222,16 @@ fn void physics_system(EntityManager manager, EventMap key_map, double time)
 		float sub_dt = (float)time / NUM_SUBSTEPS;
 		for (int i = 0; i < NUM_SUBSTEPS; i++)
 		{
-			physics_world.run_step(sub_dt, step_count: ITERS_PER_SUBSTEP);
+			// Run physics (doesn't clear data - we do that after capture)
+			physics_world.run_step_internal(sub_dt, step_count: ITERS_PER_SUBSTEP);
 		}
+		// Capture debug data BEFORE clearing (for MCP queries)
+		debug::capture_physics_data(debug_state);
+		// Clear collision data after all substeps
+		physics_world.collisions.clear();
+		physics_world.manifolds.clear();
+		physics_world.joint_forces.clear();
+		physics_world.spring_forces.clear();
 	}
 
 	// Handle trigger events (no physics response, just overlap detection)
@@ -1221,7 +1229,7 @@ fn void main()
 
 		if (pause == false && (!debug_state.paused || debug_state.step_requested))
 		{
-			physics_system(manager, event, frame_time);
+			physics_system(manager, event, frame_time, &debug_state);
 			if (debug_state.step_requested)
 			{
 				debug_state.steps_remaining--;

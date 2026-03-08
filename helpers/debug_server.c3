@@ -49,6 +49,10 @@ struct DebugState {
 	DeviceContext* vulkan_context;
 
 	bool running;
+
+	// Captured physics data (persisted across frames for debugging)
+	List{Collision} captured_collisions;
+	List{ManifoldForce} captured_manifolds;
 }
 
 fn void DebugState.init(&self, PhysicsWorld* pw, DeviceContext* ctx)
@@ -69,6 +73,30 @@ fn void DebugState.destroy(&self)
 	self.mutex.destroy()!!;
 	self.pending_commands.free();
 	self.pending_responses.free();
+	self.captured_collisions.free();
+	self.captured_manifolds.free();
+}
+
+// Capture physics data before it's cleared at end of step
+fn void capture_physics_data(DebugState* state)
+{
+	state.mutex.lock()!!;
+	state.captured_collisions.clear();
+	state.captured_manifolds.clear();
+
+	// Copy collisions
+	for (usz i = 0; i < state.physics_world.collisions.len(); i++)
+	{
+		state.captured_collisions.push(state.physics_world.collisions[i]);
+	}
+
+	// Copy manifolds
+	for (usz i = 0; i < state.physics_world.manifolds.len(); i++)
+	{
+		state.captured_manifolds.push(state.physics_world.manifolds[i]);
+	}
+
+	state.mutex.unlock()!!;
 }
 
 // === TCP Server Thread ===
@@ -318,11 +346,11 @@ fn void process_commands(DebugState* state)
 		}
 		else if (method_str == "get_collisions")
 		{
-			serialize_collisions(state.physics_world, &result);
+			serialize_collisions(state.physics_world, &state.captured_collisions, &result);
 		}
 		else if (method_str == "get_manifolds")
 		{
-			serialize_manifolds(state.physics_world, &result);
+			serialize_manifolds(state.physics_world, &state.captured_manifolds, &result);
 		}
 		else if (method_str == "screenshot")
 		{
@@ -577,13 +605,14 @@ fn void serialize_bodies(PhysicsWorld* world, DString* out, int filter_id)
 	out.appendf("]");
 }
 
-fn void serialize_collisions(PhysicsWorld* world, DString* out)
+fn void serialize_collisions(PhysicsWorld* world, List{Collision}* captured, DString* out)
 {
 	out.appendf("[");
-	for (usz i = 0; i < world.collisions.len(); i++)
+	List{Collision}* src = captured != null && captured.len() > 0 ? captured : &world.collisions;
+	for (usz i = 0; i < src.len(); i++)
 	{
 		if (i > 0) out.appendf(",");
-		Collision c = world.collisions[i];
+		Collision c = (*src)[i];
 		out.appendf(`{"a":%d,"b":%d`, c.a, c.b);
 		out.appendf(",\"normal\":[");
 		append_float(out, c.normal[0]);
@@ -610,13 +639,14 @@ fn void serialize_collisions(PhysicsWorld* world, DString* out)
 	out.appendf("]");
 }
 
-fn void serialize_manifolds(PhysicsWorld* world, DString* out)
+fn void serialize_manifolds(PhysicsWorld* world, List{ManifoldForce}* captured, DString* out)
 {
 	out.appendf("[");
-	for (usz i = 0; i < world.manifolds.len(); i++)
+	List{ManifoldForce}* src = captured != null && captured.len() > 0 ? captured : &world.manifolds;
+	for (usz i = 0; i < src.len(); i++)
 	{
 		if (i > 0) out.appendf(",");
-		ManifoldForce m = world.manifolds[i];
+		ManifoldForce m = (*src)[i];
 		out.appendf(`{"body_a":%d,"body_b":%d,"num_contacts":%d,"friction":`,
 			m.body_a.id, m.body_b.id, m.num_contacts);
 		append_float(out, m.friction);
