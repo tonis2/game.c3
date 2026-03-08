@@ -1,7 +1,6 @@
 module mcp_bridge;
 
 import std::io;
-import std::io::file;
 import std::net::tcp;
 import std::net;
 import std::thread;
@@ -68,52 +67,39 @@ fn ToolResult handle_screenshot(String tool_name, String args, void* user_data)
 	ToolResult game_result = forward_to_game("screenshot", args);
 	if (game_result.is_error) return game_result;
 
-	// Load the full-size PNG
-	if (try img = png::load_file("/tmp/game_debug.png"))
+	// Extract base64 PNG from game response
+	String result_text = game_result.content[0].text;
+	if (try pos = result_text.index_of(`"png_base64"`))
 	{
-		defer img.free();
-
-		// Downscale 2x with nearest-neighbor sampling
-		uint new_w = img.width / 2;
-		uint new_h = img.height / 2;
-		usz bpp = img.bytes_per_pixel();
-		usz src_stride = (usz)img.width * bpp;
-		usz dst_stride = (usz)new_w * bpp;
-		char[] small_pixels = mem::new_array(char, (usz)new_w * (usz)new_h * bpp);
-		defer mem::free(small_pixels);
-
-		for (usz y = 0; y < new_h; y++)
+		if (try colon = result_text[pos..].index_of_char(':'))
 		{
-			for (usz x = 0; x < new_w; x++)
+			String b64_str = mcp::extract_string_value(result_text[pos + colon + 1..]);
+			if (b64_str.len > 0)
 			{
-				usz src_off = (y * 2) * src_stride + (x * 2) * bpp;
-				usz dst_off = y * dst_stride + x * bpp;
-				small_pixels[dst_off .. dst_off + bpp - 1] = img.pixels[src_off .. src_off + bpp - 1];
-			}
-		}
+				// Decode base64 -> PNG bytes -> Image -> resize -> PNG bytes -> base64
+				if (try png_bytes = base64::decode(mem, (char[])b64_str))
+				{
+					defer mem::free(png_bytes);
+					if (try img = png::load_bytes(png_bytes))
+					{
+						defer img.free();
 
-		Image small = {
-			.width = new_w,
-			.height = new_h,
-			.bit_depth = img.bit_depth,
-			.format = img.format,
-			.pixels = small_pixels,
-			.allocator = mem,
-		};
+						Image small = img.resize(img.width / 2, img.height / 2);
+						defer small.free();
 
-		// Encode to PNG bytes and base64
-		if (try png_bytes = png::save_bytes(&small))
-		{
-			defer mem::free(png_bytes);
-			String b64 = base64::encode(mem, (String)png_bytes);
-			if (b64.len > 0)
-			{
-				return mcp::image_result(b64, "image/png");
+						if (try small_png = png::save_bytes(&small))
+						{
+							defer mem::free(small_png);
+							String small_b64 = base64::encode(mem, (String)small_png);
+							return mcp::image_result(small_b64, "image/png");
+						}
+					}
+				}
 			}
 		}
 	}
 
-	return mcp::text_result("Screenshot saved to /tmp/game_debug.png");
+	return mcp::error_result("Failed to process screenshot");
 }
 
 fn ToolResult forward_to_game(String method, String args)
@@ -139,9 +125,9 @@ fn ToolResult forward_to_game(String method, String args)
 		return mcp::error_result("Failed to communicate with game");
 	}
 
-	// Read response
+	// Read response (large buffer for screenshot base64 data)
 	char[65536] recv_buf;
-	DString recv_line = dstring::new(mem);
+	DString recv_line = dstring::new_with_capacity(mem, 8 * 1024 * 1024);
 	defer recv_line.free();
 
 	while (true)
@@ -220,25 +206,3 @@ fn bool connect_to_game()
 	return false;
 }
 
-fn String read_file_base64(String path)
-{
-	if (try f = file::open(path, "rb"))
-	{
-		defer f.close()!!;
-
-		DString file_data = dstring::new(mem);
-		defer file_data.free();
-
-		char[4096] buf;
-		while (true)
-		{
-			usz n = f.read(buf[..]) ?? 0;
-			if (n == 0) break;
-			file_data.append_bytes(buf[:n]);
-		}
-
-		return base64::encode(mem, file_data.str_view());
-	}
-
-	return "";
-}

@@ -10,8 +10,10 @@ import std::core::mem;
 
 import collision;
 import vk;
+import image;
 import image::png;
 import helpers;
+import std::encoding::base64;
 
 alias Vec3 @private = float[<3>];
 
@@ -39,6 +41,7 @@ struct DebugState {
 	int steps_remaining;
 	bool screenshot_requested;
 	bool screenshot_ready;
+	uint screenshot_request_id;
 
 	// Game state pointers (set during init)
 	PhysicsWorld* physics_world;
@@ -323,7 +326,12 @@ fn void process_commands(DebugState* state)
 		else if (method_str == "screenshot")
 		{
 			state.screenshot_requested = true;
-			result.appendf(`{"status":"capturing"}`);
+			state.screenshot_request_id = cmd.request_id;
+			// Response will be pushed by capture_screenshot after render
+			cmd.method.free();
+			cmd.params_json.free();
+			result.free();
+			continue;
 		}
 		else
 		{
@@ -463,7 +471,7 @@ fn void capture_screenshot(DebugState* state, DeviceContext* ctx, uint image_ind
 		pixels[i + 3] = src[i + 3]; // A
 	}
 
-	// Write PNG
+	// Encode PNG to bytes and base64
 	image::Image img = {
 		.width = width,
 		.height = height,
@@ -472,14 +480,33 @@ fn void capture_screenshot(DebugState* state, DeviceContext* ctx, uint image_ind
 		.pixels = pixels,
 	};
 
-	if (catch err = png::save_file(&img, "/tmp/game_debug.png"))
+	DString result = dstring::new(mem);
+	bool is_error = false;
+
+	if (try png_bytes = png::save_bytes(&img))
 	{
-		io::eprintfn("Debug: screenshot failed: %s", err);
+		String b64 = base64::encode(mem, (String)png_bytes);
+		defer mem::free(b64);
+		mem::free(png_bytes);
+		result.appendf(`{"png_base64":"`);
+		result.append_bytes(b64);
+		result.appendf(`"}`);
 	}
 	else
 	{
-		io::eprintfn("Debug: screenshot saved to /tmp/game_debug.png");
+		is_error = true;
+		result.appendf(`{"message":"Failed to encode PNG"}`);
 	}
+
+	DebugResponse resp = {
+		.request_id = state.screenshot_request_id,
+		.result_json = result,
+		.is_error = is_error,
+	};
+
+	state.mutex.lock()!!;
+	state.pending_responses.push(resp);
+	state.mutex.unlock()!!;
 
 	state.screenshot_ready = true;
 }
