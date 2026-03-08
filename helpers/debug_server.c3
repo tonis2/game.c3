@@ -14,6 +14,7 @@ import image;
 import image::png;
 import helpers;
 import std::encoding::base64;
+import std::math;
 
 alias Vec3 @private = float[<3>];
 
@@ -515,7 +516,7 @@ fn void capture_screenshot(DebugState* state, DeviceContext* ctx, uint image_ind
 
 fn void append_float(DString* out, float v)
 {
-	if (v != v || v == float.inf || v == -float.inf)
+	if (math::is_nan(v) || v == float.inf || v == -float.inf)
 	{
 		out.appendf("null");
 	}
@@ -584,12 +585,27 @@ fn void serialize_collisions(PhysicsWorld* world, DString* out)
 		if (i > 0) out.appendf(",");
 		Collision c = world.collisions[i];
 		out.appendf(`{"a":%d,"b":%d`, c.a, c.b);
-		out.appendf(`,"normal":[%f,%f,%f]`, c.normal[0], c.normal[1], c.normal[2]);
-		out.appendf(`,"contact_a":[%f,%f,%f]`,
-			c.contact[0][0], c.contact[0][1], c.contact[0][2]);
-		out.appendf(`,"contact_b":[%f,%f,%f]`,
-			c.contact[1][0], c.contact[1][1], c.contact[1][2]);
-		out.appendf(`,"depth":%f}`, c.depth);
+		out.appendf(",\"normal\":[");
+		append_float(out, c.normal[0]);
+		out.appendf(",");
+		append_float(out, c.normal[1]);
+		out.appendf(",");
+		append_float(out, c.normal[2]);
+		out.appendf("],\"contact_a\":[");
+		append_float(out, c.contact[0][0]);
+		out.appendf(",");
+		append_float(out, c.contact[0][1]);
+		out.appendf(",");
+		append_float(out, c.contact[0][2]);
+		out.appendf("],\"contact_b\":[");
+		append_float(out, c.contact[1][0]);
+		out.appendf(",");
+		append_float(out, c.contact[1][1]);
+		out.appendf(",");
+		append_float(out, c.contact[1][2]);
+		out.appendf("],\"depth\":");
+		append_float(out, c.depth);
+		out.appendf("}");
 	}
 	out.appendf("]");
 }
@@ -601,15 +617,27 @@ fn void serialize_manifolds(PhysicsWorld* world, DString* out)
 	{
 		if (i > 0) out.appendf(",");
 		ManifoldForce m = world.manifolds[i];
-		out.appendf(`{"body_a":%d,"body_b":%d,"num_contacts":%d,"friction":%f,"contacts":[`,
-			m.body_a.id, m.body_b.id, m.num_contacts, m.friction);
+		out.appendf(`{"body_a":%d,"body_b":%d,"num_contacts":%d,"friction":`,
+			m.body_a.id, m.body_b.id, m.num_contacts);
+		append_float(out, m.friction);
+		out.appendf(",\"contacts\":[");
 		for (int j = 0; j < m.num_contacts; j++)
 		{
 			if (j > 0) out.appendf(",");
 			ManifoldContact mc = m.contacts[j];
-			out.appendf(`{"penalty":[%f,%f,%f],"lambda":[%f,%f,%f],"stick":%s}`,
-				mc.penalty[0], mc.penalty[1], mc.penalty[2],
-				mc.lambda[0], mc.lambda[1], mc.lambda[2],
+			out.appendf("{\"penalty\":[");
+			append_float(out, mc.penalty[0]);
+			out.appendf(",");
+			append_float(out, mc.penalty[1]);
+			out.appendf(",");
+			append_float(out, mc.penalty[2]);
+			out.appendf("],\"lambda\":[");
+			append_float(out, mc.lambda[0]);
+			out.appendf(",");
+			append_float(out, mc.lambda[1]);
+			out.appendf(",");
+			append_float(out, mc.lambda[2]);
+			out.appendf("],\"stick\":%s}",
 				mc.stick ? "true" : "false");
 		}
 		out.appendf("]}");

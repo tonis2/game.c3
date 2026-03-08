@@ -42,7 +42,7 @@ fn void main()
 		  .input_schema = `{"type":"object","properties":{}}`,
 		  .handler = &handle_game_command },
 		{ .name = "screenshot", .description = "Capture current frame and return as PNG image",
-		  .input_schema = `{"type":"object","properties":{}}`,
+		  .input_schema = `{"type":"object","properties":{"scale":{"type":"number","description":"Scale factor for the image (0.0-1.0, default 0.5)","minimum":0.1,"maximum":1.0,"default":0.5}}}`,
 		  .handler = &handle_screenshot },
 	};
 	foreach (&tool : game_tools)
@@ -67,6 +67,28 @@ fn ToolResult handle_screenshot(String tool_name, String args, void* user_data)
 	ToolResult game_result = forward_to_game("screenshot", args);
 	if (game_result.is_error) return game_result;
 
+	// Parse scale from args (default 0.5)
+	float scale = 0.5;
+	if (args.len > 0 && args.contains("\"scale\""))
+	{
+		if (try pos = args.index_of("\"scale\""))
+		{
+			if (try colon = args[pos..].index_of_char(':'))
+			{
+				String after = args[pos + colon + 1..];
+				after = mcp::skip_whitespace(after);
+				// Try to parse as float
+				usz i = 0;
+				while (i < after.len && ((after[i] >= '0' && after[i] <= '9') || after[i] == '.' || after[i] == '-')) i++;
+				if (i > 0)
+				{
+					float val = after[..i].to_float() ?? 0.5;
+					if (val >= 0.1 && val <= 1.0) scale = val;
+				}
+			}
+		}
+	}
+
 	// Extract base64 PNG from game response
 	String result_text = game_result.content[0].text;
 	if (try pos = result_text.index_of(`"png_base64"`))
@@ -84,14 +106,27 @@ fn ToolResult handle_screenshot(String tool_name, String args, void* user_data)
 					{
 						defer img.free();
 
-						Image small = img.resize(img.width / 2, img.height / 2);
+						// Resize based on scale parameter
+						uint new_width = (uint)(img.width * scale);
+						uint new_height = (uint)(img.height * scale);
+						Image small = img.resize(new_width, new_height);
 						defer small.free();
 
 						if (try small_png = png::save_bytes(&small))
 						{
 							defer mem::free(small_png);
 							String small_b64 = base64::encode(mem, (String)small_png);
-							return mcp::image_result(small_b64, "image/png");
+							
+							// Return both text description and image (like Blender MCP does)
+							ToolResult r;
+							DString desc = dstring::new(mem);
+							desc.appendf("Game screenshot captured (%.0f%%, %dx%d)", scale * 100, new_width, new_height);
+							
+							r.content[0] = { .type = mcp::ContentType.TEXT, .text = desc.str_view() };
+							r.content[1] = { .type = mcp::ContentType.IMAGE, .data = small_b64, .mime_type = "image/png" };
+							r.content_len = 2;
+							r.is_error = false;
+							return r;
 						}
 					}
 				}
@@ -110,7 +145,7 @@ fn ToolResult forward_to_game(String method, String args)
 		{
 			return mcp::error_result("Failed to connect to game on port 9742");
 		}
-		io::eprintfn("mcp-bridge: connected to game debug server");
+		// io::eprintfn("mcp-bridge: connected to game debug server");
 	}
 
 	// Send command
@@ -154,7 +189,7 @@ fn ToolResult parse_game_response(String response)
 {
 	bool has_error = response.contains(`"error"`);
 
-	String content = "{}";
+	DString content = dstring::new(mem, "{}");
 	if (has_error)
 	{
 		if (try pos = response.index_of(`"error"`))
@@ -162,10 +197,12 @@ fn ToolResult parse_game_response(String response)
 			if (try colon = response[pos..].index_of_char(':'))
 			{
 				String after = response[pos + colon + 1..];
-				content = mcp::extract_object_value(after);
+				String val = mcp::extract_object_value(after);
+				content.clear();
+				content.append_bytes(val);
 			}
 		}
-		return mcp::error_result(content);
+		return mcp::error_result(content.str_view());
 	}
 
 	if (try pos = response.index_of(`"result"`))
@@ -176,18 +213,19 @@ fn ToolResult parse_game_response(String response)
 			after = mcp::skip_whitespace(after);
 			if (after.len > 0)
 			{
+				content.clear();
 				if (after[0] == '[')
 				{
-					content = mcp::extract_array_value(after);
+					content.append_bytes(mcp::extract_array_value(after));
 				}
 				else
 				{
-					content = mcp::extract_object_value(after);
+					content.append_bytes(mcp::extract_object_value(after));
 				}
 			}
 		}
 	}
-	return mcp::text_result(content);
+	return mcp::text_result(content.str_view());
 }
 
 fn bool connect_to_game()
@@ -200,7 +238,7 @@ fn bool connect_to_game()
 			connected = true;
 			return true;
 		}
-		io::eprintfn("mcp-bridge: connection attempt %d failed, retrying...", i + 1);
+		// io::eprintfn("mcp-bridge: connection attempt %d failed, retrying...", i + 1);
 		thread::sleep_ms(RETRY_DELAY_MS)!!;
 	}
 	return false;
