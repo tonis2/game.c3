@@ -10,3 +10,6 @@
 [submodule "dependencies/mcp.c3l"]
 	path = dependencies/mcp.c3l
 	url = git@github.com:tonis2/mcp.c3l.git
+[submodule "dependencies/image.c3l"]
+	path = dependencies/image.c3l
+	url = git@github.com:tonis2/image.c3.git

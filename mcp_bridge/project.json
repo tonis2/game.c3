@@ -2,7 +2,7 @@
 	"langrev": "1",
 	"warnings": ["no-unused"],
 	"dependency-search-paths": ["../dependencies"],
-	"dependencies": ["mcp"],
+	"dependencies": ["mcp", "image"],
 	"targets": {
 		"mcp-bridge": {
 			"type": "executable",

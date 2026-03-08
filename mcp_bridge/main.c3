@@ -9,6 +9,8 @@ import std::core::dstring;
 import std::encoding::base64;
 
 import mcp;
+import image;
+import image::png;
 
 const uint PORT = 9742;
 const uint MAX_RETRIES = 3;
@@ -63,13 +65,54 @@ fn ToolResult handle_game_command(String tool_name, String args, void* user_data
 
 fn ToolResult handle_screenshot(String tool_name, String args, void* user_data)
 {
-	forward_to_game("screenshot", args);
+	ToolResult game_result = forward_to_game("screenshot", args);
+	if (game_result.is_error) return game_result;
 
-	String b64 = read_file_base64("/tmp/game_debug.png");
-	if (b64.len > 0)
+	// Load the full-size PNG
+	if (try img = png::load_file("/tmp/game_debug.png"))
 	{
-		return mcp::image_result(b64, "image/png");
+		defer img.free();
+
+		// Downscale 2x with nearest-neighbor sampling
+		uint new_w = img.width / 2;
+		uint new_h = img.height / 2;
+		usz bpp = img.bytes_per_pixel();
+		usz src_stride = (usz)img.width * bpp;
+		usz dst_stride = (usz)new_w * bpp;
+		char[] small_pixels = mem::new_array(char, (usz)new_w * (usz)new_h * bpp);
+		defer mem::free(small_pixels);
+
+		for (usz y = 0; y < new_h; y++)
+		{
+			for (usz x = 0; x < new_w; x++)
+			{
+				usz src_off = (y * 2) * src_stride + (x * 2) * bpp;
+				usz dst_off = y * dst_stride + x * bpp;
+				small_pixels[dst_off .. dst_off + bpp - 1] = img.pixels[src_off .. src_off + bpp - 1];
+			}
+		}
+
+		Image small = {
+			.width = new_w,
+			.height = new_h,
+			.bit_depth = img.bit_depth,
+			.format = img.format,
+			.pixels = small_pixels,
+			.allocator = mem,
+		};
+
+		// Encode to PNG bytes and base64
+		if (try png_bytes = png::save_bytes(&small))
+		{
+			defer mem::free(png_bytes);
+			String b64 = base64::encode(mem, (String)png_bytes);
+			if (b64.len > 0)
+			{
+				return mcp::image_result(b64, "image/png");
+			}
+		}
 	}
+
 	return mcp::text_result("Screenshot saved to /tmp/game_debug.png");
 }
 
