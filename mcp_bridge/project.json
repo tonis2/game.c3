@@ -1,0 +1,13 @@
+{
+	"langrev": "1",
+	"warnings": ["no-unused"],
+	"dependency-search-paths": ["../dependencies"],
+	"dependencies": ["mcp"],
+	"targets": {
+		"mcp-bridge": {
+			"type": "executable",
+			"sources": ["main.c3"]
+		}
+	},
+	"output": "./build"
+}

@@ -6,7 +6,7 @@ import std::thread;
 import std::collections::map;
 import std::os;
 
-import vk, image::png, gltf, c3w, helpers, ecs, collision;
+import vk, image::png, gltf, c3w, helpers, ecs, collision, debug;
 
 const ANIMATION_FPS = 40;
 const MAX_FPS = 90;
@@ -1173,6 +1173,15 @@ fn void main()
 	Clock render_time = clock::now();
 	double physics_accumulator = 0.0;
 
+	// Debug server
+	DebugState debug_state;
+	debug_state.init(&physics_world, &context);
+	defer debug_state.destroy();
+
+	Thread debug_thread;
+	debug_thread.create(&debug::debug_server_thread, &debug_state)!!;
+	debug_thread.detach()!!;
+
 	while (running)
 	{
 		NanoDuration start_time = render_time.mark();
@@ -1210,10 +1219,22 @@ fn void main()
 			running = false;
 		}
 
-		if (pause == false)
+		if (pause == false && (!debug_state.paused || debug_state.step_requested))
 		{
 			physics_system(manager, event, frame_time);
+			if (debug_state.step_requested)
+			{
+				debug_state.steps_remaining--;
+				if (debug_state.steps_remaining <= 0)
+				{
+					debug_state.step_requested = false;
+					debug_state.paused = true;
+				}
+			}
 		}
+
+		// Process debug commands (between physics and render)
+		debug::process_commands(&debug_state);
 
 		uint next_image = context.next_image()!!;
 
@@ -1393,6 +1414,12 @@ fn void main()
 
 		context.present_image(next_image, command_buffer)!!;
 
+		// Screenshot readback (after present, if requested)
+		if (debug_state.screenshot_requested)
+		{
+			debug::capture_screenshot(&debug_state, &context, next_image);
+		}
+
 		NanoDuration time_delta = (start_time - render_time.mark());
 		if (time_delta <= min_frame_time)
 		{
@@ -1400,4 +1427,7 @@ fn void main()
 			time_delta = (start_time - render_time.mark());
 		}
 	}
+
+	// Shutdown debug server
+	debug_state.running = false;
 }

@@ -6,7 +6,7 @@
 	"dependency-search-paths": [ "./dependencies"],
 	"dependencies": ["c3w", "vk", "collision", "gltf", "image"],
 	"features": ["ECS_EXTRA"],
-	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3"],
+	"sources": ["./dependencies/ecs.c3", "./helpers/camera.c3", "./helpers/context.c3", "./helpers/debug_server.c3"],
 	"script-dir": "./",
 	"targets": {
 		"shaders": {

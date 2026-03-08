@@ -7,3 +7,6 @@
 [submodule "dependencies/window.c3l"]
 	path = dependencies/window.c3l
 	url = git@github.com:tonis2/Window.c3.git
+[submodule "dependencies/mcp.c3l"]
+	path = dependencies/mcp.c3l
+	url = git@github.com:tonis2/mcp.c3l.git

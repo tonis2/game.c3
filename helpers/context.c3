@@ -410,6 +410,7 @@ fn DeviceContext? createContext(c3w::Window win)
 		min_images
 	).setImageUsage(
 		vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+			| vk::IMAGE_USAGE_TRANSFER_SRC_BIT
 	).setImageSharingMode(
 		vk::SHARING_MODE_EXCLUSIVE
 	).setCompositeAlpha(
